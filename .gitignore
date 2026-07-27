@@ -7,3 +7,6 @@
 
 #VS Code
 .vscode/
+
+#macIS
+.DS_Store

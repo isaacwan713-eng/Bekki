@@ -21,11 +21,15 @@ chat_box.setReadOnly(True)
 input_box = QLineEdit()
 send_button = QPushButton("Send")
 
-def get_ai_response(message):
+conversation = []
+
+def get_ai_response():
+
+    prompt = "\n".join(conversation)
     url = "http://localhost:11434/api/generate"
     payload = {
         "model" : "gpt-oss:20b",
-        "prompt" : message,
+        "prompt" : prompt,
         "stream" : False,
     }
     response = requests.post(url,json = payload)
@@ -36,11 +40,16 @@ def get_ai_response(message):
 def send_message():
     message = input_box.text()
 
+    conversation.append(f"You: {message}")
+
     if not message:
         return
     
-    response = get_ai_response(message)
+    response = get_ai_response()
 
+    conversation.append(f"Bekki: {response}")
+
+    
     chat_box.append(f"You: {message}")
     chat_box.append(f"Bekki:{response}")
     input_box.clear()
