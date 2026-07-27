@@ -1,0 +1,9 @@
+# python
+--pycache--/
+*.pyc
+
+# Virtual Environment 
+.venv/
+
+#VS Code
+.vscode/
