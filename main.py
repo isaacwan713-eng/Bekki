@@ -37,21 +37,27 @@ def get_ai_response():
     print(response.json())
     return response.json()["response"]
 
+def save_message(role,message):
+    conversation.append(f"{role} : {message}")
+
+def display_message(role,message):
+    chat_box.append(f"{role} : {message}")
+
 def send_message():
     message = input_box.text()
 
-    conversation.append(f"You: {message}")
+    save_message("You",message)
 
     if not message:
         return
     
     response = get_ai_response()
 
-    conversation.append(f"Bekki: {response}")
+    save_message("Bekki",response)
 
     
-    chat_box.append(f"You: {message}")
-    chat_box.append(f"Bekki:{response}")
+    display_message("You", message)
+    chat_box.append("Bekki",response)
     input_box.clear()
 
 send_button.clicked.connect(send_message)
