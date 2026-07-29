@@ -1,5 +1,10 @@
 import sys
 import requests
+
+with open("prompts/system.txt","r",encoding="utf-8") as file:
+    system_prompt = file.read()
+    ##print(system_prompt)
+
 from PySide6.QtWidgets import (
         QApplication,
         QLabel,
@@ -21,11 +26,13 @@ chat_box.setReadOnly(True)
 input_box = QLineEdit()
 send_button = QPushButton("Send")
 
+
 conversation = []
 
 def get_ai_response():
 
-    prompt = "\n".join(conversation)
+    conversation_text = "\n".join(conversation)
+    prompt = system_prompt + "\n\n" +conversation_text
     url = "http://localhost:11434/api/generate"
     payload = {
         "model" : "gpt-oss:20b",
@@ -33,8 +40,9 @@ def get_ai_response():
         "stream" : False,
     }
     response = requests.post(url,json = payload)
+    print(prompt)
 
-    print(response.json())
+    ##print(response.json())
     return response.json()["response"]
 
 def save_message(role,message):
@@ -42,7 +50,6 @@ def save_message(role,message):
 
 def display_message(role,message):
     chat_box.append(f"{role} : {message}")
-
 def send_message():
     message = input_box.text()
 
@@ -57,10 +64,11 @@ def send_message():
 
     
     display_message("You", message)
-    chat_box.append("Bekki",response)
+    display_message("Bekki",response)
     input_box.clear()
 
 send_button.clicked.connect(send_message)
+input_box.returnPressed.connect(send_message)
 layout = QVBoxLayout()
 layout.addWidget(title)
 layout.addWidget(chat_box)
