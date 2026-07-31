@@ -1,5 +1,14 @@
 import sys
 import requests
+import json
+import os
+
+import memory
+
+memory_data = memory.initialize_memory()
+
+
+print(memory_data)
 
 with open("prompts/system.txt","r",encoding="utf-8") as file:
     system_prompt = file.read()
@@ -40,10 +49,20 @@ def get_ai_response():
         "stream" : False,
     }
     response = requests.post(url,json = payload)
-    print(prompt)
+    ai_output = response.json()["response"]
+
+    print("AI RAW OUTPUT:")
+    print(ai_output)
+    result = json.loads(ai_output)
+    if result["memory"] is not None:
+        memory.add_temporary(
+            memory_data,
+            result["memory"]["content"]
+        )
+    return result["reply"]
 
     ##print(response.json())
-    return response.json()["response"]
+    ##return response.json()["response"]
 
 def save_message(role,message):
     conversation.append(f"{role} : {message}")
