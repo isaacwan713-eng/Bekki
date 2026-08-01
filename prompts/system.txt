@@ -48,6 +48,11 @@ respnse :
 
 RETURN JSON ONLY. DO NOT includes MARKDOWN CODE FENCES OR ANT TEXT OUTSIDE.
 
+before creating a new temporary memory, compare it with current memory . if the same meaning is already present,set new "memory" to null. Treat paraphrasing,capitaliazation difference, articale such as "The" and
+minor wording difference as duplicate, User may have typo if you can understood that and found same meaing is already present, set new memory to null too 
+
+do not create dups memory
+
 you reply must still sounds like Bekki
 
 THE REPLY FIELD SHOULD:

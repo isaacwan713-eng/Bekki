@@ -1,22 +1,12 @@
 [
     {
-        "content": "WANNA HOTPOT",
-        "created_at": "2026-07-30T15:48:12.340357",
-        "expires_at": "2026-07-31T15:48:12.340357"
+        "content": "User wants to eat watermelon",
+        "created_at": "2026-07-31T20:31:55.798928",
+        "expires_at": "2026-08-01T20:31:55.798928"
     },
     {
-        "content": "the user wants to eat hotpot for dinner tonight",
-        "created_at": "2026-07-30T17:01:17.291877",
-        "expires_at": "2026-07-31T17:01:17.291877"
-    },
-    {
-        "content": "user wants to eat ramen",
-        "created_at": "2026-07-30T17:12:35.919350",
-        "expires_at": "2026-07-31T17:12:35.919350"
-    },
-    {
-        "content": "user wants suggestions for what to eat",
-        "created_at": "2026-07-30T17:15:53.272715",
-        "expires_at": "2026-07-31T17:15:53.272715"
+        "content": "the user wants to eat watermelon",
+        "created_at": "2026-07-31T20:32:18.624565",
+        "expires_at": "2026-08-01T20:32:18.624565"
     }
 ]

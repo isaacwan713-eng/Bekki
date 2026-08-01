@@ -39,9 +39,9 @@ send_button = QPushButton("Send")
 conversation = []
 
 def get_ai_response():
-
+    temporary_context = memory.get_temporary_context(memory_data)
     conversation_text = "\n".join(conversation)
-    prompt = system_prompt + "\n\n" +conversation_text
+    prompt = (system_prompt + "\n\n" + temporary_context + "\n\n" +conversation_text)
     url = "http://localhost:11434/api/generate"
     payload = {
         "model" : "gpt-oss:20b",
@@ -54,11 +54,10 @@ def get_ai_response():
     print("AI RAW OUTPUT:")
     print(ai_output)
     result = json.loads(ai_output)
-    if result["memory"] is not None:
-        memory.add_temporary(
-            memory_data,
-            result["memory"]["content"]
-        )
+    memory.handle_memory(
+        memory_data,
+        result["memory"]
+    )
     return result["reply"]
 
     ##print(response.json())

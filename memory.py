@@ -88,6 +88,19 @@ def add_temporary(memory_data,content):
         memory_data["temporary"]
         )
 
+def handle_memory(memory_data,memory_info):
+    if memory_info is None:
+        return
+    if memory_info["type"] == "temporary":
+        new_content = memory_info["content"]
+
+        for existing_memory in memory_data["temporary"]:
+            if existing_memory["content"] == new_content:
+                return
+        
+        add_temporary(memory_data,
+                      new_content)
+
 def clean_expired_temporary(memory_data):
     current_time = datetime.now()
 
@@ -104,3 +117,15 @@ def clean_expired_temporary(memory_data):
     save_json_file(
         TEMPORARY_FILE,
         memory_data["temporary"])
+
+def get_temporary_context(memory_data):
+    context = "Current Temporary Memoru:\n\n"
+
+    if not memory_data["temporary"]: 
+        context += "None"
+
+    else:
+        for memory in memory_data["temporary"]:
+            context += f"- {memory["content"]} \n"
+
+    return context
