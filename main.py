@@ -4,6 +4,7 @@ import json
 import os
 
 import memory
+import tools
 
 memory_data = memory.initialize_memory()
 
@@ -38,10 +39,19 @@ send_button = QPushButton("Send")
 
 conversation = []
 
-def get_ai_response():
-    temporary_context = memory.get_temporary_context(memory_data)
+def get_ai_response(search_result = None):
+    print("receivce search result:" ,search_result)
     conversation_text = "\n".join(conversation)
-    prompt = (system_prompt + "\n\n" + temporary_context + "\n\n" +conversation_text)
+    temporary_context = memory.get_temporary_context(memory_data)
+
+    search_context = ""
+    if search_result is not None:
+        search_context = (
+            "\n\nCurrent Search Results:\n\n"
+            +search_result
+        )
+    prompt = (system_prompt + "\n\n" + temporary_context + search_context + "\n\n" +conversation_text)
+    print(prompt)
     url = "http://localhost:11434/api/generate"
     payload = {
         "model" : "gpt-oss:20b",
@@ -75,8 +85,19 @@ def send_message():
 
     if not message:
         return
+
+    search_result = None
+    if message.startswith("/search "):
+        ##query = message.split(" ",1)[1]
+        ##search_result  = tools.search(query)
+        print("Search command detected")
+        query = message.split(" ",1)[1]
+        print(query)
+        search_result = tools.search(query)
+        print(search_result)
+
     
-    response = get_ai_response()
+    response = get_ai_response(search_result)
 
     save_message("Bekki",response)
 

@@ -66,3 +66,5 @@ can use some emoji and emoticon properly
 use chinese when user speak in chinese 
 
 THE JSON FORNAT CONTROLS THE stucture ONLY
+
+with current search results are provided,use them as the factula source for answer with the user's question . do not say you can access current information if the search result alredy contain the answer.

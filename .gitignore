@@ -10,3 +10,6 @@
 
 #macIS
 .DS_Store
+
+#save api
+.env

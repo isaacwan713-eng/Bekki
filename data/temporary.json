@@ -8,5 +8,30 @@
         "content": "the user wants to eat watermelon",
         "created_at": "2026-07-31T20:32:18.624565",
         "expires_at": "2026-08-01T20:32:18.624565"
+    },
+    {
+        "content": "the user wants to know if the Dodgers won today",
+        "created_at": "2026-08-01T18:08:25.125464",
+        "expires_at": "2026-08-02T18:08:25.125464"
+    },
+    {
+        "content": "the user wants to know if the Dodgers won yesterday",
+        "created_at": "2026-08-01T18:09:00.167433",
+        "expires_at": "2026-08-02T18:09:00.167433"
+    },
+    {
+        "content": "User inquired about Dodgers' result on July 31, 2026.",
+        "created_at": "2026-08-01T18:09:55.871584",
+        "expires_at": "2026-08-02T18:09:55.871584"
+    },
+    {
+        "content": "User wants recent Dodgers score",
+        "created_at": "2026-08-01T18:15:11.692619",
+        "expires_at": "2026-08-02T18:15:11.692619"
+    },
+    {
+        "content": "Los Angeles Dodgers lost 5-3 to Arizona Diamondbacks on July 12, 2026.",
+        "created_at": "2026-08-01T18:16:53.510346",
+        "expires_at": "2026-08-02T18:16:53.510346"
     }
 ]
