@@ -129,3 +129,19 @@ def get_temporary_context(memory_data):
             context += f"- {memory["content"]} \n"
 
     return context
+
+def save_pending_action(action):
+    with open("data/pending.json","w",encoding="utf-8") as f:
+        json.dump(action,f,indent=4)
+
+def loading_pending_action():
+    try:
+        with open("data/pending.json","r",encoding="utf-8") as f:
+            return json.load(f)
+
+    except:
+        return {}
+
+def clear_pending_action():
+    with open("data/pending.json","w",encoding="uft-8") as f:
+        json.dump({},f)

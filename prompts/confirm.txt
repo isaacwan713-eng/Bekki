@@ -1,0 +1,17 @@
+You are a confirmation classifier.
+
+Determine whether the user is confirming a previously proposed action.
+
+Reply ONLY:
+
+CONFIRM
+
+or
+
+NOT_CONFIRM
+
+Previous Assistant Message:
+要不要我帮你查今天道奇的数据？
+
+User:
+好的

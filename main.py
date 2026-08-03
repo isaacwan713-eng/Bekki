@@ -6,6 +6,8 @@ import os
 import memory
 import tools
 
+
+
 memory_data = memory.initialize_memory()
 
 
@@ -51,7 +53,7 @@ def get_ai_response(search_result = None):
             +search_result
         )
     prompt = (system_prompt + "\n\n" + temporary_context + search_context + "\n\n" +conversation_text)
-    print(prompt)
+    ##print(prompt)
     url = "http://localhost:11434/api/generate"
     payload = {
         "model" : "gpt-oss:20b",
@@ -64,6 +66,10 @@ def get_ai_response(search_result = None):
     print("AI RAW OUTPUT:")
     print(ai_output)
     result = json.loads(ai_output)
+    if result["pending_action"]:
+        memory.save_pending_action(result["pending_action"])
+
+
     memory.handle_memory(
         memory_data,
         result["memory"]
@@ -72,6 +78,28 @@ def get_ai_response(search_result = None):
 
     ##print(response.json())
     ##return response.json()["response"]
+
+def is_confirmatio(message):
+    message = message.strip().lower()
+    with open("prompts/confirm.txt","r",encoding="utf-8") as file:
+        confirm_prompt = file.read()
+    prompt = (confirm_prompt + "\n\nUser:|n"+message)
+    url = "http://localhost:11434/api/generate"
+
+    payload = {
+        "model" : "gpt-oss:20b",
+        "prompt" : prompt,
+        "stream" : False,
+        "options" : {
+            "temperature" : 0
+        }
+    }
+    response = requests.post(url,json = payload)
+    raw_decision = response.json()["response"]
+    decision = raw_decision.strip().upper()
+    print(decision)
+
+    return decision == "CONFRIM"  
 
 def save_message(role,message):
     conversation.append(f"{role} : {message}")
@@ -87,16 +115,9 @@ def send_message():
         return
 
     search_result = None
-    if message.startswith("/search "):
-        ##query = message.split(" ",1)[1]
-        ##search_result  = tools.search(query)
-        print("Search command detected")
-        query = message.split(" ",1)[1]
-        print(query)
-        search_result = tools.search(query)
-        print(search_result)
+    if tools.should_search(message):
+        search_result = tools.search(message)
 
-    
     response = get_ai_response(search_result)
 
     save_message("Bekki",response)
