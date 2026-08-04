@@ -41,7 +41,7 @@ send_button = QPushButton("Send")
 
 conversation = []
 
-def get_ai_response(search_result = None):
+def get_ai_response(search_result = None, action_context = None):
     print("receivce search result:" ,search_result)
     conversation_text = "\n".join(conversation)
     temporary_context = memory.get_temporary_context(memory_data)
@@ -52,7 +52,14 @@ def get_ai_response(search_result = None):
             "\n\nCurrent Search Results:\n\n"
             +search_result
         )
-    prompt = (system_prompt + "\n\n" + temporary_context + search_context + "\n\n" +conversation_text)
+    action_context = ''
+    if action_context is not None:
+        action_context = (
+            "\n\nCurrent Action Context:\n\n"
+            +action_context
+        )
+
+    prompt = (system_prompt + "\n\n" + temporary_context + search_context +action_context + "\n\n" +conversation_text)
     ##print(prompt)
     url = "http://localhost:11434/api/generate"
     payload = {
@@ -66,8 +73,13 @@ def get_ai_response(search_result = None):
     print("AI RAW OUTPUT:")
     print(ai_output)
     result = json.loads(ai_output)
-    if result["pending_action"]:
-        memory.save_pending_action(result["pending_action"])
+    if action_context is not None:
+        result["pending_action"] = None
+        memory.clear_pending_action()
+    elif result.get("pending_action"):
+        memory.save_pending_action(
+            result["pending_action"]
+        )
 
 
     memory.handle_memory(
@@ -79,7 +91,7 @@ def get_ai_response(search_result = None):
     ##print(response.json())
     ##return response.json()["response"]
 
-def is_confirmatio(message):
+def is_confirmation(message):
     message = message.strip().lower()
     with open("prompts/confirm.txt","r",encoding="utf-8") as file:
         confirm_prompt = file.read()
@@ -99,7 +111,7 @@ def is_confirmatio(message):
     decision = raw_decision.strip().upper()
     print(decision)
 
-    return decision == "CONFRIM"  
+    return decision == "CONFIRM"  
 
 def save_message(role,message):
     conversation.append(f"{role} : {message}")
@@ -109,16 +121,46 @@ def display_message(role,message):
 def send_message():
     message = input_box.text()
 
-    save_message("You",message)
-
     if not message:
         return
 
+    save_message("You",message)
+
+    pending = memory.loading_pending_action()
+    print(pending)
     search_result = None
-    if tools.should_search(message):
+    action_context = None
+    if pending and is_confirmation(message):
+        if pending.get("type") == "search":
+            search_result = tools.search(pending["query"]
+                                         )
+
+        action_context = (
+            "The user confirmed the pending search. "
+            "The search has already been completed. "
+            "Answer the pending query directly using the current search results. "
+            "Do not say that you will search. "
+            "Do not ask for confirmation again. "
+            + "Pending query: "
+            + pending["query"]
+        )
+
+
+        memory.clear_pending_action()
+
+
+    elif tools.should_search(message):
         search_result = tools.search(message)
 
-    response = get_ai_response(search_result)
+
+    #if not message:
+    #    return
+
+    #search_result = None
+    #if tools.should_search(message):
+    #    search_result = tools.search(message)
+
+    response = get_ai_response(search_result,action_context)
 
     save_message("Bekki",response)
 

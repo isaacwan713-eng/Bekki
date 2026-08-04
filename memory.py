@@ -143,5 +143,5 @@ def loading_pending_action():
         return {}
 
 def clear_pending_action():
-    with open("data/pending.json","w",encoding="uft-8") as f:
+    with open("data/pending.json","w",encoding="utf-8") as f:
         json.dump({},f)
