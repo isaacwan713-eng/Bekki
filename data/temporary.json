@@ -1,27 +1,7 @@
 [
     {
-        "content": "User wants yesterday's Dodgers score.",
-        "created_at": "2026-08-03T19:18:17.063341",
-        "expires_at": "2026-08-04T19:18:17.063341"
-    },
-    {
-        "content": "The Dodgers lost to the Red Sox 2-3 today",
-        "created_at": "2026-08-03T19:35:02.692772",
-        "expires_at": "2026-08-04T19:35:02.692772"
-    },
-    {
-        "content": "Dodgers lost to Red Sox 8-4 on Aug 2, 2026",
-        "created_at": "2026-08-03T19:50:40.955740",
-        "expires_at": "2026-08-04T19:50:40.955740"
-    },
-    {
-        "content": "User confirms Dodgers won Aug 3 2026 vs Cubs 3-2.",
-        "created_at": "2026-08-03T20:07:08.411230",
-        "expires_at": "2026-08-04T20:07:08.411230"
-    },
-    {
-        "content": "The user wants to eat hotpot.",
-        "created_at": "2026-08-03T20:13:31.453004",
-        "expires_at": "2026-08-04T20:13:31.453004"
+        "content": "The user wants to know if the Dodgers won on August 3, 2026.",
+        "created_at": "2026-08-05T12:54:35.956099",
+        "expires_at": "2026-08-06T12:54:35.956099"
     }
 ]
