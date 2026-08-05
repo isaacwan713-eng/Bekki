@@ -91,27 +91,7 @@ def get_ai_response(search_result = None, action_context = None):
     ##print(response.json())
     ##return response.json()["response"]
 
-def is_confirmation(message):
-    message = message.strip().lower()
-    with open("prompts/confirm.txt","r",encoding="utf-8") as file:
-        confirm_prompt = file.read()
-    prompt = (confirm_prompt + "\n\nUser:|n"+message)
-    url = "http://localhost:11434/api/generate"
 
-    payload = {
-        "model" : "gpt-oss:20b",
-        "prompt" : prompt,
-        "stream" : False,
-        "options" : {
-            "temperature" : 0
-        }
-    }
-    response = requests.post(url,json = payload)
-    raw_decision = response.json()["response"]
-    decision = raw_decision.strip().upper()
-    print(decision)
-
-    return decision == "CONFIRM"  
 
 def save_message(role,message):
     conversation.append(f"{role} : {message}")
@@ -130,7 +110,8 @@ def send_message():
     print(pending)
     search_result = None
     action_context = None
-    if pending and is_confirmation(message):
+    tool = tools.should_search(message)
+    if pending and tools.is_confirmation(message):
         if pending.get("type") == "search":
             search_result = tools.search(pending["query"]
                                          )
@@ -149,8 +130,8 @@ def send_message():
         memory.clear_pending_action()
 
 
-    elif tools.should_search(message):
-        search_result = tools.search(message)
+    elif tool == "search":
+        search_result = tools.should_search(message)
 
 
     #if not message:

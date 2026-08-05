@@ -1,10 +1,5 @@
 [
     {
-        "content": "Dodgers lost today 2-3 vs Red Sox",
-        "created_at": "2026-08-02T20:19:58.684811",
-        "expires_at": "2026-08-03T20:19:58.684811"
-    },
-    {
         "content": "User wants yesterday's Dodgers score.",
         "created_at": "2026-08-03T19:18:17.063341",
         "expires_at": "2026-08-04T19:18:17.063341"

@@ -60,35 +60,48 @@ def search(query):
 
     return search_text
 
+def call_model(prompt):
+    url = "http://localhost:11434/api/generate"
+    payload = {
+            "model" : "gpt-oss:20b",
+            "prompt" : prompt,
+            "stream" : False,
+            "options" : {
+                "temperature" : 0
+            }
+    }
+
+    response = requests.post(url,json = payload)
+
+    return response.json()["response"]
+
+def  ai_decision(prompt_path,user_message):
+    with open(prompt_path,"r",encoding= "utf-8") as file:
+        system_prompt = file.read()
+
+    prompt = (system_prompt + "\n\nUser:\n" + user_message)
+
+    raw_decision = call_model(prompt)
+    return raw_decision.strip().upper()
+
+
 
 def should_search(user_message):
-    with open("prompts/search.txt","r",encoding= "UTF-8") as file:
-        search_prompt = file.read()
-        #print(search_prompt[:30])
-        #print(file.name)
+    decision = ai_decision("prompts/search.txt",user_message)
 
-    #print(repr(search_prompt))
-
-    prompt = (search_prompt + "\n\nUser:|n"+user_message)
-    #print(repr(prompt))
-
-    payload = {
-        "model" : "gpt-oss:20b",
-        "prompt" : prompt,
-        "stream" : False,
-        "options" : {
-            "temperature" : 0
-        }
-    }
-    #print("====ROUTER PROMPT====")
-    #print(prompt)
-    #print("=====================")
-    response = requests.post(OLLAMA_URL,json = payload)
-    #decision = response.json()["response"].strip().upper()
-    raw_decision = response.json()["response"]
-    #print(repr(raw_decision))
-    decision = raw_decision.strip().upper()
-
-    print(decision)
+    print("SEARCH",decision)
 
     return decision == "SEARCH"
+
+def is_confirmation(message):
+
+    decision = ai_decision("prompts/confirm.txt",message)
+    print("CONFIRM" , decision)
+
+    return decision == "CONFIRM"  
+
+def decide_tools(message):
+    if should_search(message):
+        return "search"
+
+    return "chat"    
