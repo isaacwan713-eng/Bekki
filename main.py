@@ -138,7 +138,7 @@ conversation = []
 current_thread = None
 current_worker = None
 
-def get_ai_response(search_result=None, action_context=None):
+def get_ai_response(message,search_result=None, action_context=None):
     print("receive search result:", search_result)
 
     conversation_text = "\n".join(conversation)
@@ -162,13 +162,26 @@ def get_ai_response(search_result=None, action_context=None):
 
     prompt = (
         system_prompt
-        + "\n\n"
-        + temporary_context
-        + search_context
+
+        + "\n\n############################"
+        + "\nCurrent User Message"
+        + "\n############################\n"
+        + message
+
         + action_text
-        + "\n\n"
+
+        + search_context
+
+        + "\n\n############################"
+        + "\nCurrent Temporary Memory"
+        + "\n############################\n"
+        + temporary_context
+
+        + "\n\n############################"
+        + "\nRecent Conversation"
+        + "\n############################\n"
         + conversation_text
-    )
+        )
 
     prompt += (
     "\n\nReturn the final answer now as ONE valid JSON object only. "
@@ -238,8 +251,9 @@ def set_status(text):
     status_label.setText(text)
     QApplication.processEvents()
 
-def run_ai_task(search_result, action_context):
+def run_ai_task(message,search_result, action_context):
     return get_ai_response(
+        message,
         search_result,
         action_context
     )
@@ -297,12 +311,15 @@ def send_message():
         thinking_widget.set_text("正在搜索… 🔍")
         QApplication.processEvents()
 
-        search_result = tools.search(message)
+        search_query = tools.build_search_query(message)
+        print("SEARCH QUERY:", search_query)
+        search_result = tools.search(search_query)
 
     current_thread = QThread()
 
     current_worker = AIWorker(
         lambda: run_ai_task(
+            message,
             search_result,
             action_context
         )

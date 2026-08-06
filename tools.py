@@ -152,3 +152,27 @@ def decide_tools(message):
         return "search"
 
     return "chat"
+
+def build_search_query(user_message):
+    with open(
+        "prompts/search_query.txt",
+        "r",
+        encoding="utf-8"
+    ) as file:
+        query_prompt = file.read()
+
+    prompt = (
+        query_prompt
+        + "\n\nCurrent date: 2026-08-06"
+        + "\n\nUser:\n"
+        + user_message
+    )
+
+    query = call_model(prompt).strip()
+
+    print("BUILT SEARCH QUERY:", repr(query))
+
+    if not query:
+        return user_message
+
+    return query
