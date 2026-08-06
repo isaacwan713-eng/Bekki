@@ -6,9 +6,11 @@ import os
 import memory
 import tools
 
-from PySide6.QtCore import QTimer,Qt
+from PySide6.QtCore import QTimer,Qt,QThread
 
 from ui import MessageWidget
+
+from worker import AIWorker
 
 
 
@@ -35,10 +37,29 @@ from PySide6.QtWidgets import (
 )
 app = QApplication(sys.argv)
 window = QWidget()
+window.setStyleSheet("""
+QWidget{
+    background:#F8FBFF;
+}
+""")
 window.setWindowTitle("Bekki AI")
 window.resize(420,560)
 
-title = QLabel("Bekki")
+title = QLabel("🩵 Bekki")
+title.setStyleSheet("""
+QLabel{
+    font-size:24px;
+    font-weight:bold;
+    color:#3A7BD5;
+}
+""")
+subtitle = QLabel("Your Personal AI Companion ✨")
+subtitle.setStyleSheet("""
+QLabel{
+    color:#777777;
+    font-size:13px;
+}
+""")
 chat_scroll = QScrollArea()
 chat_scroll.setWidgetResizable(True)
 
@@ -47,6 +68,16 @@ chat_layout = QVBoxLayout()
 
 chat_container.setLayout(chat_layout)
 chat_scroll.setWidget(chat_container)
+chat_scroll.setStyleSheet("""
+QScrollArea{
+    border:none;
+    background:transparent;
+}
+
+QWidget{
+    background:transparent;
+}
+""")
 input_box = QLineEdit()
 input_box.setPlaceholderText("和 Bekki 聊点什么吧…")
 input_box.setMinimumHeight(42)
@@ -103,6 +134,9 @@ status_label.setStyleSheet(
 
 
 conversation = []
+
+current_thread = None
+current_worker = None
 
 def get_ai_response(search_result=None, action_context=None):
     print("receive search result:", search_result)
@@ -197,75 +231,120 @@ def display_message(role, message):
             chat_scroll.verticalScrollBar().maximum()
         )
     )
+    return widget
 
 
 def set_status(text):
     status_label.setText(text)
     QApplication.processEvents()
 
+def run_ai_task(search_result, action_context):
+    return get_ai_response(
+        search_result,
+        action_context
+    )
 
+def send_message():
+    global current_thread, current_worker
 
 
 def send_message():
-    message = input_box.text()
+    global current_thread, current_worker
+    message = input_box.text().strip()
 
     if not message:
         return
 
-    save_message("You",message)
+    input_box.clear()
+    save_message("You", message)
 
-    set_status("Bekki 正在思考。。。")
+    # 必须在 Router、搜索、模型调用之前显示
+    display_message("You", message)
+
+    thinking_widget = display_message(
+        "Bekki",
+        "正在思考… ✨"
+    )
+
+    QApplication.processEvents()
 
     pending = memory.loading_pending_action()
-    print(pending)
     search_result = None
     action_context = None
+
     tool = tools.decide_tools(message)
-    print("SELECTED TOOL:", repr(tool))
+
     if pending and tools.is_confirmation(message):
         if pending.get("type") == "search":
-            set_status("Bekki 正在思考。。。")
-            search_result = tools.search(pending["query"]
-                                         )
+            thinking_widget.set_text("正在搜索… 🔍")
+            QApplication.processEvents()
 
-        action_context = (
-            "The user confirmed the pending search. "
-            "The search has already been completed. "
-            "Answer the pending query directly using the current search results. "
-            "Do not say that you will search. "
-            "Do not ask for confirmation again. "
-            + "Pending query: "
-            + pending["query"]
-        )
+            search_result = tools.search(
+                pending["query"]
+            )
 
+            action_context = (
+                "The user confirmed the pending search. "
+                "The search has already been completed. "
+                "Answer the pending query directly using the current search results. "
+                "Pending query: "
+                + pending["query"]
+            )
 
         memory.clear_pending_action()
 
-
     elif tool == "search":
-        set_status("Bekki 正在思考。。。")
+        thinking_widget.set_text("正在搜索… 🔍")
+        QApplication.processEvents()
+
         search_result = tools.search(message)
-    print("SEARCH RESULT TYPE:", type(search_result))
-    print("SEARCH RESULT VALUE:", repr(search_result))
 
+    current_thread = QThread()
 
-    #if not message:
-    #    return
+    current_worker = AIWorker(
+        lambda: run_ai_task(
+            search_result,
+            action_context
+        )
+    )
 
-    #search_result = None
-    #if tools.should_search(message):
-    #    search_result = tools.search(message)
+    current_worker.moveToThread(current_thread)
 
-    response = get_ai_response(search_result,action_context)
+    current_thread.started.connect(
+    current_worker.run
+    )   
+    current_worker.finished.connect(
+    thinking_widget.set_text
+    )
+    current_worker.finished.connect(
+    lambda text: save_message(
+        "Bekki",
+        text
+        )
+    )
+    current_worker.finished.connect(
+    current_thread.quit
+    )
+    current_worker.finished.connect(
+    current_worker.deleteLater
+    )
+    current_thread.finished.connect(
+    current_thread.deleteLater
+    )
+    current_worker.failed.connect(
+    lambda error: thinking_widget.set_text(
+        "呜，刚才处理失败了：" + error
+        )
+    )
 
-    save_message("Bekki",response)
+    current_worker.failed.connect(
+        current_thread.quit
+    )
 
-    
-    display_message("You", message)
-    display_message("Bekki",response)
-    set_status("完成！！！")
-    QTimer.singleShot(1500,lambda:set_status(""))
-    input_box.clear()
+    current_worker.failed.connect(
+        current_worker.deleteLater
+    )
+    current_thread.start()
 
 send_button.clicked.connect(send_message)
 input_box.returnPressed.connect(send_message)
@@ -277,6 +356,7 @@ input_layout.addWidget(input_box)
 input_layout.addWidget(send_button)
 #widget = MessageWidget("Bekki","Hello")
 layout.addWidget(title)
+layout.addWidget(subtitle)
 #layout.addWidget(widget)
 layout.addWidget(chat_scroll)
 layout.addWidget(status_label)

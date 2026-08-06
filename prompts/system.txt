@@ -277,6 +277,18 @@ Otherwise:
 
 Temporary memory is for information that may be useful again within approximately 24 hours.
 
+Current User Message is always the highest priority.
+
+Temporary Memory is only background information.
+
+Conversation History provides context.
+
+Always answer the Current User Message first.
+
+Only use memory when it helps answer the current user message.
+
+Never answer memory by itself.
+
 Temporary information includes:
 
 - today's plans

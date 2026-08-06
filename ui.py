@@ -53,13 +53,13 @@ class MessageWidget(QWidget):
         avatar_label = QLabel()
         avatar_label.setFixedSize(38, 38)
 
-        bubble = QLabel(text)
-        bubble.setWordWrap(True)
-        bubble.setTextInteractionFlags(
+        self.bubble = QLabel(text)
+        self.bubble.setWordWrap(True)
+        self.bubble.setTextInteractionFlags(
             Qt.TextSelectableByMouse
         )
-        bubble.setMaximumWidth(380)
-        bubble.setSizePolicy(
+        self.bubble.setMaximumWidth(380)
+        self.bubble.setSizePolicy(
             QSizePolicy.Maximum,
             QSizePolicy.Preferred
         )
@@ -82,7 +82,7 @@ class MessageWidget(QWidget):
         if is_user:
             name_label.setAlignment(Qt.AlignRight)
 
-            bubble.setStyleSheet(
+            self.bubble.setStyleSheet(
                 """
                 QLabel {
                     background-color: #ffd8e8;
@@ -108,7 +108,7 @@ class MessageWidget(QWidget):
 
             message_layout.addWidget(name_label)
             message_layout.addWidget(
-                bubble,
+                self.bubble,
                 alignment=Qt.AlignRight
             )
 
@@ -120,7 +120,7 @@ class MessageWidget(QWidget):
             )
 
         else:
-            bubble.setStyleSheet(
+            self.bubble.setStyleSheet(
                 """
                 QLabel {
                     background-color: #ffffff;
@@ -167,7 +167,7 @@ class MessageWidget(QWidget):
 
             message_layout.addWidget(name_label)
             message_layout.addWidget(
-                bubble,
+                self.bubble,
                 alignment=Qt.AlignLeft
             )
 
@@ -180,3 +180,5 @@ class MessageWidget(QWidget):
 
         self.setLayout(outer_layout)
         self.setMaximumWidth(380)
+    def set_text(self, text):
+        self.bubble.setText(text)
