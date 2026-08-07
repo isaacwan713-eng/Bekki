@@ -8,7 +8,7 @@ import tools
 
 from PySide6.QtCore import QTimer,Qt,QThread
 
-from ui import MessageWidget
+from ui import MessageWidget, HeaderWidget
 
 from worker import AIWorker
 
@@ -37,89 +37,117 @@ from PySide6.QtWidgets import (
 )
 app = QApplication(sys.argv)
 window = QWidget()
+window.setObjectName("mainWindow")
+
 window.setStyleSheet("""
-QWidget{
-    background:#F8FBFF;
+#mainWindow {
+    background-color: #f6f8fb;
 }
 """)
 window.setWindowTitle("Bekki AI")
 window.resize(420,560)
 
-title = QLabel("🩵 Bekki")
-title.setStyleSheet("""
-QLabel{
-    font-size:24px;
-    font-weight:bold;
-    color:#3A7BD5;
-}
-""")
-subtitle = QLabel("Your Personal AI Companion ✨")
-subtitle.setStyleSheet("""
-QLabel{
-    color:#777777;
-    font-size:13px;
-}
-""")
+header = HeaderWidget()
 chat_scroll = QScrollArea()
 chat_scroll.setWidgetResizable(True)
 
 chat_container = QWidget()
 chat_layout = QVBoxLayout()
+chat_layout.setAlignment(Qt.AlignTop)
 
 chat_container.setLayout(chat_layout)
 chat_scroll.setWidget(chat_container)
+
+# ⭐ Welcome Message
+welcome = MessageWidget(
+    "Bekki",
+    "👋 嗨～\n\n"
+    "我是 Bekki 🩵\n"
+    "今天想聊点什么呀？\n\n"
+    "我可以帮你：\n"
+    "• 搜索最新信息\n"
+    "• 回答问题\n"
+    "• 记住重要事情\n"
+    "• 陪你聊天 ✨"
+)
+
+chat_layout.addWidget(welcome)
+
 chat_scroll.setStyleSheet("""
-QScrollArea{
-    border:none;
-    background:transparent;
+QScrollArea {
+    border: none;
+    background: transparent;
 }
 
-QWidget{
-    background:transparent;
+QScrollBar:vertical {
+    background: transparent;
+    width: 8px;
+    margin: 4px 2px 4px 2px;
+}
+
+QScrollBar::handle:vertical {
+    background: #cfd6df;
+    border-radius: 4px;
+    min-height: 28px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #aeb8c5;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+QWidget {
+    background: transparent;
 }
 """)
 input_box = QLineEdit()
 input_box.setPlaceholderText("和 Bekki 聊点什么吧…")
 input_box.setMinimumHeight(42)
 
-input_box.setStyleSheet(
-    """
-    QLineEdit {
-        background-color: #ffffff;
-        border: 1px solid #dddddd;
-        border-radius: 14px;
-        padding: 0 14px;
-        font-size: 14px;
-    }
+input_box.setStyleSheet("""
+QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #dfe3e8;
+    border-radius: 18px;
+    padding: 0 14px;
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
 
-    QLineEdit:focus {
-        border: 1px solid #ff8fbd;
-    }
-    """
-)
+QLineEdit:focus {
+    border: 1px solid #8ebff5;
+}
+""")
 send_button = QPushButton("➤")
-send_button.setFixedSize(42, 42)
+send_button.setFixedSize(40, 40)
 
-send_button.setStyleSheet(
-    """
-    QPushButton {
-        background-color: #ff8fbd;
-        color: white;
-        border: none;
-        border-radius: 21px;
-        font-size: 18px;
-        font-weight: bold;
-    }
+send_button.setStyleSheet("""
+QPushButton {
+    background-color: #6caef2;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    font-size: 17px;
+    font-weight: 600;
+}
 
-    QPushButton:hover {
-        background-color: #ff72ac;
-    }
+QPushButton:hover {
+    background-color: #5a9ee5;
+}
 
-    QPushButton:pressed {
-        background-color: #e85f98;
-    }
-    """
-)
+QPushButton:pressed {
+    background-color: #4d8fd4;
+}
+""")
 
 status_label = QLabel("")
 status_label.setStyleSheet(
@@ -365,16 +393,16 @@ def send_message():
 
 send_button.clicked.connect(send_message)
 input_box.returnPressed.connect(send_message)
+
 layout = QVBoxLayout()
 layout.setContentsMargins(16, 16, 16, 16)
 layout.setSpacing(10)
+
 input_layout = QHBoxLayout()
 input_layout.addWidget(input_box)
 input_layout.addWidget(send_button)
-#widget = MessageWidget("Bekki","Hello")
-layout.addWidget(title)
-layout.addWidget(subtitle)
-#layout.addWidget(widget)
+
+layout.addWidget(header)
 layout.addWidget(chat_scroll)
 layout.addWidget(status_label)
 layout.addLayout(input_layout)

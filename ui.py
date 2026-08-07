@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QPropertyAnimation,QParallelAnimationGroup,QPoint
 from PySide6.QtGui import (
     QPixmap,
     QPainter,
@@ -10,7 +10,11 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QFrame,
+    QPushButton,
+    QGraphicsOpacityEffect,
 )
+
 
 def create_round_avatar(path, size=40):
     pixmap = QPixmap(path)
@@ -40,6 +44,78 @@ def create_round_avatar(path, size=40):
 
     return rounded
 
+class HeaderWidget(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(
+            20,
+            12,
+            20,
+            10)
+        layout.setSpacing(4)
+
+        words = QLabel("🩵 Bekki")
+        settings_button = QPushButton("⚙")
+        settings_button.setFixedSize(34, 34)
+
+        settings_button.setStyleSheet("""
+        QPushButton {
+            border: none;
+            border-radius: 17px;
+            background: transparent;
+
+            color: #9c8ec2;
+            font-size: 18px;
+        }
+
+        QPushButton:hover {
+            background: #eef5ff;
+            color: #5aa8ff;
+        }
+
+        QPushButton:pressed {
+            background: #dcecff;
+        }
+        """)
+
+        title = QHBoxLayout()
+        title.addWidget(words)
+        title.addStretch()
+        title.addWidget(settings_button)
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+
+        subtitle = QLabel(
+            "Your Personal AI Companion"
+        )
+
+        words.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #4da6ff;
+                font-family = "Segoe UI Bold"
+            }
+        """)
+
+        subtitle.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #888888;
+            }
+        """)
+
+        layout.addLayout(title)
+        layout.addWidget(subtitle)
+        layout.addWidget(line)
+
+
+        self.setLayout(layout)
+
 class MessageWidget(QWidget):
     def __init__(self, sender, text):
         super().__init__()
@@ -54,15 +130,17 @@ class MessageWidget(QWidget):
         avatar_label.setFixedSize(38, 38)
 
         self.bubble = QLabel(text)
+        self.bubble.adjustSize()
         self.bubble.setWordWrap(True)
         self.bubble.setTextInteractionFlags(
             Qt.TextSelectableByMouse
         )
-        self.bubble.setMaximumWidth(380)
+        self.bubble.setMaximumWidth(280)
         self.bubble.setSizePolicy(
-            QSizePolicy.Maximum,
+            QSizePolicy.Minimum,
             QSizePolicy.Preferred
         )
+        self.bubble.adjustSize()
 
         name_label = QLabel(sender)
         name_label.setStyleSheet(
@@ -85,11 +163,13 @@ class MessageWidget(QWidget):
             self.bubble.setStyleSheet(
                 """
                 QLabel {
-                    background-color: #ffd8e8;
-                    color: #222222;
-                    border-radius: 14px;
-                    padding: 12px 14px;
-                    font-size: 14px;
+                    background-color: #f7dce8;
+                    color: #202124;
+                    border: none;
+                    border-radius: 16px;
+                    padding: 9px 13px;
+                    font-family: "Segoe UI";
+                    font-size: 13px;
                 }
                 """
             )
@@ -109,7 +189,8 @@ class MessageWidget(QWidget):
             message_layout.addWidget(name_label)
             message_layout.addWidget(
                 self.bubble,
-                alignment=Qt.AlignRight
+                0,
+                Qt.AlignRight
             )
 
             outer_layout.addStretch()
@@ -123,12 +204,13 @@ class MessageWidget(QWidget):
             self.bubble.setStyleSheet(
                 """
                 QLabel {
-                    background-color: #ffffff;
-                    color: #222222;
-                    border: 1px solid #e6edf5;
-                    border-radius: 14px;
-                    padding: 10px 12px;
-                    font-size: 14px;
+                    background-color: #f7dce8;
+                    color: #3f5fa7;
+                    border: none;
+                    border-radius: 16px;
+                    padding: 9px 13px;
+                    font-family: "Yu Gothic UI";
+                    font-size: 13px;
                 }
                 """
             )
@@ -168,7 +250,8 @@ class MessageWidget(QWidget):
             message_layout.addWidget(name_label)
             message_layout.addWidget(
                 self.bubble,
-                alignment=Qt.AlignLeft
+                0,
+                Qt.AlignLeft
             )
 
             outer_layout.addWidget(
@@ -179,6 +262,29 @@ class MessageWidget(QWidget):
             outer_layout.addStretch()
 
         self.setLayout(outer_layout)
-        self.setMaximumWidth(380)
+        effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(effect)
+
+        self.animation = QPropertyAnimation(effect,b"opacity")
+        self.animation.animation.setDuration(220)
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+
+        #start_pos = self.pos() + QPoint(0, 8)
+        #end_pos = self.pos()
+
+        #move_animation = QPropertyAnimation(self,b"pos")
+        #move_animation.setDuration(220)
+        #move_animation.setStartValue(start_pos)
+        #move_animation.setEndValue(end_pos)
+
+        #self.animation = QParallelAnimationGroup(self)
+        #self.animation.addAnimation(opacity_animation)
+        #self.animation.addAnimation(move_animation)
+
+        self.animation.start()
+
+        #self.setMaximumWidth(380)
     def set_text(self, text):
         self.bubble.setText(text)
+
