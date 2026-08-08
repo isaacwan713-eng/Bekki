@@ -1,192 +1,113 @@
 import sys
-import requests
 import json
-import os
 
 import memory
 import tools
 
-from PySide6.QtCore import QTimer,Qt,QThread
+from PySide6.QtCore import QThread
+from PySide6.QtWidgets import QApplication
 
-from ui import MessageWidget, HeaderWidget
-
+from ui import BekkiWindow
 from worker import AIWorker
 
 
+# =========================================================
+# App Data
+# =========================================================
 
 memory_data = memory.initialize_memory()
-
-
-print(memory_data)
-
-with open("prompts/system.txt","r",encoding="utf-8") as file:
-    system_prompt = file.read()
-    ##print(system_prompt)
-
-from PySide6.QtWidgets import (
-        QApplication,
-        QLabel,
-        QLineEdit,
-        QMainWindow,
-        QPushButton,
-        QTextEdit,
-        QVBoxLayout,
-        QWidget,
-        QHBoxLayout,
-        QScrollArea,
-)
-app = QApplication(sys.argv)
-window = QWidget()
-window.setObjectName("mainWindow")
-
-window.setStyleSheet("""
-#mainWindow {
-    background-color: #f6f8fb;
-}
-""")
-window.setWindowTitle("Bekki AI")
-window.resize(420,560)
-
-header = HeaderWidget()
-chat_scroll = QScrollArea()
-chat_scroll.setWidgetResizable(True)
-
-chat_container = QWidget()
-chat_layout = QVBoxLayout()
-chat_layout.setAlignment(Qt.AlignTop)
-
-chat_container.setLayout(chat_layout)
-chat_scroll.setWidget(chat_container)
-
-# ⭐ Welcome Message
-welcome = MessageWidget(
-    "Bekki",
-    "👋 嗨～\n\n"
-    "我是 Bekki 🩵\n"
-    "今天想聊点什么呀？\n\n"
-    "我可以帮你：\n"
-    "• 搜索最新信息\n"
-    "• 回答问题\n"
-    "• 记住重要事情\n"
-    "• 陪你聊天 ✨"
-)
-
-chat_layout.addWidget(welcome)
-
-chat_scroll.setStyleSheet("""
-QScrollArea {
-    border: none;
-    background: transparent;
-}
-
-QScrollBar:vertical {
-    background: transparent;
-    width: 8px;
-    margin: 4px 2px 4px 2px;
-}
-
-QScrollBar::handle:vertical {
-    background: #cfd6df;
-    border-radius: 4px;
-    min-height: 28px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: #aeb8c5;
-}
-
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollBar::add-page:vertical,
-QScrollBar::sub-page:vertical {
-    background: transparent;
-}
-
-QWidget {
-    background: transparent;
-}
-""")
-input_box = QLineEdit()
-input_box.setPlaceholderText("和 Bekki 聊点什么吧…")
-input_box.setMinimumHeight(42)
-
-input_box.setStyleSheet("""
-QLineEdit {
-    background-color: #ffffff;
-    border: 1px solid #dfe3e8;
-    border-radius: 18px;
-    padding: 0 14px;
-    font-family: "Segoe UI";
-    font-size: 13px;
-}
-
-QLineEdit:focus {
-    border: 1px solid #8ebff5;
-}
-""")
-send_button = QPushButton("➤")
-send_button.setFixedSize(40, 40)
-
-send_button.setStyleSheet("""
-QPushButton {
-    background-color: #6caef2;
-    color: white;
-    border: none;
-    border-radius: 20px;
-    font-size: 17px;
-    font-weight: 600;
-}
-
-QPushButton:hover {
-    background-color: #5a9ee5;
-}
-
-QPushButton:pressed {
-    background-color: #4d8fd4;
-}
-""")
-
-status_label = QLabel("")
-status_label.setStyleSheet(
-    """
-    QLabel {
-        color: #888888;
-        font-size: 12px;
-        padding : 4px
-        }
-    """
-)
-
 
 conversation = []
 
 current_thread = None
 current_worker = None
 
-def get_ai_response(message,search_result=None, action_context=None):
-    print("receive search result:", search_result)
 
-    conversation_text = "\n".join(conversation)
-    temporary_context = memory.get_temporary_context(memory_data)
+# =========================================================
+# System Prompt
+# =========================================================
+
+with open(
+    "prompts/system.txt",
+    "r",
+    encoding="utf-8",
+) as file:
+
+    system_prompt = file.read()
+
+
+# =========================================================
+# AI Response
+# =========================================================
+
+def get_ai_response(
+    message,
+    search_result=None,
+    action_context=None,
+):
+
+    conversation_text = "\n".join(
+        conversation
+    )
+
+    temporary_context = (
+        memory.get_temporary_context(
+            memory_data
+        )
+    )
+
+    # -----------------------------------------------------
+    # Search Context
+    # -----------------------------------------------------
 
     search_context = ""
 
     if search_result is not None:
+
+        if isinstance(
+            search_result,
+            list,
+        ):
+
+            formatted_results = (
+                tools.format_search_results(
+                    search_result
+                )
+            )
+
+        else:
+
+            formatted_results = str(
+                search_result
+            )
+
         search_context = (
-            "\n\nCurrent Search Results:\n\n"
-            + search_result
+            "\n\n"
+            "############################"
+            "\nCurrent Search Results"
+            "\n############################\n"
+            + formatted_results
         )
+
+    # -----------------------------------------------------
+    # Action Context
+    # -----------------------------------------------------
 
     action_text = ""
 
     if action_context is not None:
+
         action_text = (
-            "\n\nCurrent Action Context:\n\n"
+            "\n\n"
+            "############################"
+            "\nCurrent Action Context"
+            "\n############################\n"
             + action_context
         )
+
+    # -----------------------------------------------------
+    # Final Prompt
+    # -----------------------------------------------------
 
     prompt = (
         system_prompt
@@ -209,139 +130,310 @@ def get_ai_response(message,search_result=None, action_context=None):
         + "\nRecent Conversation"
         + "\n############################\n"
         + conversation_text
-        )
+    )
 
     prompt += (
-    "\n\nReturn the final answer now as ONE valid JSON object only. "
-    "Do not output thinking. "
-    "Do not stop after reasoning. "
-    "Output the final JSON now."
+        "\n\n"
+        "Return the final answer now as ONE "
+        "valid JSON object only. "
+        "Do not output thinking. "
+        "Do not stop after reasoning. "
+        "Output the final JSON now."
     )
 
     ai_output = tools.call_model(
-    prompt,
-    num_ctx=16384,
-    num_predict=4096
+        prompt,
+        num_ctx=16384,
+        num_predict=4096,
     )
 
-    print("AI RAW OUTPUT:")
-    print(ai_output)
+    print(
+        "AI RAW OUTPUT:"
+    )
+
+    print(
+        ai_output
+    )
+
+    # -----------------------------------------------------
+    # Parse JSON
+    # -----------------------------------------------------
 
     try:
-        result = json.loads(ai_output)
+
+        result = json.loads(
+            ai_output
+        )
 
     except json.JSONDecodeError as error:
-        print("JSON Parse Error:", error)
-        print("Broken AI Output:", repr(ai_output))
-        return "呜，刚才回复格式坏掉了，再试一次吧 🥺"
+
+        print(
+            "JSON Parse Error:",
+            error,
+        )
+
+        print(
+            "Broken AI Output:",
+            repr(ai_output),
+        )
+
+        return (
+            "呜，刚才回复格式坏掉了，"
+            "再试一次吧 🥺"
+        )
+
+    # -----------------------------------------------------
+    # Pending Action
+    # -----------------------------------------------------
 
     if action_context is not None:
+
         result["pending_action"] = None
+
         memory.clear_pending_action()
 
-    elif result.get("pending_action"):
+    elif result.get(
+        "pending_action"
+    ):
+
         memory.save_pending_action(
             result["pending_action"]
         )
 
+    # -----------------------------------------------------
+    # Memory
+    # -----------------------------------------------------
+
     memory.handle_memory(
         memory_data,
-        result.get("memory")
+        result.get("memory"),
     )
+
+    # -----------------------------------------------------
+    # Reply
+    # -----------------------------------------------------
 
     return result.get(
         "reply",
-        "呜，豆豆这次没有生成正常回复，请再试一次 🥺"
+        "呜，豆豆这次没有生成正常回复，"
+        "请再试一次 🥺",
     )
 
-    ##print(response.json())
-    ##return response.json()["response"]
+
+# =========================================================
+# Conversation
+# =========================================================
+
+def save_message(
+    role,
+    message,
+):
+
+    conversation.append(
+        f"{role} : {message}"
+    )
 
 
+# =========================================================
+# Search Pipeline
+# =========================================================
 
-def save_message(role,message):
-    conversation.append(f"{role} : {message}")
+def run_search_pipeline(query):
 
-def display_message(role, message):
-    widget = MessageWidget(role, message)
-    chat_layout.addWidget(widget)
+    # ==========================================
+    # 1. Brave Search
+    # ==========================================
 
-    QTimer.singleShot(
-        0,
-        lambda: chat_scroll.verticalScrollBar().setValue(
-            chat_scroll.verticalScrollBar().maximum()
+    search_results = tools.search(query)
+
+    if not isinstance(search_results, list):
+        return search_results
+
+    if not search_results:
+        return []
+
+
+    # ==========================================
+    # 2. AI Source Scoring
+    # ==========================================
+
+    search_results = tools.score_sources(
+        query,
+        search_results
+    )
+
+    print("\n===== SOURCE SCORES =====")
+
+    for result in search_results:
+        print(
+            result.get("source_score"),
+            result.get("title")
         )
-    )
-    return widget
+
+    print("=========================\n")
 
 
-def set_status(text):
-    status_label.setText(text)
-    QApplication.processEvents()
+    # ==========================================
+    # 3. Take Top 3 Sources
+    # ==========================================
 
-def run_ai_task(message,search_result, action_context):
+    top_results = search_results[:3]
+
+
+    # ==========================================
+    # 4. Extract Answers
+    # ==========================================
+
+    answers = tools.extract_answers(
+    query,
+    top_results)
+
+    consensus = tools.find_consensus(
+        query,
+        answers)
+
+    print("\n===== CONSENSUS =====")
+    print(consensus)
+    print("=====================\n")
+
+
+    # ==========================================
+    # 5. Current version still returns results
+    # ==========================================
+
+    return search_results
+
+def run_ai_task(
+    message,
+    search_result,
+    action_context,
+):
+
     return get_ai_response(
         message,
         search_result,
-        action_context
+        action_context,
     )
 
-def send_message():
-    global current_thread, current_worker
 
+# =========================================================
+# Send Message
+# =========================================================
 
 def send_message():
-    global current_thread, current_worker
-    message = input_box.text().strip()
+
+    global current_thread
+    global current_worker
+
+    message = window.get_message()
 
     if not message:
         return
 
-    input_box.clear()
-    save_message("You", message)
+    window.clear_input()
 
-    # 必须在 Router、搜索、模型调用之前显示
-    display_message("You", message)
-
-    thinking_widget = display_message(
-        "Bekki",
-        "正在思考… ✨"
+    save_message(
+        "You",
+        message,
     )
 
-    QApplication.processEvents()
+    window.add_message(
+        "You",
+        message,
+    )
 
-    pending = memory.loading_pending_action()
+    thinking_widget = (
+        window.add_message(
+            "Bekki",
+            "正在思考… ✨",
+        )
+    )
+
+    # -----------------------------------------------------
+    # Pending
+    # -----------------------------------------------------
+
+    pending = (
+        memory.loading_pending_action()
+    )
+
     search_result = None
     action_context = None
 
-    tool = tools.decide_tools(message)
+    pending_confirmed = False
 
-    if pending and tools.is_confirmation(message):
-        if pending.get("type") == "search":
-            thinking_widget.set_text("正在搜索… 🔍")
-            QApplication.processEvents()
+    if pending:
 
-            search_result = tools.search(
-                pending["query"]
+        pending_confirmed = (
+            tools.is_confirmation(
+                message
             )
+        )
 
-            action_context = (
-                "The user confirmed the pending search. "
-                "The search has already been completed. "
-                "Answer the pending query directly using the current search results. "
-                "Pending query: "
-                + pending["query"]
+    # -----------------------------------------------------
+    # Confirmed Pending Search
+    # -----------------------------------------------------
+
+    if (
+        pending_confirmed
+        and pending.get("type")
+        == "search"
+    ):
+
+        thinking_widget.set_text(
+            "正在搜索… 🔍"
+        )
+
+        query = pending["query"]
+
+        search_result = (
+            run_search_pipeline(
+                query
             )
+        )
+
+        action_context = (
+            "The user confirmed the pending search. "
+            "The search has already been completed. "
+            "Answer the pending query directly using "
+            "the current search results. "
+            "Pending query: "
+            + query
+        )
 
         memory.clear_pending_action()
 
-    elif tool == "search":
-        thinking_widget.set_text("正在搜索… 🔍")
-        QApplication.processEvents()
+    # -----------------------------------------------------
+    # Normal Router
+    # -----------------------------------------------------
 
-        search_query = tools.build_search_query(message)
-        print("SEARCH QUERY:", search_query)
-        search_result = tools.search(search_query)
+    else:
+
+        tool = tools.decide_tools(
+            message
+        )
+
+        if tool == "search":
+
+            thinking_widget.set_text(
+                "正在搜索… 🔍"
+            )
+
+            search_query = (
+                tools.build_search_query(
+                    message
+                )
+            )
+
+            search_result = (
+                run_search_pipeline(
+                    search_query
+                )
+            )
+
+    # -----------------------------------------------------
+    # Worker Thread
+    # -----------------------------------------------------
 
     current_thread = QThread()
 
@@ -349,36 +441,50 @@ def send_message():
         lambda: run_ai_task(
             message,
             search_result,
-            action_context
+            action_context,
         )
     )
 
-    current_worker.moveToThread(current_thread)
+    current_worker.moveToThread(
+        current_thread
+    )
 
     current_thread.started.connect(
-    current_worker.run
-    )   
-    current_worker.finished.connect(
-    thinking_widget.set_text
+        current_worker.run
     )
+
     current_worker.finished.connect(
-    lambda text: save_message(
-        "Bekki",
-        text
+        thinking_widget.set_text
+    )
+
+    current_worker.finished.connect(
+        lambda text: save_message(
+            "Bekki",
+            text,
         )
     )
+
     current_worker.finished.connect(
-    current_thread.quit
+        current_thread.quit
     )
+
     current_worker.finished.connect(
-    current_worker.deleteLater
+        current_worker.deleteLater
     )
+
     current_thread.finished.connect(
-    current_thread.deleteLater
+        current_thread.deleteLater
     )
+
+    # -----------------------------------------------------
+    # Error
+    # -----------------------------------------------------
+
     current_worker.failed.connect(
-    lambda error: thinking_widget.set_text(
-        "呜，刚才处理失败了：" + error
+        lambda error:
+        thinking_widget.set_text(
+            "呜，刚才处理失败了："
+            + error
         )
     )
 
@@ -389,25 +495,26 @@ def send_message():
     current_worker.failed.connect(
         current_worker.deleteLater
     )
+
     current_thread.start()
 
-send_button.clicked.connect(send_message)
-input_box.returnPressed.connect(send_message)
 
-layout = QVBoxLayout()
-layout.setContentsMargins(16, 16, 16, 16)
-layout.setSpacing(10)
+# =========================================================
+# Start Application
+# =========================================================
 
-input_layout = QHBoxLayout()
-input_layout.addWidget(input_box)
-input_layout.addWidget(send_button)
+app = QApplication(
+    sys.argv
+)
 
-layout.addWidget(header)
-layout.addWidget(chat_scroll)
-layout.addWidget(status_label)
-layout.addLayout(input_layout)
+window = BekkiWindow()
 
-window.setLayout(layout)
+window.connect_send(
+    send_message
+)
 
 window.show()
-sys.exit(app.exec())
+
+sys.exit(
+    app.exec()
+)
