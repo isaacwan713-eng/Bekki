@@ -16,6 +16,21 @@ Rules:
   - first competitive match
 - Prefer queries that target official sources.
 
+The current user message may be a follow-up question.
+
+Use the recent conversation to resolve references such as:
+- "他"
+- "那个"
+- "具体呢"
+- "对手是谁"
+- "那比分呢"
+- "什么时候"
+- "为什么"
+
+Rewrite the user's request into a fully standalone search query.
+
+Do not invent missing entities if the recent conversation already identifies them.
+
 Examples:
 
 User:
