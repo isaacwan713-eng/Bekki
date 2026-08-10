@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation
+from PySide6.QtCore import Qt, QPropertyAnimation, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -14,10 +14,11 @@ from PySide6.QtWidgets import (
 )
 
 
+UI_FONT = '"Microsoft YaHei UI", "Segoe UI"'
 _AVATAR_CACHE = {}
 
 
-def create_round_avatar(path, size=40):
+def create_round_avatar(path, size=42):
     cache_key = (path, size)
     if cache_key in _AVATAR_CACHE:
         return _AVATAR_CACHE[cache_key]
@@ -38,7 +39,6 @@ def create_round_avatar(path, size=40):
 
     painter = QPainter(rounded)
     painter.setRenderHint(QPainter.Antialiasing)
-
     circle = QPainterPath()
     circle.addEllipse(0, 0, size, size)
     painter.setClipPath(circle)
@@ -53,65 +53,64 @@ class HeaderWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        title_label = QLabel("🩵 Bekki")
+        title_label = QLabel("🩵  Bekki")
         title_label.setStyleSheet(
-            """
-            QLabel {
-                font-family: "Segoe UI";
-                font-size: 24px;
+            f"""
+            QLabel {{
+                color: #4c9df2;
+                font-family: {UI_FONT};
+                font-size: 25px;
                 font-weight: 700;
-                color: #4da6ff;
-            }
+            }}
             """
         )
 
-        self.settings_button = QPushButton("⚙")
-        self.settings_button.setFixedSize(34, 34)
-        self.settings_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                border-radius: 17px;
-                background: transparent;
-                color: #9c8ec2;
-                font-size: 18px;
-            }
-            QPushButton:hover {
-                background: #eef5ff;
-                color: #5aa8ff;
-            }
-            QPushButton:pressed {
-                background: #dcecff;
-            }
+        version_badge = QLabel("V1")
+        version_badge.setAlignment(Qt.AlignCenter)
+        version_badge.setFixedHeight(23)
+        version_badge.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: #eef6ff;
+                border: 1px solid #d7e9fb;
+                border-radius: 11px;
+                color: #5d97cf;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+                padding: 0 9px;
+            }}
             """
         )
-
-        title_layout = QHBoxLayout()
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        title_layout.addWidget(self.settings_button)
 
         subtitle = QLabel("Your Personal AI Companion")
         subtitle.setStyleSheet(
-            """
-            QLabel {
-                font-family: "Segoe UI";
-                font-size: 12px;
-                color: #888888;
-            }
+            f"""
+            QLabel {{
+                color: #8290a2;
+                font-family: {UI_FONT};
+                font-size: 11px;
+            }}
             """
         )
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet("color: #dce7f1;")
+
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        title_layout.addWidget(version_badge)
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 12, 20, 10)
-        layout.setSpacing(4)
+        layout.setContentsMargins(20, 13, 20, 8)
+        layout.setSpacing(3)
         layout.addLayout(title_layout)
         layout.addWidget(subtitle)
-        layout.addWidget(line)
+        layout.addSpacing(2)
+        layout.addWidget(divider)
         self.setLayout(layout)
 
 
@@ -120,99 +119,137 @@ class MessageWidget(QWidget):
         super().__init__()
 
         is_user = sender.lower() in {"you", "user", "isaac"}
-
         outer_layout = QHBoxLayout()
-        outer_layout.setContentsMargins(4, 6, 4, 6)
-        outer_layout.setSpacing(8)
+        outer_layout.setContentsMargins(2, 6, 2, 6)
+        outer_layout.setSpacing(9)
 
         avatar_label = QLabel()
-        avatar_label.setFixedSize(40, 40)
+        avatar_label.setFixedSize(42, 42)
 
         self.bubble = QLabel(text)
         self.bubble.setWordWrap(True)
-        self.bubble.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.bubble.setMaximumWidth(280)
-        self.bubble.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-
-        name_label = QLabel(sender)
-        name_label.setStyleSheet(
-            """
-            QLabel {
-                color: #666666;
-                font-family: "Segoe UI";
-                font-size: 11px;
-                font-weight: 600;
-            }
-            """
+        self.bubble.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        self.bubble.setMaximumWidth(286)
+        self.bubble.setSizePolicy(
+            QSizePolicy.Minimum,
+            QSizePolicy.Preferred,
         )
 
+        name_label = QLabel(sender)
         message_layout = QVBoxLayout()
         message_layout.setContentsMargins(0, 0, 0, 0)
-        message_layout.setSpacing(4)
+        message_layout.setSpacing(3)
 
         if is_user:
             name_label.setAlignment(Qt.AlignRight)
-            self.bubble.setStyleSheet(
-                """
-                QLabel {
-                    background-color: #f7dce8;
-                    color: #202124;
-                    border: none;
-                    border-radius: 16px;
-                    padding: 9px 13px;
-                    font-family: "Segoe UI";
-                    font-size: 13px;
-                }
+            name_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: #a16d86;
+                    font-family: {UI_FONT};
+                    font-size: 10px;
+                    font-weight: 700;
+                }}
                 """
             )
-
+            self.bubble.setStyleSheet(
+                f"""
+                QLabel {{
+                    background-color: #f9dce8;
+                    border: 1px solid #f2cedd;
+                    border-radius: 17px;
+                    color: #3d3440;
+                    font-family: {UI_FONT};
+                    font-size: 13px;
+                    padding: 9px 13px;
+                }}
+                """
+            )
             avatar_label.setText("🙂")
             avatar_label.setAlignment(Qt.AlignCenter)
             avatar_label.setStyleSheet(
                 """
                 QLabel {
-                    background-color: #f2f2f2;
-                    border-radius: 20px;
+                    background-color: #fff6f9;
+                    border-radius: 21px;
+                    color: #f3a6c1;
                     font-size: 22px;
                 }
                 """
             )
 
             message_layout.addWidget(name_label)
-            message_layout.addWidget(self.bubble, 0, Qt.AlignRight)
+            message_layout.addWidget(
+                self.bubble,
+                0,
+                Qt.AlignRight,
+            )
             outer_layout.addStretch()
             outer_layout.addLayout(message_layout)
-            outer_layout.addWidget(avatar_label, alignment=Qt.AlignTop)
+            outer_layout.addWidget(
+                avatar_label,
+                alignment=Qt.AlignTop,
+            )
         else:
+            name_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: #4f86bd;
+                    font-family: {UI_FONT};
+                    font-size: 10px;
+                    font-weight: 700;
+                }}
+                """
+            )
             self.bubble.setStyleSheet(
+                f"""
+                QLabel {{
+                    background-color: #ffffff;
+                    border: 1px solid #dce9f6;
+                    border-radius: 17px;
+                    color: #35465a;
+                    font-family: {UI_FONT};
+                    font-size: 13px;
+                    padding: 9px 13px;
+                }}
+                """
+            )
+            avatar = create_round_avatar(
+                "assets/bekki_avatar.jpeg",
+                42,
+            )
+            if avatar.isNull():
+                avatar_label.setText("🩵")
+                avatar_label.setAlignment(Qt.AlignCenter)
+            else:
+                avatar_label.setPixmap(avatar)
+
+            avatar_label.setStyleSheet(
                 """
                 QLabel {
-                    background-color: #f7dce8;
-                    color: #3f5fa7;
-                    border: none;
-                    border-radius: 16px;
-                    padding: 9px 13px;
-                    font-family: "Yu Gothic UI";
-                    font-size: 13px;
+                    background-color: #eaf6ff;
+                    border: 1px solid #d7eafb;
+                    border-radius: 21px;
                 }
                 """
             )
 
-            avatar = create_round_avatar("assets/bekki_avatar.jpeg", 40)
-            if not avatar.isNull():
-                avatar_label.setPixmap(avatar)
-            else:
-                avatar_label.setText("💙")
-                avatar_label.setAlignment(Qt.AlignCenter)
-
             message_layout.addWidget(name_label)
-            message_layout.addWidget(self.bubble, 0, Qt.AlignLeft)
-            outer_layout.addWidget(avatar_label, alignment=Qt.AlignTop)
+            message_layout.addWidget(
+                self.bubble,
+                0,
+                Qt.AlignLeft,
+            )
+            outer_layout.addWidget(
+                avatar_label,
+                alignment=Qt.AlignTop,
+            )
             outer_layout.addLayout(message_layout)
             outer_layout.addStretch()
 
         self.setLayout(outer_layout)
-
         effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(effect)
         self.animation = QPropertyAnimation(effect, b"opacity")
@@ -233,65 +270,61 @@ class ChatArea(QWidget):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-
-        self.container = QWidget()
-        self.message_layout = QVBoxLayout()
-        self.message_layout.setAlignment(Qt.AlignTop)
-        self.message_layout.setSpacing(2)
-        self.container.setLayout(self.message_layout)
-        self.scroll.setWidget(self.container)
-
+        self.scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
         self.scroll.setStyleSheet(
             """
             QScrollArea {
-                border: none;
                 background: transparent;
+                border: none;
             }
             QScrollBar:vertical {
                 background: transparent;
-                width: 8px;
-                margin: 4px 2px 4px 2px;
+                margin: 5px 1px;
+                width: 7px;
             }
             QScrollBar::handle:vertical {
-                background: #cfd6df;
-                border-radius: 4px;
-                min-height: 28px;
+                background: #c5d6e8;
+                border-radius: 3px;
+                min-height: 30px;
             }
             QScrollBar::handle:vertical:hover {
-                background: #aeb8c5;
+                background: #9dbde0;
             }
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {
-                height: 0px;
+                height: 0;
             }
             QScrollBar::add-page:vertical,
             QScrollBar::sub-page:vertical {
                 background: transparent;
             }
-            QWidget {
-                background: transparent;
-            }
             """
         )
+
+        self.container = QWidget()
+        self.container.setStyleSheet("background: transparent;")
+        self.message_layout = QVBoxLayout()
+        self.message_layout.setAlignment(Qt.AlignTop)
+        self.message_layout.setContentsMargins(3, 4, 3, 4)
+        self.message_layout.setSpacing(2)
+        self.container.setLayout(self.message_layout)
+        self.scroll.setWidget(self.container)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.scroll)
         self.setLayout(layout)
-
         self.add_welcome_message()
 
     def add_welcome_message(self):
         self.add_message(
             "Bekki",
-            "👋 嗨～\n\n"
-            "我是 Bekki 🩵\n"
-            "今天想聊点什么呀？\n\n"
-            "我可以帮你：\n"
-            "• 搜索最新信息\n"
-            "• 回答问题\n"
-            "• 记住重要事情\n"
-            "• 陪你聊天 ✨",
+            "👋 嗨～我是 Bekki 🩵\n\n"
+            "今天想聊点什么呀？\n"
+            "我可以搜索、读文件、看图片，\n"
+            "也会记住重要的事情 ✨",
         )
 
     def add_message(self, role, message):
@@ -312,169 +345,159 @@ class ChatArea(QWidget):
 class InputArea(QWidget):
     def __init__(self):
         super().__init__()
-        self.document_bar = QFrame()
-        self.document_bar.setVisible(False)
 
-        self.document_bar.setStyleSheet(
-                """
-                QFrame {
-                    background-color: #eef5ff;
-                    border: 1px solid #d8e8fa;
-                    border-radius: 10px;
-                }
-                """
-            )
-
-        self.document_label = QLabel("")
-
-        self.document_label.setStyleSheet(
+        self.attachment_bar = QFrame()
+        self.attachment_bar.setVisible(False)
+        self.attachment_bar.setStyleSheet(
+            f"""
+            QFrame {{
+                background-color: #f4f8fe;
+                border: 1px solid #d8e8fa;
+                border-radius: 12px;
+            }}
             """
-            QLabel {
-                border: none;
+        )
+
+        self.attachment_label = QLabel()
+        self.attachment_label.setStyleSheet(
+            f"""
+            QLabel {{
                 background: transparent;
-                color: #53657a;
-                font-family: "Segoe UI";
+                border: none;
+                color: #4d627b;
+                font-family: {UI_FONT};
                 font-size: 12px;
-                padding: 3px;
-            }
+                padding: 4px;
+            }}
             """
         )
 
         self.document_close_button = QPushButton("×")
-        self.document_close_button.setFixedSize(26, 26)
-        self.document_close_button.setToolTip(
-            "Remove document"
-        )
-
+        self.document_close_button.setFixedSize(27, 27)
+        self.document_close_button.setToolTip("移除当前附件")
         self.document_close_button.setStyleSheet(
             """
             QPushButton {
-                border: none;
                 background: transparent;
-                color: #7d8996;
-                font-size: 18px;
+                border: none;
                 border-radius: 13px;
+                color: #7f91a6;
+                font-size: 18px;
             }
-
             QPushButton:hover {
-                background-color: #dceaf8;
-                color: #4d8fd4;
+                background-color: #e1edf9;
+                color: #4b91d9;
             }
-
             QPushButton:pressed {
-                background-color: #cfdfef;
+                background-color: #d2e4f5;
+            }
+            QPushButton:disabled {
+                color: #bbc5cf;
             }
             """
         )
 
-        document_layout = QHBoxLayout(
-            self.document_bar
-        )
+        attachment_layout = QHBoxLayout(self.attachment_bar)
+        attachment_layout.setContentsMargins(10, 4, 6, 4)
+        attachment_layout.setSpacing(6)
+        attachment_layout.addWidget(self.attachment_label)
+        attachment_layout.addStretch()
+        attachment_layout.addWidget(self.document_close_button)
 
-        document_layout.setContentsMargins(
-            10, 4, 6, 4
-        )
-
-        document_layout.setSpacing(6)
-
-        document_layout.addWidget(
-            self.document_label
-        )
-
-        document_layout.addStretch()
-
-        document_layout.addWidget(
-            self.document_close_button
-        )
-
-        self.status_label = QLabel("")
+        self.status_label = QLabel()
+        self.status_label.setVisible(False)
         self.status_label.setStyleSheet(
-            """
-            QLabel {
-                color: #888888;
-                font-family: "Segoe UI";
-                font-size: 12px;
-                padding: 4px;
-            }
+            f"""
+            QLabel {{
+                color: #7890a8;
+                font-family: {UI_FONT};
+                font-size: 11px;
+                padding: 2px 5px;
+            }}
             """
         )
 
         self.input_box = QLineEdit()
         self.input_box.setPlaceholderText("和 Bekki 聊点什么吧…")
-        self.input_box.setMinimumHeight(42)
+        self.input_box.setMinimumHeight(44)
         self.input_box.setStyleSheet(
-            """
-            QLineEdit {
+            f"""
+            QLineEdit {{
                 background-color: #ffffff;
-                border: 1px solid #dfe3e8;
-                border-radius: 18px;
-                padding: 0 14px;
-                font-family: "Segoe UI";
+                border: 1px solid #d4e1ef;
+                border-radius: 21px;
+                color: #334155;
+                font-family: {UI_FONT};
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #8ebff5;
-            }
-            QLineEdit:disabled {
-                background-color: #f5f6f8;
-                color: #9aa0a6;
-            }
+                padding: 0 15px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid #77b6f3;
+            }}
+            QLineEdit:disabled {{
+                background-color: #f4f6f9;
+                color: #9ba7b4;
+            }}
             """
         )
-        self.attach_button = QPushButton("📎")
-        self.attach_button.setFixedSize(40, 40)
-        self.attach_button.setToolTip("Attach document")
+
+        # Avoid emoji icons here: Windows renders the paperclip like an old
+        # toolbar glyph. A simple plus reads as "add attachment" and matches
+        # the modern rounded input treatment.
+        self.attach_button = QPushButton("＋")
+        self.attach_button.setFixedSize(42, 42)
+        self.attach_button.setToolTip("添加文件或图片")
         self.attach_button.setStyleSheet(
             """
             QPushButton {
-                background-color: transparent;
-                color: #6f7f90;
+                background: transparent;
                 border: none;
-                border-radius: 20px;
-                font-size: 18px;
+                border-radius: 21px;
+                color: #6c8094;
+                font-size: 25px;
+                font-weight: 300;
             }
-
             QPushButton:hover {
-                background-color: #e9f2fc;
-                color: #4d9ee8;
+                background-color: #eaf4ff;
+                color: #4b9be4;
             }
-
             QPushButton:pressed {
-                background-color: #dceaf8;
+                background-color: #dcecfb;
             }
-
             QPushButton:disabled {
-                color: #b8bec6;
+                color: #bbc4ce;
             }
             """
-                                         )
+        )
+
         self.send_button = QPushButton("➤")
-        self.send_button.setFixedSize(40, 40)
+        self.send_button.setFixedSize(44, 44)
+        self.send_button.setToolTip("发送")
         self.send_button.setStyleSheet(
             """
             QPushButton {
-                background-color: #6caef2;
-                color: white;
+                background-color: #68acf0;
                 border: none;
-                border-radius: 20px;
-                font-size: 17px;
-                font-weight: 600;
+                border-radius: 22px;
+                color: white;
+                font-size: 18px;
+                font-weight: 700;
             }
             QPushButton:hover {
-                background-color: #5a9ee5;
+                background-color: #559ee8;
             }
             QPushButton:pressed {
-                background-color: #4d8fd4;
+                background-color: #438bd5;
             }
             QPushButton:disabled {
-                background-color: #b9cde2;
+                background-color: #bad0e6;
             }
             """
         )
 
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(6)
+        input_layout.setSpacing(7)
         input_layout.addWidget(self.attach_button)
         input_layout.addWidget(self.input_box)
         input_layout.addWidget(self.send_button)
@@ -482,7 +505,7 @@ class InputArea(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(self.document_bar)
+        layout.addWidget(self.attachment_bar)
         layout.addWidget(self.status_label)
         layout.addLayout(input_layout)
         self.setLayout(layout)
@@ -494,12 +517,17 @@ class InputArea(QWidget):
         self.input_box.clear()
 
     def set_status(self, text):
-        self.status_label.setText(text)
+        self.status_label.setText(
+            "Bekki · " + text
+            if text else ""
+        )
+        self.status_label.setVisible(bool(text))
 
     def set_busy(self, busy):
         self.input_box.setEnabled(not busy)
         self.send_button.setEnabled(not busy)
         self.attach_button.setEnabled(not busy)
+        self.document_close_button.setEnabled(not busy)
 
     def focus_input(self):
         self.input_box.setFocus()
@@ -507,26 +535,24 @@ class InputArea(QWidget):
     def connect_send(self, handler):
         self.send_button.clicked.connect(handler)
         self.input_box.returnPressed.connect(handler)
+
     def connect_attach(self, handler):
         self.attach_button.clicked.connect(handler)
+
     def set_document(self, file_name):
-        self.document_label.setText(
-            "📄 " + file_name
-            )
+        self.attachment_label.setText("📄  " + file_name)
+        self.attachment_bar.setVisible(True)
 
-        self.document_bar.setVisible(
-            True
-            )
-    
+    def set_image(self, file_name):
+        self.attachment_label.setText("🖼️  " + file_name)
+        self.attachment_bar.setVisible(True)
+
     def clear_document(self):
-        self.document_label.clear()
+        self.attachment_label.clear()
+        self.attachment_bar.setVisible(False)
 
-        self.document_bar.setVisible(
-            False
-            )
-    def connect_document_close(self,handler):
-         self.document_close_button.clicked.connect(handler)
-
+    def connect_document_close(self, handler):
+        self.document_close_button.clicked.connect(handler)
 
 
 class BekkiWindow(QWidget):
@@ -535,11 +561,12 @@ class BekkiWindow(QWidget):
 
         self.setObjectName("mainWindow")
         self.setWindowTitle("Bekki AI")
-        self.resize(420, 560)
+        self.resize(440, 620)
+        self.setMinimumSize(400, 540)
         self.setStyleSheet(
             """
             #mainWindow {
-                background-color: #f6f8fb;
+                background-color: #f7faff;
             }
             """
         )
@@ -549,8 +576,8 @@ class BekkiWindow(QWidget):
         self.input_area = InputArea()
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setSpacing(8)
         layout.addWidget(self.header)
         layout.addWidget(self.chat)
         layout.addWidget(self.input_area)
@@ -582,6 +609,9 @@ class BekkiWindow(QWidget):
 
     def set_document(self, file_name):
         self.input_area.set_document(file_name)
+
+    def set_image(self, file_name):
+        self.input_area.set_image(file_name)
 
     def clear_document(self):
         self.input_area.clear_document()

@@ -1,9 +1,12 @@
 import json
 import sys
+from unittest import result
 
 import memory
 import tools
 import document
+import vision
+import os
 
 from PySide6.QtCore import QObject, QThread, Slot
 from PySide6.QtWidgets import QApplication,QFileDialog
@@ -26,8 +29,45 @@ current_worker = None
 with open("prompts/system.txt", "r", encoding="utf-8") as file:
     system_prompt = file.read()
 
+def parse_ai_result(ai_output):
+    try:
+        result = json.loads(ai_output)
+        return result, None
 
-def get_ai_response(message, search_result=None, action_context=None):
+    except json.JSONDecodeError as strict_error:
+        try:
+            result, end_index = (
+                json.JSONDecoder()
+                .raw_decode(ai_output.lstrip())
+            )
+
+            if (
+                isinstance(result, dict)
+                and isinstance(result.get("reply"), str)
+                and result["reply"].strip()
+            ):
+                trailing_text = ai_output.lstrip()[end_index:].strip()
+
+                print(
+                    "[AI JSON RECOVERED]",
+                    "ignored_trailing_chars=",
+                    len(trailing_text),
+                )
+
+                # 尾部损坏时只保留回复，
+                # 不保存不完整的 memory/action。
+                return {
+                    "reply": result["reply"],
+                    "memory": None,
+                    "pending_action": None,
+                }, strict_error
+
+        except json.JSONDecodeError:
+            pass
+
+        return None, strict_error
+
+def get_ai_response(message, search_result=None, action_context=None,image_context=None):
     # Keep the prompt responsive as a conversation gets longer.
     recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
     conversation_text = "\n".join(recent_conversation)
@@ -73,6 +113,15 @@ def get_ai_response(message, search_result=None, action_context=None):
             + document.get_document_context(message)
         )
 
+    image_context_text = ""
+    if image_context:
+        image_context_text = (
+            "\n\n############################"
+            "\nCurrent Image Context"
+            "\n############################\n"
+            + image_context
+        ) 
+
     prompt = (
         system_prompt
         + "\n\n############################"
@@ -85,6 +134,10 @@ def get_ai_response(message, search_result=None, action_context=None):
         + "\nCurrent Document Context"
         + "\n############################\n"
         + document_context
+        + "\n\n############################"
+        + "\nCurrent Image Context"
+        + "\n############################\n"
+        + image_context_text
         + "\n\n############################"
         + "\nCurrent Temporary Memory"
         + "\n############################\n"
@@ -114,11 +167,9 @@ def get_ai_response(message, search_result=None, action_context=None):
     print("AI RAW OUTPUT:")
     print(ai_output)
 
-    try:
-        result = json.loads(ai_output)
-    except json.JSONDecodeError as error:
-        print("JSON Parse Error:", error)
-        print("Broken AI Output:", repr(ai_output))
+    result, parse_error = parse_ai_result(ai_output)
+    if result is None:
+        print("[AI JSON ERROR]", parse_error)
         return "呜，刚才回复格式坏掉了，再试一次吧 🥺"
 
     if action_context is not None:
@@ -158,6 +209,7 @@ def process_request(message, status_callback):
     pending = memory.loading_pending_action()
     search_result = None
     action_context = None
+    image_context = None
 
     pending_confirmed = False
     if pending:
@@ -195,12 +247,20 @@ def process_request(message, status_callback):
                 search_query,
                 status_callback=status_callback,
             )
+        if vision.has_image():
+            status_callback("正在切换视觉模型… 👀")
+            tools.unload_model()
+            image_context = vision.analyze_image(
+                message,
+                status_callback=status_callback,
+            )
 
     status_callback("正在生成回复… 💭")
     return get_ai_response(
         message,
         search_result,
         action_context,
+        image_context
     )
 
 
@@ -300,16 +360,25 @@ def send_message():
 
     current_thread.start()
 
-def attach_document():
+def attach_file():
     file_path, _ = QFileDialog.getOpenFileName(
         window,
-        "Choose a document",
+        "Choose a file",
         "",
         (
+            "Supported Files "
+            "(*.pdf *.docx *.txt *.md "
+            "*.csv *.xlsx "
+            "*.png *.jpg *.jpeg *.webp);;"
             "Documents "
-            "(*.pdf *.docx *.txt *.md);;"
+            "(*.pdf *.docx *.txt *.md "
+            "*.csv *.xlsx);;"
+            "Images "
+            "(*.png *.jpg *.jpeg *.webp);;"
             "PDF Files (*.pdf);;"
             "Word Documents (*.docx);;"
+            "CSV Files (*.csv);;"
+            "Excel Workbooks (*.xlsx);;"
             "Text Files (*.txt *.md)"
         ),
     )
@@ -317,15 +386,74 @@ def attach_document():
     if not file_path:
         return
 
+    extension = os.path.splitext(
+        file_path
+    )[1].lower()
+
     window.set_status(
         "正在读取文件… 📎"
     )
 
+    # ==========================================
+    # Image
+    # ==========================================
+
+    if extension in (
+        vision.SUPPORTED_IMAGE_EXTENSIONS
+    ):
+        result = vision.load_image(
+            file_path
+        )
+
+        if not result.get("success"):
+            window.set_status("")
+
+            window.add_message(
+                "Bekki",
+                "图片读取失败了 🥺\n"
+                + str(
+                    result.get(
+                        "error",
+                        "Unknown error",
+                    )
+                ),
+            )
+
+            return
+
+        # Replace the previous document only
+        # after the image is fully validated.
+        document.clear_document()
+
+        window.set_status("")
+        window.set_image(
+            result["file_name"]
+        )
+
+        window.add_message(
+            "Bekki",
+            "🖼️ 已加载图片：\n"
+            + result["file_name"]
+            + "\n\n现在可以直接问我"
+            + "这张图片里的内容啦 ✨",
+        )
+
+        window.focus_input()
+        return
+
+    # ==========================================
+    # Document
+    # ==========================================
+
     result = document.load_document(
         file_path
     )
-    print("[MAIN DOCUMENT]",document.has_document(),document.get_current_document())
 
+    print(
+        "[MAIN DOCUMENT]",
+        document.has_document(),
+        document.get_current_document(),
+    )
 
     if not result.get("success"):
         window.set_status("")
@@ -336,16 +464,21 @@ def attach_document():
             + str(
                 result.get(
                     "error",
-                    "Unknown error"
+                    "Unknown error",
                 )
             ),
         )
 
         return
 
-    window.set_status("")
+    # Replace the previous image only after
+    # the document has loaded successfully.
+    vision.clear_image()
 
-    window.set_document(result["file_name"])
+    window.set_status("")
+    window.set_document(
+        result["file_name"]
+    )
 
     window.add_message(
         "Bekki",
@@ -359,7 +492,7 @@ def attach_document():
 
 def remove_document():
     document.clear_document()
-
+    vision.clear_image()
     window.clear_document()
 
     window.set_status("")
@@ -376,7 +509,7 @@ window.connect_send(
 )
 
 window.connect_attach(
-    attach_document
+    attach_file
 )
 
 window.connect_document_close(

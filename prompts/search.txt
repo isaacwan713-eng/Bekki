@@ -77,6 +77,38 @@ NO_SEARCH
 User: 我今晚想吃什么
 NO_SEARCH
 
+# Active Image Rule
+
+If an active local image is loaded and the user asks about what is visible,
+written, happening, broken, or designed in that image, do NOT search the web.
+
+Return:
+
+NO_SEARCH
+
+Examples:
+
+Active image:
+error_screenshot.png
+
+User:
+"What does this error mean?"
+
+Output:
+NO_SEARCH
+
+Active image:
+interface.jpg
+
+User:
+"What is wrong with this UI?"
+
+Output:
+NO_SEARCH
+
+If the user explicitly requests current external research or verification
+beyond the image, SEARCH may be used.
+
 
 If the user's question can be answered directly from the provided
 long-term memory, do NOT search.

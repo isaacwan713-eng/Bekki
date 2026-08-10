@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import context as context_manager
 import memory
 import document
+import vision
 
 import requests
 from dotenv import load_dotenv
@@ -102,6 +103,24 @@ def call_model(prompt, num_ctx=8192, num_predict=2048):
 
     return data.get("response", "").strip()
 
+def unload_model(
+    model_name=MODEL_NAME
+):
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": model_name,
+            "keep_alive": 0,
+        },
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    print(
+        "[MODEL UNLOADED]",
+        model_name,
+    )
 
 def run_ai_prompt(
     prompt_path,
@@ -149,6 +168,13 @@ def ai_decision(
                             + "\n"
                             + "The user may be asking about this document."
         )
+    image_context = "NO IMAGE ATTACHED"
+    if vision.has_image():
+        current_image = (vision.get_current_image())
+        image_context = ("An active image is currently loaded.\n"
+                         "File name: " + str(current_image.get("file_name", ""))
+                         +"\nThe user may be asking about this image."
+        )
     memory_data = memory.initialize_memory()
     long_term_context = memory.get_long_term_context(memory_data)
     conversation_state = (
@@ -168,6 +194,8 @@ def ai_decision(
         + long_term_context
         + "\n\nCurrent document context:\n"
         + document_context
+        + "\n\nCurrent image context:\n"
+        + image_context
         + "\n\nRecent conversation:\n"
         + conversation_context
         + "\n\nCurrent user message:\n"
@@ -1119,11 +1147,4 @@ if __name__ == "__main__":
         "第7页主要写了什么？",
     ]
 
-    for message in tests:
-        print("\n====================")
-        print("USER:", message)
-
-        result = decide_document_mode(
-            message
-        )
 

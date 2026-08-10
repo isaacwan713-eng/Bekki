@@ -1,12 +1,16 @@
 import os
 import re
 from collections import Counter
+import csv
+from io import StringIO
 
 SUPPORTED_EXTENSIONS = {
     ".txt",
     ".md",
     ".pdf",
     ".docx",
+    ".csv",
+    ".xlsx",
 }
 
 
@@ -58,6 +62,12 @@ def read_document(file_path):
 
         elif extension == ".docx":
             text = _read_docx(file_path)
+
+        elif extension == ".csv":
+            text = _read_csv(file_path)
+
+        elif extension == ".xlsx":
+            text = _read_xlsx(file_path)     
 
         else:
             text = ""
@@ -129,6 +139,254 @@ def _read_pdf(file_path):
 
     return "\n\n".join(pages)
 
+def _read_csv(file_path):
+    raw_text = _read_text_file(file_path)
+
+    if not raw_text.strip():
+        return ""
+
+    sample = raw_text[:8192]
+
+    try:
+        dialect = csv.Sniffer().sniff(
+            sample,
+            delimiters=",;\t|",
+        )
+    except csv.Error:
+        dialect = csv.excel
+
+    try:
+        has_header = csv.Sniffer().has_header(
+            sample
+        )
+    except csv.Error:
+        has_header = False
+
+    reader = csv.reader(
+        StringIO(raw_text),
+        dialect,
+    )
+
+    rows = list(reader)
+
+    if not rows:
+        return ""
+
+    max_columns = max(
+        len(row)
+        for row in rows
+    )
+
+    if has_header:
+        headers = [
+            value.strip() or f"Column {index + 1}"
+            for index, value in enumerate(rows[0])
+        ]
+
+        data_rows = rows[1:]
+        first_row_number = 2
+
+    else:
+        headers = [
+            f"Column {index + 1}"
+            for index in range(max_columns)
+        ]
+
+        data_rows = rows
+        first_row_number = 1
+
+    while len(headers) < max_columns:
+        headers.append(
+            f"Column {len(headers) + 1}"
+        )
+
+    parts = [
+        "[CSV Document]",
+        "Columns: " + " | ".join(headers),
+    ]
+
+    for row_number, row in enumerate(
+        data_rows,
+        start=first_row_number,
+    ):
+        values = []
+
+        for column_index, value in enumerate(row):
+            value = value.strip()
+
+            if not value:
+                continue
+
+            values.append(
+                headers[column_index]
+                + ": "
+                + value
+            )
+
+        if values:
+            parts.append(
+                "\n[Row "
+                + str(row_number)
+                + "]\n"
+                + "\n".join(values)
+            )
+
+    return "\n".join(parts)
+
+def _format_spreadsheet_value(value):
+    if value is None:
+        return ""
+
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except (TypeError, ValueError):
+            pass
+
+    return str(value).strip()
+
+
+def _read_xlsx(file_path):
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    workbook = load_workbook(
+        file_path,
+        read_only=True,
+        data_only=True,
+    )
+
+    try:
+        parts = [
+            "[Excel Workbook]",
+            "File: " + os.path.basename(file_path),
+        ]
+
+        readable_sheet_count = 0
+
+        for worksheet in workbook.worksheets:
+            populated_rows = []
+
+            for row_number, row in enumerate(
+                worksheet.iter_rows(
+                    values_only=True
+                ),
+                start=1,
+            ):
+                values = [
+                    _format_spreadsheet_value(
+                        value
+                    )
+                    for value in row
+                ]
+
+                while (
+                    values
+                    and not values[-1]
+                ):
+                    values.pop()
+
+                if any(values):
+                    populated_rows.append(
+                        (
+                            row_number,
+                            values,
+                        )
+                    )
+
+            if not populated_rows:
+                continue
+
+            readable_sheet_count += 1
+
+            header_row_number, header_values = (
+                populated_rows[0]
+            )
+
+            max_columns = max(
+                len(values)
+                for _, values in populated_rows
+            )
+
+            headers = []
+
+            for column_index in range(
+                max_columns
+            ):
+                if column_index < len(
+                    header_values
+                ):
+                    header = (
+                        header_values[
+                            column_index
+                        ]
+                    )
+                else:
+                    header = ""
+
+                if not header:
+                    header = (
+                        "Column "
+                        + get_column_letter(
+                            column_index + 1
+                        )
+                    )
+
+                headers.append(header)
+
+            parts.append(
+                "\n[Sheet: "
+                + worksheet.title
+                + "]"
+            )
+
+            parts.append(
+                "Header row: "
+                + str(header_row_number)
+            )
+
+            parts.append(
+                "Columns: "
+                + " | ".join(headers)
+            )
+
+            for row_number, values in (
+                populated_rows[1:]
+            ):
+                row_parts = []
+
+                for column_index, value in enumerate(
+                    values
+                ):
+                    if not value:
+                        continue
+
+                    row_parts.append(
+                        headers[column_index]
+                        + ": "
+                        + value
+                    )
+
+                if row_parts:
+                    parts.append(
+                        "\n[Sheet: "
+                        + worksheet.title
+                        + " | Row "
+                        + str(row_number)
+                        + "]\n"
+                        + "\n".join(
+                            row_parts
+                        )
+                    )
+
+        if readable_sheet_count == 0:
+            return ""
+
+        return "\n".join(parts)
+
+    finally:
+        workbook.close()
+
 
 def _read_docx(file_path):
     from docx import Document
@@ -144,6 +402,8 @@ def _read_docx(file_path):
             paragraphs.append(text)
 
     return "\n\n".join(paragraphs)
+
+
 
 
 def _clean_text(text):
