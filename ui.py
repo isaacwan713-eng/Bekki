@@ -1,7 +1,18 @@
 import os
 import sys
-from PySide6.QtCore import Qt, QPropertyAnimation, QTimer
-from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import (
+    Qt,
+    QPropertyAnimation,
+    QTimer,
+    QUrl,
+)
+from PySide6.QtGui import (
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -13,6 +24,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QGridLayout,
+    QMenu,
 )
 
 def resource_path(relative_path):
@@ -147,6 +160,9 @@ class MessageWidget(QWidget):
         message_layout = QVBoxLayout()
         message_layout.setContentsMargins(0, 0, 0, 0)
         message_layout.setSpacing(3)
+        self.source_layout = QGridLayout()
+        self.source_layout.setContentsMargins(0, 2, 0, 0)
+        self.source_layout.setSpacing(4)
 
         if is_user:
             name_label.setAlignment(Qt.AlignRight)
@@ -192,6 +208,7 @@ class MessageWidget(QWidget):
                 0,
                 Qt.AlignRight,
             )
+
             outer_layout.addStretch()
             outer_layout.addLayout(message_layout)
             outer_layout.addWidget(
@@ -248,6 +265,8 @@ class MessageWidget(QWidget):
                 0,
                 Qt.AlignLeft,
             )
+            message_layout.addLayout(self.source_layout)
+            self.source_layout.setAlignment(Qt.AlignRight)            
             outer_layout.addWidget(
                 avatar_label,
                 alignment=Qt.AlignTop,
@@ -268,7 +287,145 @@ class MessageWidget(QWidget):
         self.bubble.setText(text)
         self.bubble.adjustSize()
         self.bubble.updateGeometry()
+    def set_sources(self, sources):
+        while self.source_layout.count():
+            item = self.source_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
+        valid_sources = [
+            item for item in sources
+            if item.get("url")
+        ]
+
+        concrete_sources = [
+            item for item in valid_sources
+            if item.get("is_concrete_news", True)
+        ]
+        link_sources = [
+            item for item in valid_sources
+            if not item.get("is_concrete_news", True)
+        ]
+
+        # Keep Fact Check compact and show up to four concrete sources directly.
+        visible_sources = concrete_sources[:4]
+        hidden_sources = concrete_sources[4:] + link_sources
+
+        def make_badge(label, tooltip):
+            badge = QPushButton(label)
+            badge.setFixedSize(30, 30)
+            badge.setToolTip(tooltip)
+            badge.setCursor(Qt.PointingHandCursor)
+            badge.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: #edf6ff;
+                    border: 1px solid #bcdcf7;
+                    border-radius: 15px;
+                    color: #3e7eb8;
+                    font-family: {UI_FONT};
+                    font-size: 8px;
+                    font-weight: 700;
+                    padding: 0;
+                }}
+                QPushButton:hover {{
+                    background-color: #d9edff;
+                    border-color: #78afe2;
+                    color: #276da9;
+                }}
+                """
+            )
+            return badge
+
+        for index, source in enumerate(visible_sources):
+            url = source["url"]
+            domain = source.get("domain", "")
+            label = (
+                domain.lower()
+                .replace("www.", "")
+                .split(".")[0]
+                .upper()[:4]
+                or "↗"
+            )
+
+            badge = make_badge(
+                label,
+                "打开来源：" + (domain or url),
+            )
+            badge.clicked.connect(
+                lambda checked=False, target=url:
+                QDesktopServices.openUrl(QUrl(target))
+            )
+            self.source_layout.addWidget(
+                badge,
+                0,
+                index,
+            )
+
+        if hidden_sources:
+            more_badge = make_badge(
+                "↗ +" + str(len(hidden_sources)),
+                "查看其余来源",
+            )
+
+            def show_source_menu():
+                menu = QMenu(self)
+                menu.setStyleSheet(
+                    f"""
+                    QMenu {{
+                        background-color: #fffafd;
+                        border: 1px solid #d5e6f8;
+                        border-radius: 12px;
+                        color: #425b74;
+                        font-family: {UI_FONT};
+                        font-size: 12px;
+                        padding: 6px;
+                    }}
+                    QMenu::item {{
+                        background: transparent;
+                        border-radius: 8px;
+                        padding: 9px 18px;
+                    }}
+                    QMenu::item:selected {{
+                        background-color: #eaf5ff;
+                        color: #347bb8;
+                    }}
+                    """
+                )
+                for source in hidden_sources:
+                    url = source["url"]
+                    domain = source.get("domain", "") or url
+                    content_type = source.get(
+                        "content_type",
+                        "",
+                    )
+
+                    title = domain
+                    if content_type and content_type != "NEWS":
+                        title += " · " + content_type
+
+                    action = menu.addAction(title)
+                    action.triggered.connect(
+                        lambda checked=False, target=url:
+                        QDesktopServices.openUrl(QUrl(target))
+                    )
+
+                menu.exec(
+                    more_badge.mapToGlobal(
+                        more_badge.rect().bottomLeft()
+                    )
+                )
+
+            more_badge.clicked.connect(show_source_menu)
+            self.source_layout.addWidget(
+                more_badge,
+                0,
+                len(visible_sources),
+            )
+
+        self.adjustSize()
+        self.updateGeometry()
 
 class ChatArea(QWidget):
     def __init__(self):

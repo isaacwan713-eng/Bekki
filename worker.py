@@ -4,7 +4,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 class AIWorker(QObject):
     """Runs one complete user request outside the UI thread."""
 
-    finished = Signal(str)
+    finished = Signal(object)
     failed = Signal(str)
     status = Signal(str)
 
@@ -18,7 +18,6 @@ class AIWorker(QObject):
             print("[WORKER] TASK START")
             result = self.task(self.status.emit)
             print("[WORKER] TASK FINISHED")
-            print("[WORKER] EMITTING FINISHED")
             self.finished.emit(result)
             print("[WORKER] FINISHED EMITTED")
         except Exception as error:

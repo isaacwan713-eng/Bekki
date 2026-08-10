@@ -7,6 +7,7 @@ import tools
 import document
 import vision
 import os
+import magi
 
 from PySide6.QtCore import QObject, QThread, Slot
 from PySide6.QtWidgets import QApplication,QFileDialog
@@ -71,7 +72,7 @@ def parse_ai_result(ai_output):
 
         return None, strict_error
 
-def get_ai_response(message, search_result=None, action_context=None,image_context=None):
+def get_ai_response(message, search_result=None, action_context=None,image_context=None,magi_plan=None):
     # Keep the prompt responsive as a conversation gets longer.
     recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
     conversation_text = "\n".join(recent_conversation)
@@ -79,6 +80,22 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
     long_term_context = memory.get_long_term_context(memory_data)
 
     search_context = ""
+    magi_instruction = ""
+
+    if (
+        magi_plan
+        and magi_plan.get("response_mode") == "NEWS_FEED"
+    ):
+        magi_instruction = (
+            "\n\nMAGI NEWS_FEED RULE:\n"
+            "Use only the current Ranked news items as news facts.\n"
+            "Do not use prior conversation as current news.\n"
+            "Do not invent dates, transfers, injuries, or events.\n"
+            "Only items marked is_concrete_news=true may become "
+            "news-summary bullets.\n"
+            "Generic pages are links, not news.\n"
+            "If no concrete news item exists, say so plainly.\n"
+        )    
     if search_result is not None:
         if isinstance(search_result, dict):
             formatted_results = search_result.get("context", "")
@@ -132,6 +149,7 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
         + "\nCurrent User Message"
         + "\n############################\n"
         + message
+        + magi_instruction
         + action_text
         + search_context
         + "\n\n############################"
@@ -204,9 +222,8 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
 def save_message(role, message):
     conversation.append(f"{role} : {message}")
 
-
 def process_request(message, status_callback):
-    """Runs the complete request pipeline in the worker thread."""
+    """Runs one complete V2 request in the worker thread."""
 
     status_callback("正在判断问题… ✨")
 
@@ -214,59 +231,170 @@ def process_request(message, status_callback):
     search_result = None
     action_context = None
     image_context = None
+    magi_plan = None
+    response_mode = "LOCAL_ANSWER"
 
-    pending_confirmed = False
-    if pending:
-        pending_confirmed = tools.is_confirmation(message)
+    # Keep the older pending-action behavior isolated from MAGI.
+    if pending and tools.is_confirmation(message):
+        if pending.get("type") == "search":
+            query = pending.get("query", "")
 
-    if pending_confirmed and pending.get("type") == "search":
-        query = pending.get("query", "")
-
-        try:
-            search_result = tools.search_controller(
-                query,
-                status_callback,
-            )
-
-            action_context = (
-                "The user confirmed the pending search. "
-                "The search has already been completed. "
-                "Answer the pending query directly using the current search evidence. "
-                "Pending query: "
-                + query
-            )
-        finally:
-
-            memory.clear_pending_action()
+            try:
+                search_result = tools.search_controller(
+                    query,
+                    status_callback,
+                )
+                action_context = (
+                    "The user confirmed the pending search. "
+                    "The search has already been completed. "
+                    "Answer directly using the current search evidence. "
+                    "Pending query: " + query
+                )
+                response_mode = "CLAIM_CHECK"
+            finally:
+                memory.clear_pending_action()
 
     else:
-        recent_context = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
-        tool = tools.decide_tools(message, recent_context)
+        recent_context = "\n".join(
+            conversation[-MAX_RECENT_MESSAGES:]
+        )
 
-        if tool == "search":
+        magi_plan = magi.plan_request(
+            message,
+            recent_context,
+        )
+        response_mode = magi_plan["response_mode"]
+
+        if magi_plan["needs_search"]:
             status_callback("正在整理搜索问题… 🔍")
-            recent_context = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
-            search_query = tools.build_search_query(message, recent_context)
-            search_result = tools.search_controller(
-                search_query,
-                status_callback=status_callback,
+
+            if response_mode == "CLAIM_CHECK":
+                search_query = tools.build_claim_query(
+                    magi_plan.get("claim_to_verify") or message
+                )
+            else:
+                search_query = tools.build_search_query(
+                    message,
+                    recent_context,
+                )
+
+            if response_mode == "NEWS_FEED":
+                search_result = tools.news_feed_controller(
+                    search_query,
+                    status_callback=status_callback,
+                )
+
+            elif response_mode == "FACT_LOOKUP":
+                search_result = tools.fact_lookup_controller(
+                    search_query,
+                    status_callback=status_callback,
+                )
+
+            elif response_mode == "CLAIM_CHECK":
+                # The only path allowed to use 3→5→7 consensus.
+                search_result = tools.search_controller(
+                    search_query,
+                    status_callback=status_callback,
+                )
+
+    # Vision remains independent from web-search mode.
+    if vision.has_image():
+        status_callback("正在切换视觉模型… 👀")
+        tools.unload_model()
+        image_context = vision.analyze_image(
+            message,
+            status_callback=status_callback,
+        )
+
+    # Python, not the main model, owns an insufficient claim-check verdict.
+    if response_mode == "CLAIM_CHECK":
+        judgment = (
+            search_result.get("judgment", {})
+            if isinstance(search_result, dict)
+            else {}
+        )
+
+        if not judgment.get("consensus", False):
+            reason = judgment.get(
+                "reason",
+                "多来源证据没有形成一致结论。",
             )
-        if vision.has_image():
-            status_callback("正在切换视觉模型… 👀")
-            tools.unload_model()
-            image_context = vision.analyze_image(
-                message,
-                status_callback=status_callback,
-            )
+
+            return {
+                "reply": (
+                    "我暂时不能确认这个说法 🥺\n\n"
+                    "我已经按 3→5→7 读取并核对了多个来源，"
+                    "但它们没有形成足够一致的证据。\n"
+                    "原因：" + reason
+                ),
+                "response_mode": "CLAIM_CHECK",
+                "sources": [
+                    {
+                        "domain": item.get("domain", ""),
+                        "url": item.get("url", ""),
+                        "source_score": item.get(
+                            "source_score",
+                            50,
+                        ),
+                        "is_concrete_news": True,
+                        "content_type": "NEWS",
+                    }
+                    for item in search_result.get("results", [])
+                    if item.get("url")
+                ],
+            }
 
     status_callback("正在生成回复… 💭")
-    return get_ai_response(
+
+    reply = get_ai_response(
         message,
         search_result,
         action_context,
-        image_context
+        image_context,
+        magi_plan,
     )
 
+    sources = []
+    if (
+        response_mode in {"CLAIM_CHECK", "NEWS_FEED"}
+        and isinstance(search_result, dict)
+    ):
+        seen_urls = set()
+
+        for item in search_result.get("results", []):
+            url = item.get("url", "")
+
+            if not url or url in seen_urls:
+                continue
+
+            seen_urls.add(url)
+            sources.append(
+                {
+                    "domain": item.get("domain", ""),
+                    "url": url,
+                    "source_score": item.get(
+                        "source_score",
+                        50,
+                    ),
+                    "is_concrete_news": item.get(
+                        "is_concrete_news",
+                        True,
+                    ),
+                    "content_type": item.get(
+                        "content_type",
+                        "NEWS",
+                    ),
+                }
+            )
+
+    print("[MAGI MODE]", response_mode)
+    print("[SOURCES FOR UI]", len(sources))
+
+    return {
+        "reply": reply,
+        "response_mode": response_mode,
+        "sources": sources,
+    }
 
 
 def clear_worker_references():
@@ -290,10 +418,20 @@ class RequestUIBridge(QObject):
 
         window.set_status(text)
 
-    @Slot(str)
-    def on_finished(self, reply):
+    @Slot(object)
+    def on_finished(self, payload):
+        if isinstance(payload, dict):
+            reply = payload.get("reply", "")
+            sources = payload.get("sources", [])
+        else:
+            reply = str(payload)
+            sources = []
+
+        print("[FACT CHECK SOURCES RECEIVED]", len(sources))
+
         if self.thinking_widget is not None:
             self.thinking_widget.set_text(reply)
+            self.thinking_widget.set_sources(sources)
 
         save_message("Bekki", reply)
 

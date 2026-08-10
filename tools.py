@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -83,6 +84,7 @@ def search(query, count=5):
                 "description": result.get("description", "No description"),
                 "url": url,
                 "domain": get_domain(url),
+                "published": result.get("age", None),
             }
         )
 
@@ -313,6 +315,26 @@ def build_search_query(
     return query or user_message
 
 
+def build_claim_query(claim):
+    input_text = (
+        "Current date:\n"
+        + datetime.now().date().isoformat()
+        + "\n\nClaim to verify:\n"
+        + claim
+    )
+
+    query = run_ai_prompt(
+        "prompts/claim_query.txt",
+        input_text,
+        expect_json=False,
+        num_ctx=4096,
+        num_predict=128,
+    ).strip()
+
+    print("BUILT CLAIM QUERY:", repr(query))
+    return query or claim
+
+
 def score_sources(query, search_results):
     if not search_results:
         return []
@@ -445,6 +467,218 @@ def find_consensus(query, answers):
 def _status(callback, text):
     if callback:
         callback(text)
+
+def _source_summary(results):
+    return [
+        {
+            "title": item.get("title", ""),
+            "description": item.get("description", ""),
+            "domain": item.get("domain", ""),
+            "url": item.get("url", ""),
+            "published": item.get("published", ""),
+            "source_score": item.get("source_score", 50),
+            "source_reason": item.get("source_reason", ""),
+            "is_concrete_news": item.get(
+                "is_concrete_news",
+                False,
+            ),
+            "content_type": item.get(
+                "content_type",
+                "OTHER",
+            ),
+            "news_score": item.get("news_score", 0),
+            "feed_score": item.get("feed_score", 0),
+        }
+        for item in results
+    ]
+
+def _deduplicate_headlines(results):
+    """Remove exact/near-exact headline duplicates without merging stories."""
+    unique_results = []
+    seen_titles = set()
+    seen_urls = set()
+
+    for item in results:
+        url = item.get("url", "").strip().lower()
+        title = item.get("title", "").strip().lower()
+        title_key = re.sub(r"[^a-z0-9\\u4e00-\\u9fff]+", "", title)
+
+        if url and url in seen_urls:
+            continue
+        if title_key and title_key in seen_titles:
+            continue
+
+        if url:
+            seen_urls.add(url)
+        if title_key:
+            seen_titles.add(title_key)
+        unique_results.append(item)
+
+    return unique_results
+
+
+def rank_news_results(query, search_results):
+    candidate_text = ""
+
+    for index, item in enumerate(search_results, start=1):
+        candidate_text += (
+            f"\nCandidate {index}\n"
+            f"Title: {item.get('title', '')}\n"
+            f"Description: {item.get('description', '')}\n"
+            f"Domain: {item.get('domain', '')}\n"
+            f"Source score: {item.get('source_score', 50)}\n"
+        )
+
+    result = run_ai_prompt(
+        "prompts/news_rank.txt",
+        "User news request:\n"
+        + query
+        + "\n\nCandidates:\n"
+        + candidate_text,
+        expect_json=True,
+        num_ctx=8192,
+        num_predict=1024,
+    )
+
+    decisions = result.get("items", []) if isinstance(result, dict) else []
+    decision_map = {
+        item.get("index"): item
+        for item in decisions
+        if isinstance(item, dict)
+    }
+
+    classified = []
+
+    for index, source in enumerate(search_results, start=1):
+        item = dict(source)
+        decision = decision_map.get(index, {})
+
+        item["is_concrete_news"] = bool(
+            decision.get("is_concrete_news", False)
+        )
+        item["content_type"] = str(
+            decision.get("content_type", "OTHER")
+        )
+
+        try:
+            item["news_score"] = max(
+                0,
+                min(100, int(decision.get("news_score", 0))),
+            )
+        except (TypeError, ValueError):
+            item["news_score"] = 0
+
+        item["feed_score"] = round(
+            item.get("source_score", 50) * 0.45
+            + item["news_score"] * 0.55
+        )
+        classified.append(item)
+
+    classified.sort(
+        key=lambda item: (
+            item["is_concrete_news"],
+            item["feed_score"],
+        ),
+        reverse=True,
+    )
+
+    return classified
+
+
+def news_feed_controller(query, status_callback=None):
+    """Return a weighted current-news feed. Never run 3→5→7 here."""
+    _status(status_callback, "正在搜索新闻… 🔍")
+    search_results = search(query, count=10)
+
+    if not isinstance(search_results, list):
+        return {
+            "status": "ERROR",
+            "query": query,
+            "context": "News search failed: " + str(search_results),
+        }
+
+    if not search_results:
+        return {
+            "status": "NO_RESULTS",
+            "query": query,
+            "context": "No current news results were found for: " + query,
+        }
+
+    _status(status_callback, "正在按来源排序… 📚")
+    scored_results = score_sources(query, search_results)
+    ranked_results = _deduplicate_headlines(rank_news_results(query, scored_results))
+
+    feed_items = _source_summary(ranked_results)
+    context = (
+        "MAGI response mode: NEWS_FEED\n"
+        "The user requested a broad current-news digest.\n"
+        "Present the following items as a concise ranked feed.\n"
+        "Keep their source names and dates when available.\n"
+        "Write the news digest only from items where "
+        "is_concrete_news is True.\n"
+        "Keep every other source as a clikcable link source,"
+        "but do not describe it as news.\n"
+        "Do not turn one article into a verified universal fact.\n\n"
+        "Ranked news items:\n"
+        + json.dumps(feed_items, ensure_ascii=False, indent=2)
+    )
+
+    return {
+        "status": "OK",
+        "query": query,
+        "results": ranked_results,
+        "context": context,
+    }
+
+
+def fact_lookup_controller(query, status_callback=None):
+    """Look up one current fact without the incremental 3→5→7 loop."""
+    _status(status_callback, "正在查找权威信息… 🔍")
+    search_results = search(query, count=7)
+
+    if not isinstance(search_results, list):
+        return {
+            "status": "ERROR",
+            "query": query,
+            "context": "Fact lookup failed: " + str(search_results),
+        }
+
+    if not search_results:
+        return {
+            "status": "NO_RESULTS",
+            "query": query,
+            "context": "No current result was found for: " + query,
+        }
+
+    _status(status_callback, "正在选择权威来源… 📚")
+    candidates = score_sources(query, search_results)[:3]
+
+    _status(status_callback, "正在读取结果… 📄")
+    read_results = read_search_results(candidates)
+    answers = extract_answers(query, read_results)
+
+    context = (
+        "MAGI response mode: FACT_LOOKUP\n"
+        "The user requested one current fact, not claim verification.\n"
+        "Answer directly from the strongest available evidence. State uncertainty "
+        "instead of inventing a value.\n\n"
+        "Extracted answers:\n"
+        + json.dumps(answers, ensure_ascii=False, indent=2)
+        + "\n\nSources consulted:\n"
+        + json.dumps(
+            _source_summary(read_results),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    return {
+        "status": "OK",
+        "query": query,
+        "results": read_results,
+        "answers": answers,
+        "context": context,
+    }
 
 
 def search_controller(query, status_callback=None):
