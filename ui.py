@@ -312,6 +312,80 @@ class ChatArea(QWidget):
 class InputArea(QWidget):
     def __init__(self):
         super().__init__()
+        self.document_bar = QFrame()
+        self.document_bar.setVisible(False)
+
+        self.document_bar.setStyleSheet(
+                """
+                QFrame {
+                    background-color: #eef5ff;
+                    border: 1px solid #d8e8fa;
+                    border-radius: 10px;
+                }
+                """
+            )
+
+        self.document_label = QLabel("")
+
+        self.document_label.setStyleSheet(
+            """
+            QLabel {
+                border: none;
+                background: transparent;
+                color: #53657a;
+                font-family: "Segoe UI";
+                font-size: 12px;
+                padding: 3px;
+            }
+            """
+        )
+
+        self.document_close_button = QPushButton("×")
+        self.document_close_button.setFixedSize(26, 26)
+        self.document_close_button.setToolTip(
+            "Remove document"
+        )
+
+        self.document_close_button.setStyleSheet(
+            """
+            QPushButton {
+                border: none;
+                background: transparent;
+                color: #7d8996;
+                font-size: 18px;
+                border-radius: 13px;
+            }
+
+            QPushButton:hover {
+                background-color: #dceaf8;
+                color: #4d8fd4;
+            }
+
+            QPushButton:pressed {
+                background-color: #cfdfef;
+            }
+            """
+        )
+
+        document_layout = QHBoxLayout(
+            self.document_bar
+        )
+
+        document_layout.setContentsMargins(
+            10, 4, 6, 4
+        )
+
+        document_layout.setSpacing(6)
+
+        document_layout.addWidget(
+            self.document_label
+        )
+
+        document_layout.addStretch()
+
+        document_layout.addWidget(
+            self.document_close_button
+        )
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet(
@@ -347,7 +421,33 @@ class InputArea(QWidget):
             }
             """
         )
+        self.attach_button = QPushButton("📎")
+        self.attach_button.setFixedSize(40, 40)
+        self.attach_button.setToolTip("Attach document")
+        self.attach_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: transparent;
+                color: #6f7f90;
+                border: none;
+                border-radius: 20px;
+                font-size: 18px;
+            }
 
+            QPushButton:hover {
+                background-color: #e9f2fc;
+                color: #4d9ee8;
+            }
+
+            QPushButton:pressed {
+                background-color: #dceaf8;
+            }
+
+            QPushButton:disabled {
+                color: #b8bec6;
+            }
+            """
+                                         )
         self.send_button = QPushButton("➤")
         self.send_button.setFixedSize(40, 40)
         self.send_button.setStyleSheet(
@@ -374,12 +474,15 @@ class InputArea(QWidget):
 
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
+        input_layout.setSpacing(6)
+        input_layout.addWidget(self.attach_button)
         input_layout.addWidget(self.input_box)
         input_layout.addWidget(self.send_button)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+        layout.addWidget(self.document_bar)
         layout.addWidget(self.status_label)
         layout.addLayout(input_layout)
         self.setLayout(layout)
@@ -396,6 +499,7 @@ class InputArea(QWidget):
     def set_busy(self, busy):
         self.input_box.setEnabled(not busy)
         self.send_button.setEnabled(not busy)
+        self.attach_button.setEnabled(not busy)
 
     def focus_input(self):
         self.input_box.setFocus()
@@ -403,6 +507,26 @@ class InputArea(QWidget):
     def connect_send(self, handler):
         self.send_button.clicked.connect(handler)
         self.input_box.returnPressed.connect(handler)
+    def connect_attach(self, handler):
+        self.attach_button.clicked.connect(handler)
+    def set_document(self, file_name):
+        self.document_label.setText(
+            "📄 " + file_name
+            )
+
+        self.document_bar.setVisible(
+            True
+            )
+    
+    def clear_document(self):
+        self.document_label.clear()
+
+        self.document_bar.setVisible(
+            False
+            )
+    def connect_document_close(self,handler):
+         self.document_close_button.clicked.connect(handler)
+
 
 
 class BekkiWindow(QWidget):
@@ -452,3 +576,15 @@ class BekkiWindow(QWidget):
 
     def connect_send(self, handler):
         self.input_area.connect_send(handler)
+
+    def connect_attach(self, handler):
+        self.input_area.connect_attach(handler)
+
+    def set_document(self, file_name):
+        self.input_area.set_document(file_name)
+
+    def clear_document(self):
+        self.input_area.clear_document()
+
+    def connect_document_close(self, handler):
+        self.input_area.connect_document_close(handler)

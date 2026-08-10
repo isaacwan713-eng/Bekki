@@ -3,12 +3,15 @@ import sys
 
 import memory
 import tools
+import document
 
 from PySide6.QtCore import QObject, QThread, Slot
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication,QFileDialog
+import document
 
 from ui import BekkiWindow
 from worker import AIWorker
+import context as context_manager
 
 
 MAX_RECENT_MESSAGES = 6
@@ -29,6 +32,7 @@ def get_ai_response(message, search_result=None, action_context=None):
     recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
     conversation_text = "\n".join(recent_conversation)
     temporary_context = memory.get_temporary_context(memory_data)
+    long_term_context = memory.get_long_term_context(memory_data)
 
     search_context = ""
     if search_result is not None:
@@ -53,6 +57,22 @@ def get_ai_response(message, search_result=None, action_context=None):
             + action_context
         )
 
+    conversation_state = context_manager.load_context()
+    context_state_text = json.dumps(
+        conversation_state,
+        ensure_ascii=False,
+        indent=2)
+
+    document_context = ""
+
+    if document.has_document():
+        document_context = (
+            "\n\n############################"
+            "\nCurrent Document Context"
+            "\n############################\n"
+            + document.get_document_context(message)
+        )
+
     prompt = (
         system_prompt
         + "\n\n############################"
@@ -62,10 +82,20 @@ def get_ai_response(message, search_result=None, action_context=None):
         + action_text
         + search_context
         + "\n\n############################"
+        + "\nCurrent Document Context"
+        + "\n############################\n"
+        + document_context
+        + "\n\n############################"
         + "\nCurrent Temporary Memory"
         + "\n############################\n"
         + temporary_context
         + "\n\n############################"
+        + "\nCurrent Long-term Memory"
+        + "\n############################\n"
+        + long_term_context
+        + "\n\n############################"
+        + "\nCurrent Conversation State"
+        + context_state_text
         + "\nRecent Conversation"
         + "\n############################\n"
         + conversation_text
@@ -99,10 +129,21 @@ def get_ai_response(message, search_result=None, action_context=None):
 
     memory.handle_memory(memory_data, result.get("memory"))
 
-    return result.get(
+    reply = result.get(
         "reply",
         "呜，豆豆这次没有生成正常回复，请再试一次 🥺",
     )
+    print("[debug]")
+
+    recent_conversation = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
+    context_manager.update_context(
+        recent_conversation = recent_conversation,
+        current_user_message = message,
+        latest_reply = reply
+    )
+    print("[DEBUG] AFTER CONTEXT UPDATE")
+    print("[DEBUG] RETURNING REPLY:", repr(reply))
+    return reply
 
 
 def save_message(role, message):
@@ -143,11 +184,13 @@ def process_request(message, status_callback):
             memory.clear_pending_action()
 
     else:
-        tool = tools.decide_tools(message)
+        recent_context = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
+        tool = tools.decide_tools(message, recent_context)
 
         if tool == "search":
             status_callback("正在整理搜索问题… 🔍")
-            search_query = tools.build_search_query(message)
+            recent_context = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
+            search_query = tools.build_search_query(message, recent_context)
             search_result = tools.search_controller(
                 search_query,
                 status_callback=status_callback,
@@ -257,11 +300,89 @@ def send_message():
 
     current_thread.start()
 
+def attach_document():
+    file_path, _ = QFileDialog.getOpenFileName(
+        window,
+        "Choose a document",
+        "",
+        (
+            "Documents "
+            "(*.pdf *.docx *.txt *.md);;"
+            "PDF Files (*.pdf);;"
+            "Word Documents (*.docx);;"
+            "Text Files (*.txt *.md)"
+        ),
+    )
+
+    if not file_path:
+        return
+
+    window.set_status(
+        "正在读取文件… 📎"
+    )
+
+    result = document.load_document(
+        file_path
+    )
+    print("[MAIN DOCUMENT]",document.has_document(),document.get_current_document())
+
+
+    if not result.get("success"):
+        window.set_status("")
+
+        window.add_message(
+            "Bekki",
+            "文件读取失败了 🥺\n"
+            + str(
+                result.get(
+                    "error",
+                    "Unknown error"
+                )
+            ),
+        )
+
+        return
+
+    window.set_status("")
+
+    window.set_document(result["file_name"])
+
+    window.add_message(
+        "Bekki",
+        "📎 已加载文件：\n"
+        + result["file_name"]
+        + "\n\n现在可以直接问我"
+        + "这个文件里的内容啦 ✨",
+    )
+
+    window.focus_input()
+
+def remove_document():
+    document.clear_document()
+
+    window.clear_document()
+
+    window.set_status("")
+
+    window.focus_input()
 
 app = QApplication(sys.argv)
+
 window = BekkiWindow()
 ui_bridge = RequestUIBridge()
-window.connect_send(send_message)
+
+window.connect_send(
+    send_message
+)
+
+window.connect_attach(
+    attach_document
+)
+
+window.connect_document_close(
+    remove_document
+)
+
 window.show()
 window.focus_input()
 

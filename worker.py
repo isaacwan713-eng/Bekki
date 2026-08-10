@@ -15,7 +15,12 @@ class AIWorker(QObject):
     @Slot()
     def run(self):
         try:
+            print("[WORKER] TASK START")
             result = self.task(self.status.emit)
+            print("[WORKER] TASK FINISHED")
+            print("[WORKER] EMITTING FINISHED")
             self.finished.emit(result)
+            print("[WORKER] FINISHED EMITTED")
         except Exception as error:
+            print("[WORKER ERROR]", repr(error))
             self.failed.emit(str(error))

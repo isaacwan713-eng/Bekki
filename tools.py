@@ -4,6 +4,9 @@ from datetime import datetime
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import context as context_manager
+import memory
+import document
 
 import requests
 from dotenv import load_dotenv
@@ -129,22 +132,76 @@ def run_ai_prompt(
         return None
 
 
-def ai_decision(prompt_path, user_message):
+def ai_decision(
+    prompt_path,
+    user_message,
+    conversation_context=""
+):
+    document_context = "NO DOCUMENT ATTACHED"
+    print("[tools document]",document.has_document(),document.get_current_document())
+    if document.has_document():
+        current_document  = (
+            document.get_current_document()
+        )
+        document_context = ("An active local document is currently loaded.\n"
+                            +"File name: " + 
+                            str(current_document.get("file_name", "")) 
+                            + "\n"
+                            + "The user may be asking about this document."
+        )
+    memory_data = memory.initialize_memory()
+    long_term_context = memory.get_long_term_context(memory_data)
+    conversation_state = (
+        context_manager.load_context()
+    )
+
+    context_state_text = json.dumps(
+        conversation_state,
+        ensure_ascii=False,
+        indent=2
+    )
+
+    input_text = (
+        "Current conversation state:\n"
+        + context_state_text
+        + "\n\nCurrent long-term memory:\n"
+        + long_term_context
+        + "\n\nCurrent document context:\n"
+        + document_context
+        + "\n\nRecent conversation:\n"
+        + conversation_context
+        + "\n\nCurrent user message:\n"
+        + user_message
+    )
+
     decision = run_ai_prompt(
         prompt_path,
-        "User:\n" + user_message,
+        input_text,
         expect_json=False,
         num_ctx=4096,
         num_predict=128,
     )
 
-    print("FINAL PROMPT LENGTH:", len(user_message))
+    print(
+        "FINAL PROMPT LENGTH:",
+        len(input_text)
+    )
+
     return decision.strip().upper()
 
 
-def should_search(user_message):
-    decision = ai_decision("prompts/search.txt", user_message)
+def should_search(
+    user_message,
+    conversation_context=""
+):
+    decision = ai_decision(
+        "prompts/search.txt",
+        user_message,
+        conversation_context
+    )
+
     print("SEARCH:", repr(decision))
+
     return decision.startswith("SEARCH")
 
 
@@ -154,26 +211,63 @@ def is_confirmation(message):
     return decision.startswith("CONFIRM")
 
 
-def decide_tools(message):
-    return "search" if should_search(message) else "chat"
+def decide_tools(
+    message,
+    conversation_context=""
+):
+    if should_search(
+        message,
+        conversation_context
+    ):
+        return "search"
+
+    return "chat"
 
 
-def build_search_query(user_message,conversation_context=""):
-    current_date = datetime.now().date().isoformat()
+def build_search_query(
+    user_message,
+    conversation_context=""
+):
+    current_date = (
+        datetime.now()
+        .date()
+        .isoformat()
+    )
+
+    conversation_state = (
+        context_manager.load_context()
+    )
+
+    context_state_text = json.dumps(
+        conversation_state,
+        ensure_ascii=False,
+        indent=2
+    )
+
+    input_text = (
+        "Current date:\n"
+        + current_date
+        + "\n\nCurrent conversation state:\n"
+        + context_state_text
+        + "\n\nRecent conversation:\n"
+        + conversation_context
+        + "\n\nCurrent user message:\n"
+        + user_message
+    )
 
     query = run_ai_prompt(
         "prompts/search_query.txt",
-        "Current date: " +  
-        datetime.now().strftime("%Y-%m-%d") + 
-        "\n\nRecent conversation:\n" +
-        conversation_context +
-        "\n\nUser:\n" + user_message,
+        input_text,
         expect_json=False,
         num_ctx=4096,
         num_predict=256,
     ).strip()
 
-    print("BUILT SEARCH QUERY:", repr(query))
+    print(
+        "BUILT SEARCH QUERY:",
+        repr(query)
+    )
+
     return query or user_message
 
 
@@ -997,4 +1091,39 @@ def read_search_results(search_results):
 
     return enriched_results
 
+def decide_document_mode(
+    user_message
+):
+    decision = ai_decision(
+        "prompts/document.txt",
+        user_message
+    )
+
+    decision = decision.strip().upper()
+
+    print(
+        "[DOCUMENT MODE]",
+        decision
+    )
+
+    if decision == "OVERVIEW":
+        return "overview"
+
+    return "retrieval"
+
+if __name__ == "__main__":
+    tests = [
+        "这个文件说了些什么？",
+        "这个文件是谁创建的？",
+        "大概跟我说说这里面都是啥",
+        "第7页主要写了什么？",
+    ]
+
+    for message in tests:
+        print("\n====================")
+        print("USER:", message)
+
+        result = decide_document_mode(
+            message
+        )
 

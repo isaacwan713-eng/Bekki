@@ -2,7 +2,6 @@ import json
 import os
 from datetime import datetime, timedelta
 
-
 DATA_FOLDER = "data"
 TEMPORARY_FILE = os.path.join(DATA_FOLDER, "temporary.json")
 TASK_FILE = os.path.join(DATA_FOLDER, "task.json")
@@ -37,9 +36,9 @@ def initialize_memory():
     create_json_file(
         PROFILE_FILE,
         {
-            "profile": {},
-            "preference": {},
-            "relationships": {},
+            "profile": [],
+            "preference": [],
+            "relationships": [],
         },
     )
     create_json_file(PENDING_FILE, {})
@@ -50,9 +49,9 @@ def initialize_memory():
         "profile": load_json_file(
             PROFILE_FILE,
             {
-                "profile": {},
-                "preference": {},
-                "relationships": {},
+                "profile": [],
+                "preference": [],
+                "relationships": [],
             },
         ),
     }
@@ -74,23 +73,216 @@ def add_temporary(memory_data, content):
     memory_data["temporary"].append(new_memory)
     save_json_file(TEMPORARY_FILE, memory_data["temporary"])
 
+def judge_long_term_memory(
+    category,
+    content,
+    existing_memories
+):
+    from tools import run_ai_prompt
 
-def handle_memory(memory_data, memory_info):
-    if not memory_info or not isinstance(memory_info, dict):
+    input_text = (
+        "Memory category:\n"
+        + category
+        + "\n\nExisting memories:\n"
+        + json.dumps(
+            existing_memories,
+            ensure_ascii=False,
+            indent=2
+        )
+        + "\n\nNew candidate:\n"
+        + json.dumps(
+            {
+                "type": category,
+                "content": content,
+            },
+            ensure_ascii=False,
+            indent=2
+        )
+    )
+
+    result = run_ai_prompt(
+        "prompts/memory_judge.txt",
+        input_text,
+        expect_json=True,
+        num_ctx=4096,
+        num_predict=256,
+    )
+
+    if not isinstance(result, dict):
+        return {
+            "action": "IGNORE",
+            "target_index": None,
+            "content": None,
+        }
+
+    return result
+
+def add_long_term_memory(
+    memory_data,
+    category,
+    content
+):
+    profile_data = memory_data["profile"]
+
+    if category not in profile_data:
         return
 
-    if memory_info.get("type") != "temporary":
+    memories = profile_data[category]
+
+    judgment = judge_long_term_memory(
+        category,
+        content,
+        memories
+    )
+
+    action = str(
+        judgment.get("action", "IGNORE")
+    ).upper()
+
+    new_content = judgment.get(
+        "content"
+    )
+
+    target_index = judgment.get(
+        "target_index"
+    )
+
+    print(
+        "[MEMORY JUDGE]",
+        judgment
+    )
+
+
+    # ==========================================
+    # IGNORE
+    # ==========================================
+
+    if action == "IGNORE":
         return
 
-    new_content = memory_info.get("content")
-    if not new_content:
-        return
 
-    for existing_memory in memory_data["temporary"]:
-        if existing_memory.get("content") == new_content:
+    # ==========================================
+    # ADD
+    # ==========================================
+
+    if action == "ADD":
+
+        if not new_content:
             return
 
-    add_temporary(memory_data, new_content)
+        current_time = (
+            datetime.now().isoformat()
+        )
+
+        memories.append(
+            {
+                "content": new_content,
+                "created_at": current_time,
+                "updated_at": current_time,
+            }
+        )
+
+
+    # ==========================================
+    # UPDATE
+    # ==========================================
+
+    elif action == "UPDATE":
+
+        if (
+            not isinstance(target_index, int)
+            or target_index < 0
+            or target_index >= len(memories)
+            or not new_content
+        ):
+            return
+
+        old_memory = memories[
+            target_index
+        ]
+
+        memories[target_index] = {
+            "content": new_content,
+
+            "created_at": old_memory.get(
+                "created_at",
+                datetime.now().isoformat()
+            ),
+
+            "updated_at":
+                datetime.now().isoformat(),
+        }
+
+    else:
+        return
+
+
+    save_json_file(
+        PROFILE_FILE,
+        profile_data
+    )
+
+def handle_memory(
+    memory_data,
+    memory_info
+):
+    if (
+        not memory_info
+        or not isinstance(memory_info, dict)
+    ):
+        return
+
+    memory_type = memory_info.get(
+        "type"
+    )
+
+    content = memory_info.get(
+        "content"
+    )
+
+    if not content:
+        return
+
+
+    # ==============================================
+    # Temporary
+    # ==============================================
+
+    if memory_type == "temporary":
+
+        for existing_memory in memory_data[
+            "temporary"
+        ]:
+            if (
+                existing_memory.get("content")
+                == content
+            ):
+                return
+
+        add_temporary(
+            memory_data,
+            content
+        )
+
+        return
+
+
+    # ==============================================
+    # Long-term
+    # ==============================================
+
+    if memory_type in {
+        "profile",
+        "preference",
+        "relationships",
+    }:
+        add_long_term_memory(
+            memory_data,
+            memory_type,
+            content
+        )
+
+        return
 
 
 def clean_expired_temporary(memory_data):
@@ -128,6 +320,58 @@ def get_temporary_context(memory_data):
     )
     return "\n".join(lines)
 
+def get_long_term_context(memory_data):
+    profile_data = memory_data.get(
+        "profile",
+        {}
+    )
+
+    lines = [
+        "Current Long-term Memory:",
+        ""
+    ]
+
+    found_memory = False
+
+    for category in [
+        "profile",
+        "preference",
+        "relationships",
+    ]:
+        memories = profile_data.get(
+            category,
+            []
+        )
+
+        if not memories:
+            continue
+
+        found_memory = True
+
+        lines.append(
+            f"[{category}]"
+        )
+
+        for item in memories:
+            content = item.get(
+                "content",
+                ""
+            )
+
+            if content:
+                lines.append(
+                    f"- {content}"
+                )
+
+        lines.append("")
+
+    if not found_memory:
+        return (
+            "Current Long-term Memory:\n\n"
+            "None"
+        )
+
+    return "\n".join(lines)
 
 def save_pending_action(action):
     os.makedirs(DATA_FOLDER, exist_ok=True)
