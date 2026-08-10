@@ -26,7 +26,11 @@ current_thread = None
 current_worker = None
 
 
-with open("prompts/system.txt", "r", encoding="utf-8") as file:
+with open(
+    tools.resource_path("prompts/system.txt"),
+    "r",
+    encoding="utf-8",
+) as file:
     system_prompt = file.read()
 
 def parse_ai_result(ai_output):

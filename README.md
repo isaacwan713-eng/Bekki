@@ -82,7 +82,7 @@ python main.py
 
 Create a .env file if you want web search:
 
-BRAVE_SEARCH_API_KEY=your_key_here
+BRAVE_API_KEY=your_key_here
 
 Keep .env private. Never commit or share it.
 

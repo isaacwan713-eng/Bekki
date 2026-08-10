@@ -223,7 +223,7 @@ class MessageWidget(QWidget):
                 """
             )
             avatar = create_round_avatar(
-                "assets/bekki_avatar.jpeg",
+                resource_path("assets/bekki_avatar.jpeg"),
                 42,
             )
             if avatar.isNull():

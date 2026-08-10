@@ -8,15 +8,29 @@ import context as context_manager
 import memory
 import document
 import vision
-
+import sys
 import requests
 from dotenv import load_dotenv
 from io import BytesIO
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright
 
+def resource_path(relative_path):
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
-load_dotenv()
+
+def config_path(relative_path):
+    if getattr(sys, "frozen", False):
+        external_path = os.path.join(
+            os.path.dirname(sys.executable),
+            relative_path,
+        )
+        if os.path.exists(external_path):
+            return external_path
+
+    return resource_path(relative_path)
+load_dotenv(config_path(".env"))
 
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
@@ -129,7 +143,7 @@ def run_ai_prompt(
     num_ctx=8192,
     num_predict=2048,
 ):
-    with open(prompt_path, "r", encoding="utf-8") as file:
+    with open(resource_path(prompt_path), "r", encoding="utf-8") as file:
         system_prompt = file.read()
 
     prompt = system_prompt + "\n\n" + input_text
