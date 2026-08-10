@@ -1,5 +1,7 @@
+import os
+import sys
 from PySide6.QtCore import Qt, QPropertyAnimation, QTimer
-from PySide6.QtGui import QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -12,6 +14,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+def resource_path(relative_path):
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
 
 UI_FONT = '"Microsoft YaHei UI", "Segoe UI"'
@@ -561,6 +567,7 @@ class BekkiWindow(QWidget):
 
         self.setObjectName("mainWindow")
         self.setWindowTitle("Bekki AI")
+        self.setWindowIcon(QIcon(resource_path("assets/bekki.ico")))
         self.resize(440, 620)
         self.setMinimumSize(400, 540)
         self.setStyleSheet(

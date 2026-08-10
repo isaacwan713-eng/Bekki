@@ -13,3 +13,7 @@
 
 #save api
 .env
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
