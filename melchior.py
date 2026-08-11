@@ -1,4 +1,4 @@
-"""V2 MAGI request router.
+"""V2 melchior request router.
 
 This module decides what kind of result the user needs.  It deliberately does
 not execute search, read documents, or generate the final reply.
@@ -19,6 +19,13 @@ VALID_MODES = {
     "NEWS_FEED",
     "FACT_LOOKUP",
     "CLAIM_CHECK",
+    "SOCIAL_RESEARCH",
+}
+
+VALID_SOCIAL_PLATFORMS = {
+    "xiaohongshu",
+    "instagram",
+    "x",    
 }
 
 DEFAULT_PLAN = {
@@ -27,6 +34,7 @@ DEFAULT_PLAN = {
     "research_depth": "none",
     "source_policy": "local_context",
     "claim_to_verify": None,
+    "social_platforms": [],
     "reason": "Fallback route: answer from local context when possible.",
 }
 
@@ -86,6 +94,21 @@ def _normalize_plan(plan):
         normalized["research_depth"] = "3_5_7"
         normalized["source_policy"] = "evidence_verification"
 
+    if normalized["response_mode"] == "SOCIAL_RESEARCH":
+        normalized["needs_search"] = True
+        normalized["research_depth"] = "social_handoff"
+        normalized["source_policy"] = "platform_native"
+
+    platforms = normalized.get("social_platforms", [])
+    if not isinstance(platforms, list):
+        platforms = []
+    normalized["social_platforms"] = [
+        str(platform).lower().strip()
+        for platform in platforms
+        if str(platform).lower().strip() in VALID_SOCIAL_PLATFORMS
+    ]
+    normalized["social_platforms"] = list(dict.fromkeys(normalized["social_platforms"]))
+
     if not isinstance(normalized.get("claim_to_verify"), str):
         normalized["claim_to_verify"] = None
 
@@ -117,7 +140,7 @@ def plan_request(user_message, conversation_context=""):
     )
 
     raw_plan = tools.run_ai_prompt(
-        "prompts/magi_router.txt",
+        "prompts/melchior_router.txt",
         input_text,
         expect_json=True,
         num_ctx=4096,
@@ -125,5 +148,5 @@ def plan_request(user_message, conversation_context=""):
     )
 
     plan = _normalize_plan(raw_plan)
-    print("[MAGI PLAN]", json.dumps(plan, ensure_ascii=False))
+    print("[melchior PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan

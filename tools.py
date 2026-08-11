@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import social_browser
 from datetime import datetime
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -11,6 +12,9 @@ import document
 import vision
 import sys
 import requests
+import webbrowser
+import time
+from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
 from io import BytesIO
 from pypdf import PdfReader
@@ -90,13 +94,18 @@ def search(query, count=5):
 
     return search_results
 
-
-def call_model(prompt, num_ctx=8192, num_predict=2048):
+def call_model(
+    prompt,
+    num_ctx=8192,
+    num_predict=2048,
+    think="low",
+    model_name=None,
+):
     payload = {
-        "model": MODEL_NAME,
+        "model": model_name or MODEL_NAME,
         "prompt": prompt,
         "stream": False,
-        "think": "low",
+        "think": think,
         "options": {
             "temperature": 0,
             "num_ctx": num_ctx,
@@ -144,6 +153,8 @@ def run_ai_prompt(
     expect_json=False,
     num_ctx=8192,
     num_predict=2048,
+    think="low",
+    model_name=None,
 ):
     with open(resource_path(prompt_path), "r", encoding="utf-8") as file:
         system_prompt = file.read()
@@ -154,6 +165,8 @@ def run_ai_prompt(
         prompt,
         num_ctx=num_ctx,
         num_predict=num_predict,
+        think=think,
+        model_name=model_name,
     )
 
     if not expect_json:
@@ -610,7 +623,7 @@ def news_feed_controller(query, status_callback=None):
 
     feed_items = _source_summary(ranked_results)
     context = (
-        "MAGI response mode: NEWS_FEED\n"
+        "melchior response mode: NEWS_FEED\n"
         "The user requested a broad current-news digest.\n"
         "Present the following items as a concise ranked feed.\n"
         "Keep their source names and dates when available.\n"
@@ -658,7 +671,7 @@ def fact_lookup_controller(query, status_callback=None):
     answers = extract_answers(query, read_results)
 
     context = (
-        "MAGI response mode: FACT_LOOKUP\n"
+        "melchior response mode: FACT_LOOKUP\n"
         "The user requested one current fact, not claim verification.\n"
         "Answer directly from the strongest available evidence. State uncertainty "
         "instead of inventing a value.\n\n"
@@ -679,6 +692,235 @@ def fact_lookup_controller(query, status_callback=None):
         "answers": answers,
         "context": context,
     }
+
+
+SOCIAL_PLATFORM_NAMES = {
+    "xiaohongshu": "小红书",
+    "instagram": "Instagram",
+    "x": "X (formerly Twitter)",
+}
+
+
+def build_social_query(user_message, platforms):
+    raw_result = run_ai_prompt(
+        "prompts/social_query.txt",
+        json.dumps(
+            {
+                "user_message": user_message,
+                "platforms": platforms,
+            },
+            ensure_ascii=False,
+        ),
+        expect_json=True,
+        num_ctx=2048,
+        num_predict=120,
+        think=False,
+        model_name="llama3.2:latest",
+        )
+    
+
+    if isinstance(raw_result, dict):
+        query = str(raw_result.get("query", "")).strip()
+        if query:
+            return query[:160]
+
+    return user_message.strip()[:160]
+
+def extract_social_evidence(
+    page_text,
+    recency_days=7,
+):
+    """Keep only recent, visible, unverified social discussion items."""
+
+    current_date = datetime.now().date().isoformat()
+
+    input_text = (
+        "Current date: " + current_date
+        + "\nRequested recency window: "
+        + str(recency_days)
+        + " days\n\nVisible social-page text:\n"
+        + page_text[:18000]
+    )
+
+    evidence = run_ai_prompt(
+        "prompts/social_extract.txt",
+        input_text,
+        expect_json=True,
+        num_ctx=8192,
+        num_predict=1400,
+        think=False,
+        model_name="llama3.2:latest",
+    )
+    print(
+        "[SOCIAL EVIDENCE]",
+        json.dumps(
+            evidence,
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+    if not isinstance(evidence, dict):
+        return {
+            "page_summary": "",
+            "recent_post_count": 0,
+            "items": [],
+            "excluded_count": 0,
+            "warnings": [
+                "页面内容无法被可靠地结构化提取。",
+            ],
+        }
+
+    items = evidence.get("items", [])
+    if not isinstance(items, list):
+        items = []
+
+    try:
+        recent_post_count = max(
+            int(evidence.get("recent_post_count", 0) or 0),
+            0,
+        )
+    except (TypeError, ValueError):
+        recent_post_count = 0
+
+    try:
+        excluded_count = max(
+            int(evidence.get("excluded_count", 0) or 0),
+            0,
+        )
+    except (TypeError, ValueError):
+        excluded_count = 0
+
+    warnings = evidence.get("warnings", [])
+    if not isinstance(warnings, list):
+        warnings = []
+
+    return {
+        "page_summary": str(
+            evidence.get("page_summary", "")
+        )[:700],
+        "recent_post_count": recent_post_count,
+        "items": items[:5],
+        "excluded_count": excluded_count,
+        "warnings": warnings[:4],
+    }
+
+def social_research_controller(
+    user_message,
+    platforms,
+    status_callback=None,
+    recency_days=7,
+):
+    """Search an authorized social page and return unverified discussion evidence."""
+
+    platforms = [
+        platform
+        for platform in platforms
+        if platform in SOCIAL_PLATFORM_NAMES
+    ]
+
+    if not platforms:
+        return {
+            "status": "NO_PLATFORM",
+            "query": "",
+            "results": [],
+            "context": "No supported social platform was selected.",
+        }
+
+    _status(status_callback, "正在整理社媒关键词… 💬")
+    query = build_social_query(user_message, platforms)
+    print("[SOCIAL QUERY]", platforms, repr(query))
+
+    page_texts = []
+    results = []
+
+    for platform in platforms:
+        _status(
+            status_callback,
+            "正在搜索 "
+            + SOCIAL_PLATFORM_NAMES[platform]
+            + "… 🔎",
+        )
+
+        try:
+            opened = social_browser.open_social_search(
+                platform,
+                query,
+            )
+
+            # Give a social SPA a brief moment to render its visible posts.
+            time.sleep(2)
+
+            page = social_browser.inspect_active_social_page(
+                platform
+                ,expected_url=opened.get("url", ""),
+            )
+
+            visible_text = page.get("visible_text", "").strip()
+
+            if visible_text:
+                page_texts.append(
+                    "\n\n===== "
+                    + SOCIAL_PLATFORM_NAMES[platform]
+                    + " =====\n"
+                    + visible_text
+                )
+
+            results.append(
+                {
+                    "domain": SOCIAL_PLATFORM_NAMES.get(platform,""),
+                    "url": page.get(
+                        "url",
+                        opened.get("url", ""),
+                    ),
+                    "source_score": 100,
+                    "is_concrete_news": False,
+                    "content_type": "SOCIAL_DISCUSSION",
+                }
+            )
+
+        except Exception as error:
+            print(
+                "[SOCIAL RESEARCH ERROR]",
+                platform,
+                repr(error),
+            )
+    social_browser.close_social_browser()
+    if not page_texts:
+        return {
+            "status": "NO_READABLE_SOCIAL_PAGE",
+            "query": query,
+            "results": results,
+            "context": (
+                "MELCHIOR response mode: SOCIAL_RESEARCH\n"
+                "The social search page could not be read."
+            ),
+        }
+    evidence = extract_social_evidence(
+        "\n".join(page_texts),
+        recency_days=recency_days,)
+
+    context = (
+        "MELCHIOR response mode: SOCIAL_RESEARCH\n"
+        "This is filtered visible discussion from a user-authorized"
+        "social-media search page.\n"
+        "The requested time window is the last "
+        + str(recency_days)
+        + " days.\n"
+        "Describe only what people are discussing.\n"
+        "Social posts and rumors are not confirmed facts.\n"
+        "Do not use prior conversation as evidence.\n\n"
+        "Filtered social evidence:\n"
+        + json.dumps(evidence,ensure_ascii=False,indent=2,)
+    )
+
+    return {
+        "status": "OK",
+        "query": query,
+        "results": results,
+        "context": context,
+    }
+
 
 
 def search_controller(query, status_callback=None):

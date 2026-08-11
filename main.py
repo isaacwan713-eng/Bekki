@@ -7,7 +7,7 @@ import tools
 import document
 import vision
 import os
-import magi
+import melchior
 
 from PySide6.QtCore import QObject, QThread, Slot
 from PySide6.QtWidgets import QApplication,QFileDialog
@@ -72,7 +72,7 @@ def parse_ai_result(ai_output):
 
         return None, strict_error
 
-def get_ai_response(message, search_result=None, action_context=None,image_context=None,magi_plan=None):
+def get_ai_response(message, search_result=None, action_context=None,image_context=None,melchior_plan=None):
     # Keep the prompt responsive as a conversation gets longer.
     recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
     conversation_text = "\n".join(recent_conversation)
@@ -80,14 +80,14 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
     long_term_context = memory.get_long_term_context(memory_data)
 
     search_context = ""
-    magi_instruction = ""
+    melchior_instruction = ""
 
     if (
-        magi_plan
-        and magi_plan.get("response_mode") == "NEWS_FEED"
+        melchior_plan
+        and melchior_plan.get("response_mode") == "NEWS_FEED"
     ):
-        magi_instruction = (
-            "\n\nMAGI NEWS_FEED RULE:\n"
+        melchior_instruction = (
+            "\n\nmelchior NEWS_FEED RULE:\n"
             "Use only the current Ranked news items as news facts.\n"
             "Do not use prior conversation as current news.\n"
             "Do not invent dates, transfers, injuries, or events.\n"
@@ -96,6 +96,22 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
             "Generic pages are links, not news.\n"
             "If no concrete news item exists, say so plainly.\n"
         )    
+    if (
+        melchior_plan
+        and melchior_plan.get("response_mode") == "SOCIAL_RESEARCH"
+    ):
+        melchior_instruction = (
+            "\n\nMELCHIOR SOCIAL_RESEARCH RULE:\n"
+            "Use only the supplied structured social evidence.\n"
+            "State recent_post_count and the requested time window when available.\n"
+            "Describe what social posts are discussing, not what is proven.\n"
+            "Clearly distinguish rumors, reposts, opinions, and confirmed facts.\n"
+            "Do not use prior conversation as evidence.\n"
+            "Do not invent social posts, dates, authors, or engagement.\n"
+            "Do not use items outside the requested time window.\n"
+            "If there are no usable items, say the page had no readable "
+            "social results.\n"
+        )
     if search_result is not None:
         if isinstance(search_result, dict):
             formatted_results = search_result.get("context", "")
@@ -149,7 +165,7 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
         + "\nCurrent User Message"
         + "\n############################\n"
         + message
-        + magi_instruction
+        + melchior_instruction
         + action_text
         + search_context
         + "\n\n############################"
@@ -231,10 +247,10 @@ def process_request(message, status_callback):
     search_result = None
     action_context = None
     image_context = None
-    magi_plan = None
+    melchior_plan = None
     response_mode = "LOCAL_ANSWER"
 
-    # Keep the older pending-action behavior isolated from MAGI.
+    # Keep the older pending-action behavior isolated from melchior.
     if pending and tools.is_confirmation(message):
         if pending.get("type") == "search":
             query = pending.get("query", "")
@@ -259,18 +275,26 @@ def process_request(message, status_callback):
             conversation[-MAX_RECENT_MESSAGES:]
         )
 
-        magi_plan = magi.plan_request(
+        melchior_plan = melchior.plan_request(
             message,
             recent_context,
         )
-        response_mode = magi_plan["response_mode"]
+        response_mode = melchior_plan["response_mode"]
 
-        if magi_plan["needs_search"]:
+    if melchior_plan and melchior_plan["needs_search"]:
+        if response_mode == "SOCIAL_RESEARCH":
+            search_result = tools.social_research_controller(
+                message,
+                melchior_plan.get("social_platforms", []),
+                status_callback=status_callback,
+            )
+
+        else:
             status_callback("正在整理搜索问题… 🔍")
 
             if response_mode == "CLAIM_CHECK":
                 search_query = tools.build_claim_query(
-                    magi_plan.get("claim_to_verify") or message
+                    melchior_plan.get("claim_to_verify") or message
                 )
             else:
                 search_query = tools.build_search_query(
@@ -291,7 +315,6 @@ def process_request(message, status_callback):
                 )
 
             elif response_mode == "CLAIM_CHECK":
-                # The only path allowed to use 3→5→7 consensus.
                 search_result = tools.search_controller(
                     search_query,
                     status_callback=status_callback,
@@ -351,12 +374,12 @@ def process_request(message, status_callback):
         search_result,
         action_context,
         image_context,
-        magi_plan,
+        melchior_plan,
     )
 
     sources = []
     if (
-        response_mode in {"CLAIM_CHECK", "NEWS_FEED"}
+        response_mode in {"CLAIM_CHECK", "NEWS_FEED", "SOCIAL_RESEARCH"}
         and isinstance(search_result, dict)
     ):
         seen_urls = set()
@@ -387,7 +410,7 @@ def process_request(message, status_callback):
                 }
             )
 
-    print("[MAGI MODE]", response_mode)
+    print("[melchior MODE]", response_mode)
     print("[SOURCES FOR UI]", len(sources))
 
     return {

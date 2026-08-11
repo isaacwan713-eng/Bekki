@@ -17,3 +17,4 @@
 build/
 dist/
 *.spec
+social_browser_profile/
