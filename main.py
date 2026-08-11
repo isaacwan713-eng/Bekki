@@ -1,3 +1,7 @@
+# Bekki AI
+# Created by YW49
+# Copyright (c) 2026 YW49. All rights reserved.
+
 import json
 import sys
 from unittest import result
@@ -8,9 +12,10 @@ import document
 import vision
 import os
 import melchior
+import history
 
 from PySide6.QtCore import QObject, QThread, Slot
-from PySide6.QtWidgets import QApplication,QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 import document
 
 from ui import BekkiWindow
@@ -21,6 +26,12 @@ import context as context_manager
 MAX_RECENT_MESSAGES = 6
 
 memory_data = memory.initialize_memory()
+history_data = history.load_history()
+context_manager.set_active_session(
+    history.get_active_session(history_data)["id"],
+    migrate_legacy=history_data.get("legacy_context_needs_migration", False),
+)
+history.mark_legacy_context_migrated(history_data)
 conversation = []
 
 current_thread = None
@@ -235,8 +246,34 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
     return reply
 
 
-def save_message(role, message):
+def rebuild_conversation():
+    global conversation
+    session = history.get_active_session(history_data)
+    conversation = [
+        f"{item.get('role', 'Bekki')} : {item.get('text', '')}"
+        for item in session.get("messages", [])
+        if item.get("role") in {"You", "Bekki"}
+        and isinstance(item.get("text"), str)
+    ]
+
+
+def refresh_session_list():
+    if "window" in globals():
+        window.set_sessions(
+            history_data.get("sessions", []),
+            history_data.get("active_session_id"),
+        )
+
+
+def save_message(role, message, sources=None):
     conversation.append(f"{role} : {message}")
+    history.append_message(
+        history_data,
+        role,
+        message,
+        sources=sources,
+    )
+    refresh_session_list()
 
 def process_request(message, status_callback):
     """Runs one complete V2 request in the worker thread."""
@@ -456,7 +493,7 @@ class RequestUIBridge(QObject):
             self.thinking_widget.set_text(reply)
             self.thinking_widget.set_sources(sources)
 
-        save_message("Bekki", reply)
+        save_message("Bekki", reply, sources=sources)
 
         window.set_status("")
         window.set_busy(False)
@@ -464,10 +501,12 @@ class RequestUIBridge(QObject):
 
     @Slot(str)
     def on_failed(self, error):
+        failure_reply = "呜，刚才处理失败了：" + error
+
         if self.thinking_widget is not None:
-            self.thinking_widget.set_text(
-                "呜，刚才处理失败了：" + error
-            )
+            self.thinking_widget.set_text(failure_reply)
+
+        save_message("Bekki", failure_reply)
 
         window.set_status("")
         window.set_busy(False)
@@ -664,10 +703,133 @@ def remove_document():
 
     window.focus_input()
 
+
+def show_active_session():
+    """Render the selected session and activate its isolated context."""
+    if current_thread is not None:
+        return
+
+    session = history.get_active_session(history_data)
+    context_manager.set_active_session(session["id"])
+    rebuild_conversation()
+
+    window.clear_chat()
+    messages = session.get("messages", [])
+    if not messages:
+        window.add_welcome_message()
+    else:
+        for item in messages:
+            role = item.get("role")
+            text = item.get("text")
+            if role in {"You", "Bekki"} and isinstance(text, str):
+                window.add_message(role, text, item.get("sources", []))
+
+    # Local files are deliberately not auto-reopened when switching chats.
+    document.clear_document()
+    vision.clear_image()
+    window.clear_document()
+    refresh_session_list()
+    window.focus_input()
+
+
+def switch_session(session_id):
+    if current_thread is not None:
+        return
+    if history.set_active_session(history_data, session_id):
+        show_active_session()
+
+
+def new_chat():
+    if current_thread is not None:
+        return
+    session = history.create_session(history_data)
+    context_manager.set_active_session(session["id"])
+    context_manager.clear_context()
+    show_active_session()
+
+
+def clear_current_chat():
+    if current_thread is not None:
+        return
+    answer = QMessageBox.question(
+        window,
+        "Clear current chat?",
+        "确定清除当前聊天记录吗？\n这不会删除 Bekki 的长期记忆或当前 Context。",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if answer == QMessageBox.Yes:
+        history.clear_active_messages(history_data)
+        show_active_session()
+
+
+def delete_chat(session_id):
+    if current_thread is not None:
+        return
+
+    target = next(
+        (
+            item for item in history_data.get("sessions", [])
+            if item.get("id") == session_id
+        ),
+        None,
+    )
+    if target is None:
+        return
+
+    answer = QMessageBox.question(
+        window,
+        "Delete chat?",
+        "确定删除这个 Chat 吗？\n\n"
+        + target.get("title", "New chat")
+        + "\n\n聊天记录和该 Chat 的 Context 都会被删除，长期 Memory 不受影响。",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if answer != QMessageBox.Yes:
+        return
+
+    was_active = history_data.get("active_session_id") == session_id
+    if history.delete_session(history_data, session_id):
+        context_manager.delete_session_context(session_id)
+        if was_active:
+            show_active_session()
+        else:
+            refresh_session_list()
+
+
+def reset_current_context():
+    if current_thread is not None:
+        return
+    answer = QMessageBox.question(
+        window,
+        "Reset current context?",
+        "确定重置当前对话的 Context 吗？\n聊天记录和长期 Memory 都会保留。",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    if answer == QMessageBox.Yes:
+        context_manager.clear_context()
+        window.set_status("当前 Context 已重置 ✨")
+        window.focus_input()
+
 app = QApplication(sys.argv)
 
-window = BekkiWindow()
+active_messages = history.get_active_session(history_data).get("messages", [])
+rebuild_conversation()
+window = BekkiWindow(show_welcome=not bool(active_messages))
 ui_bridge = RequestUIBridge()
+
+for history_item in active_messages:
+    role = history_item.get("role")
+    text = history_item.get("text")
+
+    if role in {"You", "Bekki"} and isinstance(text, str):
+        window.add_message(
+            role,
+            text,
+            history_item.get("sources", []),
+        )
 
 window.connect_send(
     send_message
@@ -680,6 +842,13 @@ window.connect_attach(
 window.connect_document_close(
     remove_document
 )
+
+window.connect_new_chat(new_chat)
+window.connect_session_select(switch_session)
+window.connect_delete_chat(delete_chat)
+window.connect_clear_chat(clear_current_chat)
+window.connect_reset_context(reset_current_context)
+refresh_session_list()
 
 window.show()
 window.focus_input()

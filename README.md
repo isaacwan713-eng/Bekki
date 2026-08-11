@@ -1,6 +1,6 @@
 🩵 Bekki AI
 
-Bekki is a local desktop AI companion built with Python, PySide6, Ollama, and local language models.
+Bekki is a local desktop AI companion created and maintained by YW49. It is built with Python, PySide6, Ollama, and local language models.
 
 It is designed around a simple principle:
 
@@ -100,11 +100,11 @@ Install PyInstaller once:
 
 pip install pyinstaller
 
-Then build the release version:
+Then build using the project specification:
 
-pyinstaller --noconfirm --clean --onedir --windowed --name Bekki main.py --add-data "assets;assets" --add-data "prompts;prompts" --add-data ".env;."
+pyinstaller --noconfirm --clean Bekki.spec
 
-For troubleshooting, replace --windowed with --console to keep a terminal log visible.
+For troubleshooting, temporarily set console=True in Bekki.spec to keep a terminal log visible.
 
 Sharing with another person
 
@@ -132,8 +132,14 @@ Reliable local chat, memory, context, search, documents, vision, polished UI, an
 
 V2 — MAGI Core and desktop companion
 
-Single-model MAGI routing, persona/research/reasoning profiles, and a state-driven desktop companion.
+Single-model MAGI routing, persona/research/reasoning profiles, multi-session chat history, and a state-driven desktop companion.
 
 V3 — Multi-model MAGI
 
 Independent specialist agents, evidence comparison, and a MAGI judge for complex decisions.
+
+Author and ownership
+
+Created and maintained by YW49.
+
+Copyright © 2026 YW49. All rights reserved.

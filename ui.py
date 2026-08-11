@@ -1,3 +1,7 @@
+# Bekki AI
+# Created by YW49
+# Copyright (c) 2026 YW49. All rights reserved.
+
 import os
 import sys
 from PySide6.QtCore import (
@@ -102,6 +106,23 @@ class HeaderWidget(QWidget):
             """
         )
 
+        self.history_button = QPushButton("☰")
+        self.history_button.setFixedSize(28, 28)
+        self.history_button.setCursor(Qt.PointingHandCursor)
+        self.history_button.setToolTip("显示 / 隐藏聊天记录")
+        self.history_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #eef6ff;
+                border: 1px solid #d7e9fb;
+                border-radius: 14px;
+                color: #5d97cf;
+                font-size: 15px;
+            }
+            QPushButton:hover { background-color: #dceeff; }
+            """
+        )
+
         subtitle = QLabel("Your Personal AI Companion")
         subtitle.setStyleSheet(
             f"""
@@ -121,6 +142,7 @@ class HeaderWidget(QWidget):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
+        title_layout.addWidget(self.history_button)
         title_layout.addWidget(version_badge)
 
         layout = QVBoxLayout()
@@ -132,9 +154,136 @@ class HeaderWidget(QWidget):
         layout.addWidget(divider)
         self.setLayout(layout)
 
+    def connect_history_toggle(self, handler):
+        self.history_button.clicked.connect(handler)
+
+
+class HistorySidebar(QFrame):
+    """GPT-style session list, kept deliberately compact for Bekki."""
+    def __init__(self):
+        super().__init__()
+        self._select_handler = None
+        self._new_handler = None
+        self._delete_handler = None
+        self._clear_handler = None
+        self._reset_context_handler = None
+        self.setFixedWidth(190)
+        self.setStyleSheet(
+            f"""
+            QFrame {{
+                background-color: #f1f7ff;
+                border: 1px solid #dceaf8;
+                border-radius: 16px;
+            }}
+            QLabel {{ font-family: {UI_FONT}; color: #54718f; }}
+            """
+        )
+
+        title = QLabel("Chats")
+        title.setStyleSheet(f"font-family: {UI_FONT}; font-size: 13px; font-weight: 700; color: #4d8fcb;")
+
+        self.new_button = QPushButton("＋  New chat")
+        self.new_button.setCursor(Qt.PointingHandCursor)
+        self.new_button.setStyleSheet(
+            f"""QPushButton {{ background:#ffffff; border:1px solid #c9e1f7;
+            border-radius:11px; color:#397db8; font-family:{UI_FONT}; font-weight:700;
+            padding:9px; text-align:left; }} QPushButton:hover {{ background:#e7f4ff; }}"""
+        )
+        self.new_button.clicked.connect(lambda: self._new_handler and self._new_handler())
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.list_container = QWidget()
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(4)
+        self.list_layout.setAlignment(Qt.AlignTop)
+        self.scroll.setWidget(self.list_container)
+
+        self.clear_button = QPushButton("Clear current chat")
+        self.reset_button = QPushButton("Reset current context")
+        for button in (self.clear_button, self.reset_button):
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet(
+                f"""QPushButton {{ background:transparent; border:none; color:#7191af;
+                font-family:{UI_FONT}; font-size:10px; padding:6px; text-align:left; }}
+                QPushButton:hover {{ color:#3f7fb8; background:#e4f2ff; border-radius:8px; }}"""
+            )
+        self.clear_button.clicked.connect(lambda: self._clear_handler and self._clear_handler())
+        self.reset_button.clicked.connect(lambda: self._reset_context_handler and self._reset_context_handler())
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(9)
+        layout.addWidget(title)
+        layout.addWidget(self.new_button)
+        layout.addWidget(self.scroll, 1)
+        layout.addWidget(self.clear_button)
+        layout.addWidget(self.reset_button)
+
+        creator_label = QLabel("Created by YW49  🩵")
+        creator_label.setAlignment(Qt.AlignCenter)
+        creator_label.setStyleSheet(
+            f"color:#8ba5bd; font-family:{UI_FONT}; font-size:9px; padding-top:4px;"
+        )
+        layout.addWidget(creator_label)
+
+    def set_handlers(self, select_handler, new_handler, clear_handler, reset_context_handler):
+        self._select_handler = select_handler
+        self._new_handler = new_handler
+        self._clear_handler = clear_handler
+        self._reset_context_handler = reset_context_handler
+
+    def set_sessions(self, sessions, active_session_id):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for session in sessions:
+            session_id = session.get("id")
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(3)
+
+            button = QPushButton(session.get("title", "New chat"))
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip(session.get("title", "New chat"))
+            active = session_id == active_session_id
+            button.setStyleSheet(
+                f"""QPushButton {{ background:{'#dcefff' if active else 'transparent'};
+                border:{'1px solid #bfdcf6' if active else '1px solid transparent'};
+                border-radius:10px; color:{'#347ab7' if active else '#5d7892'};
+                font-family:{UI_FONT}; font-size:11px; padding:9px; text-align:left; }}
+                QPushButton:hover {{ background:#e5f2ff; color:#347ab7; }}"""
+            )
+            button.clicked.connect(lambda checked=False, target=session_id: self._select_handler and self._select_handler(target))
+
+            delete_button = QPushButton("×")
+            delete_button.setFixedSize(25, 25)
+            delete_button.setCursor(Qt.PointingHandCursor)
+            delete_button.setToolTip("Delete this chat")
+            delete_button.setStyleSheet(
+                f"""QPushButton {{ background:transparent; border:1px solid transparent;
+                border-radius:12px; color:#9ab0c4; font-family:{UI_FONT}; font-size:15px;
+                padding:0; }} QPushButton:hover {{ background:#ffeaf1;
+                border-color:#f4cbd9; color:#c66f8f; }}"""
+            )
+            delete_button.clicked.connect(
+                lambda checked=False, target=session_id:
+                self._delete_handler and self._delete_handler(target)
+            )
+
+            row_layout.addWidget(button, 1)
+            row_layout.addWidget(delete_button)
+            self.list_layout.addWidget(row)
+
 
 class MessageWidget(QWidget):
-    def __init__(self, sender, text):
+    def __init__(self, sender, text, sources=None):
         super().__init__()
 
         is_user = sender.lower() in {"you", "user", "isaac"}
@@ -283,6 +432,9 @@ class MessageWidget(QWidget):
         self.animation.setEndValue(1.0)
         self.animation.start()
 
+        if sources:
+            self.set_sources(sources)
+
     def set_text(self, text):
         self.bubble.setText(text)
         self.bubble.adjustSize()
@@ -428,7 +580,7 @@ class MessageWidget(QWidget):
         self.updateGeometry()
 
 class ChatArea(QWidget):
-    def __init__(self):
+    def __init__(self, show_welcome=True):
         super().__init__()
 
         self.scroll = QScrollArea()
@@ -479,7 +631,8 @@ class ChatArea(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.scroll)
         self.setLayout(layout)
-        self.add_welcome_message()
+        if show_welcome:
+            self.add_welcome_message()
 
     def add_welcome_message(self):
         self.add_message(
@@ -490,8 +643,8 @@ class ChatArea(QWidget):
             "也会记住重要的事情 ✨",
         )
 
-    def add_message(self, role, message):
-        widget = MessageWidget(role, message)
+    def add_message(self, role, message, sources=None):
+        widget = MessageWidget(role, message, sources)
         self.message_layout.addWidget(widget)
         self.scroll_to_bottom()
         return widget
@@ -503,6 +656,12 @@ class ChatArea(QWidget):
                 self.scroll.verticalScrollBar().maximum()
             ),
         )
+
+    def clear_messages(self):
+        while self.message_layout.count():
+            item = self.message_layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
 
 
 class InputArea(QWidget):
@@ -719,14 +878,14 @@ class InputArea(QWidget):
 
 
 class BekkiWindow(QWidget):
-    def __init__(self):
+    def __init__(self, show_welcome=True):
         super().__init__()
 
         self.setObjectName("mainWindow")
         self.setWindowTitle("Bekki AI")
         self.setWindowIcon(QIcon(resource_path("assets/bekki.ico")))
-        self.resize(440, 620)
-        self.setMinimumSize(400, 540)
+        self.resize(680, 620)
+        self.setMinimumSize(440, 540)
         self.setStyleSheet(
             """
             #mainWindow {
@@ -736,16 +895,28 @@ class BekkiWindow(QWidget):
         )
 
         self.header = HeaderWidget()
-        self.chat = ChatArea()
+        self.chat = ChatArea(show_welcome=show_welcome)
         self.input_area = InputArea()
+        self.sidebar = HistorySidebar()
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(16, 12, 16, 16)
-        layout.setSpacing(8)
-        layout.addWidget(self.header)
-        layout.addWidget(self.chat)
-        layout.addWidget(self.input_area)
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(8)
+        main_layout.addWidget(self.header)
+        main_layout.addWidget(self.chat)
+        main_layout.addWidget(self.input_area)
+
+        main_panel = QWidget()
+        main_panel.setLayout(main_layout)
+
+        root_layout = QHBoxLayout()
+        root_layout.setContentsMargins(12, 12, 16, 16)
+        root_layout.setSpacing(10)
+        root_layout.addWidget(self.sidebar)
+        root_layout.addWidget(main_panel, 1)
+        self.setLayout(root_layout)
+
+        self.header.connect_history_toggle(self.toggle_sidebar)
 
     def get_message(self):
         return self.input_area.get_text()
@@ -762,8 +933,36 @@ class BekkiWindow(QWidget):
     def focus_input(self):
         self.input_area.focus_input()
 
-    def add_message(self, role, message):
-        return self.chat.add_message(role, message)
+    def add_message(self, role, message, sources=None):
+        return self.chat.add_message(role, message, sources)
+
+    def add_welcome_message(self):
+        self.chat.add_welcome_message()
+
+    def clear_chat(self):
+        self.chat.clear_messages()
+
+    def toggle_sidebar(self):
+        self.sidebar.setVisible(not self.sidebar.isVisible())
+        self.resize(680 if self.sidebar.isVisible() else 440, self.height())
+
+    def set_sessions(self, sessions, active_session_id):
+        self.sidebar.set_sessions(sessions, active_session_id)
+
+    def connect_new_chat(self, handler):
+        self.sidebar._new_handler = handler
+
+    def connect_session_select(self, handler):
+        self.sidebar._select_handler = handler
+
+    def connect_delete_chat(self, handler):
+        self.sidebar._delete_handler = handler
+
+    def connect_clear_chat(self, handler):
+        self.sidebar._clear_handler = handler
+
+    def connect_reset_context(self, handler):
+        self.sidebar._reset_context_handler = handler
 
     def connect_send(self, handler):
         self.input_area.connect_send(handler)
