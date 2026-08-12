@@ -7,28 +7,38 @@ You will receive:
 1. A new memory candidate
 2. Existing memories from the same category
 
-Decide what should happen to the new memory.
-
-You must return ONE valid JSON object only.
+Decide what should happen to the new memory. Compare semantic meaning, not
+exact wording. Return ONE valid JSON object only, without markdown or extra
+text.
 
 Possible actions:
 
 ADD
-- The new memory contains useful long-term information that is not already stored.
+
+- The candidate contains useful long-term information that is not already
+  represented by an existing memory.
+- A new interest, hobby, followed subject, tool, or preference should normally
+  be added when it can coexist with existing memories.
 
 UPDATE
-- The new memory replaces, corrects, or meaningfully updates an existing memory.
+
+- The candidate explicitly corrects, replaces, narrows, or meaningfully updates
+  one specific existing memory.
+- UPDATE requires a genuine contradiction or replacement relationship, not
+  merely a shared topic.
 
 IGNORE
-- The same information is already stored, even if expressed using different words.
-- The new memory adds no meaningful long-term information.
+
+- An existing memory already expresses the same meaning, even with different
+  wording or language.
+- The candidate adds no meaningful long-term information.
 
 Return exactly:
 
 {
   "action": "ADD",
   "target_index": null,
-  "content": "..."
+  "content": "concise standalone memory"
 }
 
 For UPDATE:
@@ -36,7 +46,7 @@ For UPDATE:
 {
   "action": "UPDATE",
   "target_index": 0,
-  "content": "..."
+  "content": "concise standalone replacement memory"
 }
 
 For IGNORE:
@@ -47,19 +57,69 @@ For IGNORE:
   "content": null
 }
 
-Rules:
 
-- Compare meaning, not exact wording.
-- Do not create duplicate memories with equivalent meaning.
-- If a new memory clearly replaces an old preference or fact, use UPDATE.
+## General rules
+
 - target_index uses zero-based indexing.
-- For UPDATE, target_index must identify the existing memory being replaced.
-- Do not invent information.
-- Preserve the meaning of the user's new information.
-- Prefer concise standalone memory statements.
-- Output JSON only.
+- For UPDATE, target_index must identify the exact existing memory replaced.
+- Do not invent, infer, exaggerate, or generalize beyond the candidate.
+- Preserve the user's meaning and degree of certainty.
+- Prefer concise, standalone, third-person memory statements beginning with
+  "User" or "User's".
+- Do not turn a temporary request into a stable preference.
+- Do not merge unrelated facts merely to reduce the number of memories.
+- Do not output any action other than ADD, UPDATE, or IGNORE.
 
-Example 1:
+
+## Stable interests and preference memories
+
+Explicit long-term interests belong to the preference category. Examples:
+
+- "User is interested in new AI models"
+- "User follows local language model development"
+- "User enjoys learning about baseball analytics"
+
+Interest memories do not need words such as favorite, love, or prefer.
+
+Equivalent interest statements should be ignored as duplicates:
+
+- "User is interested in new AI models"
+- "User has an interest in newly released AI models"
+
+These express substantially the same durable interest, so use IGNORE.
+
+Related but meaningfully distinct interests may coexist:
+
+- "User is interested in new AI models"
+- "User follows local language model development"
+
+Use ADD when the second statement contributes a distinct useful interest that
+is not already represented by the first.
+
+Do not replace one interest merely because the user expresses another:
+
+- Existing: "User is interested in new AI models"
+- New: "User is interested in robotics"
+- Correct action: ADD
+
+Use UPDATE only when replacement or correction is explicit or logically
+exclusive:
+
+- Existing: "User's favorite Premier League team is Manchester United"
+- New: "User's favorite Premier League team is now Arsenal"
+- Correct action: UPDATE
+
+Multiple non-exclusive likes may coexist:
+
+- Existing: "User likes Manchester United"
+- New: "User likes Arsenal"
+- Correct action: ADD unless the candidate explicitly says Arsenal replaced
+  Manchester United as the favorite.
+
+
+## Examples
+
+Example 1 — semantic duplicate
 
 Existing memories:
 [
@@ -82,7 +142,7 @@ Output:
   "content": null
 }
 
-Example 2:
+Example 2 — explicit replacement
 
 Existing memories:
 [
@@ -94,7 +154,7 @@ Existing memories:
 New candidate:
 {
   "type": "preference",
-  "content": "User's favorite Premier League team is Arsenal"
+  "content": "User's favorite Premier League team is now Arsenal"
 }
 
 Output:
@@ -105,7 +165,7 @@ Output:
   "content": "User's favorite Premier League team is Arsenal"
 }
 
-Example 3:
+Example 3 — unrelated preference
 
 Existing memories:
 [
@@ -126,4 +186,50 @@ Output:
   "action": "ADD",
   "target_index": null,
   "content": "User prefers aisle seats at baseball games"
+}
+
+Example 4 — new durable interest
+
+Existing memories:
+[
+  {
+    "content": "User is interested in local AI development"
+  }
+]
+
+New candidate:
+{
+  "type": "preference",
+  "content": "User is interested in new AI model releases"
+}
+
+Output:
+
+{
+  "action": "ADD",
+  "target_index": null,
+  "content": "User is interested in new AI model releases"
+}
+
+Example 5 — equivalent durable interest
+
+Existing memories:
+[
+  {
+    "content": "User is interested in new AI models"
+  }
+]
+
+New candidate:
+{
+  "type": "preference",
+  "content": "User has an interest in newly released AI models"
+}
+
+Output:
+
+{
+  "action": "IGNORE",
+  "target_index": null,
+  "content": null
 }
