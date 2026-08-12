@@ -16,7 +16,7 @@ OLLAMA_URL = os.getenv(
 
 VISION_MODEL = os.getenv(
     "VISION_MODEL",
-    "gemma3:27b",
+    "gemma3:12b",
 )
 
 SUPPORTED_IMAGE_EXTENSIONS = {
@@ -290,7 +290,7 @@ Current user question:
         "keep_alive": "0s",
         "options": {
             "temperature": 0,
-            "num_ctx": 4096,
+            "num_ctx": 2048,
             "num_predict": 256,
         },
     }

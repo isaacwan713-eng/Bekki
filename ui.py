@@ -694,6 +694,21 @@ class InputArea(QWidget):
             """
         )
 
+        self.image_preview = QLabel()
+        self.image_preview.setFixedSize(104, 68)
+        self.image_preview.setAlignment(Qt.AlignCenter)
+        self.image_preview.setVisible(False)
+        self.image_preview.setStyleSheet(
+            """
+            QLabel {
+                background-color: #eaf3fc;
+                border: 1px solid #d2e5f7;
+                border-radius: 9px;
+                padding: 2px;
+            }
+            """
+        )
+
         self.document_close_button = QPushButton("×")
         self.document_close_button.setFixedSize(27, 27)
         self.document_close_button.setToolTip("移除当前附件")
@@ -722,6 +737,7 @@ class InputArea(QWidget):
         attachment_layout = QHBoxLayout(self.attachment_bar)
         attachment_layout.setContentsMargins(10, 4, 6, 4)
         attachment_layout.setSpacing(6)
+        attachment_layout.addWidget(self.image_preview)
         attachment_layout.addWidget(self.attachment_label)
         attachment_layout.addStretch()
         attachment_layout.addWidget(self.document_close_button)
@@ -792,6 +808,28 @@ class InputArea(QWidget):
             """
         )
 
+        self.desktop_button = QPushButton("▣")
+        self.desktop_button.setFixedSize(42, 42)
+        self.desktop_button.setToolTip("读取当前桌面")
+        self.desktop_button.setCursor(Qt.PointingHandCursor)
+        self.desktop_button.setStyleSheet(
+            """
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 21px;
+                color: #6c9bc8;
+                font-size: 19px;
+                padding: 0;
+            }
+            QPushButton:hover {
+                background-color: #e8f4ff;
+                color: #3f86c7;
+            }
+            QPushButton:disabled { color: #c8d5e1; }
+            """
+        )
+
         self.send_button = QPushButton("➤")
         self.send_button.setFixedSize(44, 44)
         self.send_button.setToolTip("发送")
@@ -821,6 +859,7 @@ class InputArea(QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(7)
         input_layout.addWidget(self.attach_button)
+        input_layout.addWidget(self.desktop_button)
         input_layout.addWidget(self.input_box)
         input_layout.addWidget(self.send_button)
 
@@ -849,6 +888,7 @@ class InputArea(QWidget):
         self.input_box.setEnabled(not busy)
         self.send_button.setEnabled(not busy)
         self.attach_button.setEnabled(not busy)
+        self.desktop_button.setEnabled(not busy)
         self.document_close_button.setEnabled(not busy)
 
     def focus_input(self):
@@ -861,15 +901,54 @@ class InputArea(QWidget):
     def connect_attach(self, handler):
         self.attach_button.clicked.connect(handler)
 
+    def connect_desktop_read(self, screen_handler, window_handler, snip_handler):
+        menu = QMenu(self.desktop_button)
+        menu.setStyleSheet(
+            f"""
+            QMenu {{ background:#fffafd; border:1px solid #d5e6f8;
+            border-radius:10px; color:#425b74; font-family:{UI_FONT};
+            font-size:11px; padding:5px; }}
+            QMenu::item {{ padding:8px 18px; border-radius:7px; }}
+            QMenu::item:selected {{ background:#eaf5ff; color:#347bb8; }}
+            """
+        )
+        screen_action = menu.addAction("▣  读取主显示器")
+        window_action = menu.addAction("▢  读取当前活动窗口")
+        snip_action = menu.addAction("✂  截图并读取")
+        screen_action.triggered.connect(screen_handler)
+        window_action.triggered.connect(window_handler)
+        snip_action.triggered.connect(snip_handler)
+        self.desktop_button.setMenu(menu)
+
     def set_document(self, file_name):
+        self.image_preview.clear()
+        self.image_preview.setVisible(False)
         self.attachment_label.setText("📄  " + file_name)
         self.attachment_bar.setVisible(True)
 
-    def set_image(self, file_name):
+    def set_image(self, file_name, file_path=None):
         self.attachment_label.setText("🖼️  " + file_name)
+
+        preview = QPixmap(file_path) if file_path else QPixmap()
+        if preview.isNull():
+            self.image_preview.clear()
+            self.image_preview.setVisible(False)
+        else:
+            self.image_preview.setPixmap(
+                preview.scaled(
+                    100,
+                    64,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+            self.image_preview.setVisible(True)
+
         self.attachment_bar.setVisible(True)
 
     def clear_document(self):
+        self.image_preview.clear()
+        self.image_preview.setVisible(False)
         self.attachment_label.clear()
         self.attachment_bar.setVisible(False)
 
@@ -970,11 +1049,18 @@ class BekkiWindow(QWidget):
     def connect_attach(self, handler):
         self.input_area.connect_attach(handler)
 
+    def connect_desktop_read(self, screen_handler, window_handler, snip_handler):
+        self.input_area.connect_desktop_read(
+            screen_handler,
+            window_handler,
+            snip_handler,
+        )
+
     def set_document(self, file_name):
         self.input_area.set_document(file_name)
 
-    def set_image(self, file_name):
-        self.input_area.set_image(file_name)
+    def set_image(self, file_name, file_path=None):
+        self.input_area.set_image(file_name, file_path)
 
     def clear_document(self):
         self.input_area.clear_document()

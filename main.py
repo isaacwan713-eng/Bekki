@@ -13,8 +13,9 @@ import vision
 import os
 import melchior
 import history
+import desktop
 
-from PySide6.QtCore import QObject, QThread, Slot
+from PySide6.QtCore import QObject, QThread, Slot, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 import document
 
@@ -36,6 +37,7 @@ conversation = []
 
 current_thread = None
 current_worker = None
+screen_snip_attempts = 0
 
 
 with open(
@@ -631,7 +633,8 @@ def attach_file():
 
         window.set_status("")
         window.set_image(
-            result["file_name"]
+            result["file_name"],
+            result["file_path"],
         )
 
         window.add_message(
@@ -697,11 +700,143 @@ def attach_file():
 def remove_document():
     document.clear_document()
     vision.clear_image()
+    desktop.clear_capture()
     window.clear_document()
 
     window.set_status("")
 
     window.focus_input()
+
+
+def capture_desktop():
+    """Hide Bekki, take one explicit screenshot, then load it into Vision."""
+    if current_thread is not None:
+        return
+
+    window.set_status("准备读取桌面… 👀")
+    window.hide()
+
+    # Give Windows enough time to remove Bekki from the composited desktop.
+    QTimer.singleShot(500, lambda: finish_desktop_capture("screen"))
+
+
+def capture_active_window():
+    if current_thread is not None:
+        return
+
+    window.set_status("准备读取当前窗口… 👀")
+    window.hide()
+    # Hiding Bekki returns focus to the previously active application.
+    QTimer.singleShot(650, lambda: finish_desktop_capture("window"))
+
+
+def finish_desktop_capture(capture_mode):
+    if capture_mode == "window":
+        capture_result = desktop.capture_active_window()
+    else:
+        capture_result = desktop.capture_screen()
+    load_desktop_capture(capture_result)
+
+
+def load_desktop_capture(capture_result):
+    """Load any Desktop Reading capture into the existing Vision pipeline."""
+    window.show()
+    window.raise_()
+    window.activateWindow()
+
+    if not capture_result.get("success"):
+        window.set_status("")
+        window.add_message(
+            "Bekki",
+            "桌面读取失败了 🥺\n" + capture_result.get("error", "Unknown error"),
+        )
+        window.focus_input()
+        return
+
+    image_result = vision.load_image(capture_result["file_path"])
+    if not image_result.get("success"):
+        window.set_status("")
+        window.add_message(
+            "Bekki",
+            "截图已经完成，但 Vision 无法读取它 🥺\n"
+            + str(image_result.get("error", "Unknown error")),
+        )
+        window.focus_input()
+        return
+
+    document.clear_document()
+    window.clear_document()
+    capture_name = capture_result.get("file_name", "Desktop screen")
+    window.set_image(capture_name, capture_result["file_path"])
+    window.set_status("")
+    window.add_message(
+        "Bekki",
+        "👀 已读取：" + capture_name + "\n\n"
+        "现在可以问我：\n"
+        "• 屏幕上发生了什么？\n"
+        "• 这个报错怎么处理？\n"
+        "• 下一步应该点哪里？",
+    )
+    window.focus_input()
+
+
+def start_screenshot_reading():
+    global screen_snip_attempts
+
+    if current_thread is not None:
+        return
+
+    window.set_status("请框选需要读取的区域… ✂")
+    QApplication.clipboard().clear()
+    window.hide()
+
+    start_result = desktop.start_screen_snip()
+    if not start_result.get("success"):
+        window.show()
+        window.set_status("")
+        window.add_message(
+            "Bekki",
+            "无法启动 Windows 截图工具 🥺\n"
+            + start_result.get("error", "Unknown error"),
+        )
+        return
+
+    screen_snip_attempts = 0
+    QTimer.singleShot(350, poll_screenshot_clipboard)
+
+
+def poll_screenshot_clipboard():
+    global screen_snip_attempts
+
+    capture_result = desktop.capture_clipboard_image()
+    if capture_result.get("pending", False):
+        qt_image = QApplication.clipboard().image()
+        if not qt_image.isNull():
+            capture_result = desktop.capture_qt_clipboard_image(qt_image)
+
+    if capture_result.get("success"):
+        load_desktop_capture(capture_result)
+        return
+
+    if not capture_result.get("pending", False):
+        window.show()
+        window.set_status("")
+        window.add_message(
+            "Bekki",
+            "读取截图失败了 🥺\n" + str(capture_result.get("error", "Unknown error")),
+        )
+        window.focus_input()
+        return
+
+    screen_snip_attempts += 1
+    if screen_snip_attempts >= 200:  # about 60 seconds
+        window.show()
+        window.set_status("")
+        window.add_message("Bekki", "截图已取消或等待超时啦。")
+        window.focus_input()
+        return
+
+    QTimer.singleShot(300, poll_screenshot_clipboard)
 
 
 def show_active_session():
@@ -814,6 +949,7 @@ def reset_current_context():
         window.focus_input()
 
 app = QApplication(sys.argv)
+app.aboutToQuit.connect(desktop.clear_capture)
 
 active_messages = history.get_active_session(history_data).get("messages", [])
 rebuild_conversation()
@@ -837,6 +973,12 @@ window.connect_send(
 
 window.connect_attach(
     attach_file
+)
+
+window.connect_desktop_read(
+    capture_desktop,
+    capture_active_window,
+    start_screenshot_reading,
 )
 
 window.connect_document_close(

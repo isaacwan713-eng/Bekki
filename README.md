@@ -24,6 +24,10 @@ Document overview and retrieval modes, selected by an AI document router
 
 Image and screenshot understanding for PNG, JPG, JPEG, and WEBP
 
+User-triggered Desktop Reading for the primary display, active window, or a selected screenshot region through the local Vision model
+
+In-app thumbnail previews for uploaded images and every Desktop Reading capture
+
 PySide6 desktop interface with file/image attachment cards and live activity status
 
 Windows desktop build through PyInstaller
@@ -61,6 +65,8 @@ Windows 10/11
 Python 3.10+ for development
 
 Ollama
+
+Pillow (pip install pillow) for Desktop Reading screenshots
 
 NVIDIA GPU recommended for a responsive local experience
 
@@ -121,6 +127,8 @@ No OCR for image-only PDFs yet
 Local-model speed and quality depend on the recipient’s GPU and available VRAM
 
 Vision is single-image analysis, not continuous screen monitoring
+
+Desktop Reading only captures after an explicit click and does not continuously monitor the screen
 
 Search is optional and requires the user’s own Brave Search API key
 
