@@ -12,6 +12,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QDesktopServices,
+    QFontMetrics,
     QIcon,
     QPainter,
     QPainterPath,
@@ -245,13 +246,30 @@ class HistorySidebar(QFrame):
         for session in sessions:
             session_id = session.get("id")
             row = QWidget()
+            row.setSizePolicy(
+                QSizePolicy.Expanding,
+                QSizePolicy.Fixed,
+            )
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(3)
 
-            button = QPushButton(session.get("title", "New chat"))
+            full_title = str(session.get("title") or "New chat")
+            button = QPushButton()
+            button.setMinimumWidth(0)
+            button.setSizePolicy(
+                QSizePolicy.Ignored,
+                QSizePolicy.Fixed,
+            )
+            button.setText(
+                QFontMetrics(button.font()).elidedText(
+                    full_title,
+                    Qt.ElideRight,
+                    108,
+                )
+            )
             button.setCursor(Qt.PointingHandCursor)
-            button.setToolTip(session.get("title", "New chat"))
+            button.setToolTip(full_title)
             active = session_id == active_session_id
             button.setStyleSheet(
                 f"""QPushButton {{ background:{'#dcefff' if active else 'transparent'};
@@ -264,6 +282,10 @@ class HistorySidebar(QFrame):
 
             delete_button = QPushButton("×")
             delete_button.setFixedSize(25, 25)
+            delete_button.setSizePolicy(
+                QSizePolicy.Fixed,
+                QSizePolicy.Fixed,
+            )
             delete_button.setCursor(Qt.PointingHandCursor)
             delete_button.setToolTip("Delete this chat")
             delete_button.setStyleSheet(

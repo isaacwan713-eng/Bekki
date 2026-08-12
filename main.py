@@ -16,6 +16,8 @@ import history
 import desktop
 import location
 import presence
+import balthasar
+import emotion
 
 from PySide6.QtCore import QObject, QThread, Slot, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -55,6 +57,7 @@ REASONING_PROFILE_INSTRUCTIONS = {
 
 
 memory_data = memory.initialize_memory()
+emotion_state = emotion.load_state()
 history_data = history.load_history()
 context_manager.set_active_session(
     history.get_active_session(history_data)["id"],
@@ -139,7 +142,15 @@ def parse_ai_result(ai_output):
 
         return None, strict_error
 
-def get_ai_response(message, search_result=None, action_context=None,image_context=None,melchior_plan=None):
+def get_ai_response(
+    message,
+    search_result=None,
+    action_context=None,
+    image_context=None,
+    melchior_plan=None,
+    balthasar_plan=None,
+    current_emotion_state=None,
+):
     # Keep the prompt responsive as a conversation gets longer.
     recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
     conversation_text = "\n".join(recent_conversation)
@@ -148,6 +159,7 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
 
     search_context = ""
     melchior_instruction = ""
+    balthasar_instruction = ""
 
     if melchior_plan:
         reasoning_profile = melchior_plan.get(
@@ -198,6 +210,30 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
             "Do not use items outside the requested time window.\n"
             "If there are no usable items, say the page had no readable "
             "social results.\n"
+        )
+
+    if balthasar_plan:
+        balthasar_instruction = (
+            "\n\nBALTHASAR EMOTIONAL COMMUNICATION:\n"
+            "Detected user emotion: "
+            + str(balthasar_plan.get("user_emotion", "neutral"))
+            + "\nIntensity: "
+            + str(balthasar_plan.get("intensity", 0.0))
+            + "\nTone: "
+            + str(balthasar_plan.get("tone", "warm"))
+            + "\nSupport style: "
+            + str(balthasar_plan.get("support_style", "direct"))
+            + "\nBekki mood selected by Balthasar: "
+            + str(balthasar_plan.get("bekki_mood", "cheerful"))
+            + "\nCurrent Bekki emotional state:\n"
+            + emotion.prompt_context(
+                current_emotion_state or emotion.DEFAULT_STATE
+            )
+            + "\nUse this to shape warmth, pacing, and emotional expression, "
+            "but do not mention these labels or numeric state values. "
+            "Do not imitate distress, pressure the user, request exclusivity, "
+            "or claim biological feelings. Melchior safety, evidence, and "
+            "reasoning requirements take priority.\n"
         )
     if search_result is not None:
         if isinstance(search_result, dict):
@@ -259,6 +295,7 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
         + "\n############################\n"
         + message
         + melchior_instruction
+        + balthasar_instruction
         + action_text
         + search_context
         + "\n\n############################"
@@ -425,6 +462,8 @@ def get_product_identity_reply(message):
 def process_request(message, status_callback):
     """Runs one complete V2 request in the worker thread."""
 
+    global emotion_state
+
     status_callback("正在判断问题… ✨")
 
     identity_reply = get_product_identity_reply(message)
@@ -441,7 +480,11 @@ def process_request(message, status_callback):
     action_context = None
     image_context = None
     melchior_plan = None
+    balthasar_plan = None
     response_mode = "LOCAL_ANSWER"
+    recent_context = "\n".join(
+        conversation[-MAX_RECENT_MESSAGES:]
+    )
 
     # Keep the older pending-action behavior isolated from melchior.
     if pending and tools.is_confirmation(message):
@@ -464,15 +507,26 @@ def process_request(message, status_callback):
                 memory.clear_pending_action()
 
     else:
-        recent_context = "\n".join(
-            conversation[-MAX_RECENT_MESSAGES:]
-        )
-
         melchior_plan = melchior.plan_request(
             message,
             recent_context,
         )
         response_mode = melchior_plan["response_mode"]
+
+    status_callback("正在感受你的语气… 🩵")
+    try:
+        balthasar_plan = balthasar.plan_response(
+            message,
+            recent_context,
+            emotion.prompt_context(emotion_state),
+        )
+        emotion_state = emotion.apply_balthasar_plan(
+            emotion_state,
+            balthasar_plan,
+        )
+    except Exception as error:
+        print("[BALTHASAR FALLBACK]", repr(error))
+        balthasar_plan = dict(balthasar.DEFAULT_PLAN)
 
     if melchior_plan and melchior_plan["needs_search"]:
         if response_mode == "SOCIAL_RESEARCH":
@@ -568,6 +622,8 @@ def process_request(message, status_callback):
         action_context,
         image_context,
         melchior_plan,
+        balthasar_plan,
+        emotion_state,
     )
 
     sources = []
