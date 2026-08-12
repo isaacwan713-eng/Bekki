@@ -634,13 +634,15 @@ class ChatArea(QWidget):
         if show_welcome:
             self.add_welcome_message()
 
-    def add_welcome_message(self):
+    def add_welcome_message(self, message=None):
         self.add_message(
             "Bekki",
-            "👋 嗨～我是 Bekki 🩵\n\n"
-            "今天想聊点什么呀？\n"
-            "我可以搜索、读文件、看图片，\n"
-            "也会记住重要的事情 ✨",
+            message or (
+                "👋 嗨～我是 Bekki 🩵\n\n"
+                "今天想聊点什么呀？\n"
+                "我可以搜索、读文件、看图片，\n"
+                "也会记住重要的事情 ✨"
+            ),
         )
 
     def add_message(self, role, message, sources=None):
@@ -1015,8 +1017,8 @@ class BekkiWindow(QWidget):
     def add_message(self, role, message, sources=None):
         return self.chat.add_message(role, message, sources)
 
-    def add_welcome_message(self):
-        self.chat.add_welcome_message()
+    def add_welcome_message(self, message=None):
+        self.chat.add_welcome_message(message)
 
     def clear_chat(self):
         self.chat.clear_messages()

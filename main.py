@@ -15,6 +15,7 @@ import melchior
 import history
 import desktop
 import location
+import presence
 
 from PySide6.QtCore import QObject, QThread, Slot, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -1106,8 +1107,13 @@ app.aboutToQuit.connect(desktop.clear_capture)
 
 active_messages = history.get_active_session(history_data).get("messages", [])
 rebuild_conversation()
-window = BekkiWindow(show_welcome=not bool(active_messages))
+window = BekkiWindow(show_welcome=False)
 ui_bridge = RequestUIBridge()
+
+if not active_messages:
+    window.add_welcome_message(
+        presence.create_startup_greeting()
+    )
 
 for history_item in active_messages:
     role = history_item.get("role")
