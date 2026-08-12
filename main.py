@@ -14,6 +14,7 @@ import os
 import melchior
 import history
 import desktop
+import location
 
 from PySide6.QtCore import QObject, QThread, Slot, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -25,6 +26,32 @@ import context as context_manager
 
 
 MAX_RECENT_MESSAGES = 6
+
+REASONING_PROFILE_INSTRUCTIONS = {
+    "quick": (
+        "Answer directly and briefly. Use only the explanation needed to "
+        "resolve the request. Do not add analysis, sections, caveats, or "
+        "background unless they are necessary for correctness."
+    ),
+    "standard": (
+        "Give a clear, balanced answer with enough explanation to be useful. "
+        "Keep the structure proportional to the user's request."
+    ),
+    "analytical": (
+        "Analyze the request explicitly. Identify relevant criteria, "
+        "assumptions, tradeoffs, advantages, disadvantages, and uncertainties. "
+        "For comparisons, evaluate every option using consistent criteria and "
+        "finish with a conditional recommendation or conclusion."
+    ),
+    "cautious": (
+        "Prioritize accuracy and harm reduction. Separate established facts, "
+        "inferences, and unknowns; avoid overconfident conclusions; state key "
+        "limitations and material risks. For high-stakes matters, provide safe "
+        "next steps and recommend appropriate professional or emergency help "
+        "when warranted."
+    ),
+}
+
 
 memory_data = memory.initialize_memory()
 history_data = history.load_history()
@@ -121,11 +148,31 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
     search_context = ""
     melchior_instruction = ""
 
+    if melchior_plan:
+        reasoning_profile = melchior_plan.get(
+            "reasoning_profile",
+            "standard",
+        )
+        reasoning_rule = REASONING_PROFILE_INSTRUCTIONS.get(
+            reasoning_profile,
+            REASONING_PROFILE_INSTRUCTIONS["standard"],
+        )
+        melchior_instruction += (
+            "\n\nMELCHIOR REASONING PROFILE:\n"
+            "Profile: " + str(reasoning_profile) + "\n"
+            "Risk: " + str(melchior_plan.get("risk", "low")) + "\n"
+            "Complexity: "
+            + str(melchior_plan.get("complexity", "low"))
+            + "\nInstructions: "
+            + reasoning_rule
+            + "\n"
+        )
+
     if (
         melchior_plan
         and melchior_plan.get("response_mode") == "NEWS_FEED"
     ):
-        melchior_instruction = (
+        melchior_instruction += (
             "\n\nmelchior NEWS_FEED RULE:\n"
             "Use only the current Ranked news items as news facts.\n"
             "Do not use prior conversation as current news.\n"
@@ -139,7 +186,7 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
         melchior_plan
         and melchior_plan.get("response_mode") == "SOCIAL_RESEARCH"
     ):
-        melchior_instruction = (
+        melchior_instruction += (
             "\n\nMELCHIOR SOCIAL_RESEARCH RULE:\n"
             "Use only the supplied structured social evidence.\n"
             "State recent_post_count and the requested time window when available.\n"
@@ -202,6 +249,10 @@ def get_ai_response(message, search_result=None, action_context=None,image_conte
         system_prompt
         + "\n\n"
         + BEKKI_PRODUCT_IDENTITY
+        + "\n\n############################"
+        + "\nLocal Safety and Location Context"
+        + "\n############################\n"
+        + location.get_localization_context()
         + "\n\n############################"
         + "\nCurrent User Message"
         + "\n############################\n"

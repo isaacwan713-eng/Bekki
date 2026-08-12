@@ -1,7 +1,8 @@
-"""V2 melchior request router.
+"""V2 Melchior request router.
 
-This module decides what kind of result the user needs.  It deliberately does
-not execute search, read documents, or generate the final reply.
+Melchior decides what kind of result the user needs and how that request
+should be handled. It does not execute searches, read documents, or generate
+the final user-facing reply.
 """
 
 import json
@@ -25,7 +26,67 @@ VALID_MODES = {
 VALID_SOCIAL_PLATFORMS = {
     "xiaohongshu",
     "instagram",
-    "x",    
+    "x",
+}
+
+VALID_RISKS = {
+    "low",
+    "medium",
+    "high",
+}
+
+VALID_COMPLEXITIES = {
+    "low",
+    "medium",
+    "high",
+}
+
+VALID_REASONING_PROFILES = {
+    "quick",
+    "standard",
+    "analytical",
+    "cautious",
+}
+
+VALID_RESEARCH_PROFILES = {
+    "local_context",
+    "weighted_news",
+    "official_first",
+    "evidence_verification",
+    "platform_native",
+}
+
+MODE_INVARIANTS = {
+    "LOCAL_ANSWER": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },
+    "NEWS_FEED": {
+        "needs_search": True,
+        "research_depth": "ranked_feed",
+        "source_policy": "weighted_news",
+        "research_profile": "weighted_news",
+    },
+    "FACT_LOOKUP": {
+        "needs_search": True,
+        "research_depth": "direct_lookup",
+        "source_policy": "official_first",
+        "research_profile": "official_first",
+    },
+    "CLAIM_CHECK": {
+        "needs_search": True,
+        "research_depth": "3_5_7",
+        "source_policy": "evidence_verification",
+        "research_profile": "evidence_verification",
+    },
+    "SOCIAL_RESEARCH": {
+        "needs_search": True,
+        "research_depth": "social_handoff",
+        "source_policy": "platform_native",
+        "research_profile": "platform_native",
+    },
 }
 
 DEFAULT_PLAN = {
@@ -33,6 +94,10 @@ DEFAULT_PLAN = {
     "needs_search": False,
     "research_depth": "none",
     "source_policy": "local_context",
+    "risk": "low",
+    "complexity": "low",
+    "reasoning_profile": "standard",
+    "research_profile": "local_context",
     "claim_to_verify": None,
     "social_platforms": [],
     "reason": "Fallback route: answer from local context when possible.",
@@ -61,6 +126,13 @@ def _image_context():
     )
 
 
+def _normalize_choice(value, valid_values, fallback):
+    normalized = str(value).lower().strip()
+    if normalized not in valid_values:
+        return fallback
+    return normalized
+
+
 def _normalize_plan(plan):
     if not isinstance(plan, dict):
         return dict(DEFAULT_PLAN)
@@ -68,36 +140,37 @@ def _normalize_plan(plan):
     normalized = dict(DEFAULT_PLAN)
     normalized.update(plan)
 
-    if normalized["response_mode"] not in VALID_MODES:
+    response_mode = str(normalized.get("response_mode", "")).upper().strip()
+    if response_mode not in VALID_MODES:
         return dict(DEFAULT_PLAN)
+    normalized["response_mode"] = response_mode
 
-    normalized["needs_search"] = bool(normalized["needs_search"])
+    # Mode behavior remains deterministic so malformed model output cannot
+    # accidentally disable required search or select the wrong source policy.
+    normalized.update(MODE_INVARIANTS[response_mode])
 
-    # These are routing invariants, not model preferences.
-    if normalized["response_mode"] == "LOCAL_ANSWER":
-        normalized["needs_search"] = False
-        normalized["research_depth"] = "none"
-        normalized["source_policy"] = "local_context"
+    normalized["risk"] = _normalize_choice(
+        normalized.get("risk"),
+        VALID_RISKS,
+        DEFAULT_PLAN["risk"],
+    )
+    normalized["complexity"] = _normalize_choice(
+        normalized.get("complexity"),
+        VALID_COMPLEXITIES,
+        DEFAULT_PLAN["complexity"],
+    )
+    normalized["reasoning_profile"] = _normalize_choice(
+        normalized.get("reasoning_profile"),
+        VALID_REASONING_PROFILES,
+        DEFAULT_PLAN["reasoning_profile"],
+    )
 
-    if normalized["response_mode"] == "NEWS_FEED":
-        normalized["needs_search"] = True
-        normalized["research_depth"] = "ranked_feed"
-        normalized["source_policy"] = "weighted_news"
-
-    if normalized["response_mode"] == "FACT_LOOKUP":
-        normalized["needs_search"] = True
-        normalized["research_depth"] = "direct_lookup"
-        normalized["source_policy"] = "official_first"
-
-    if normalized["response_mode"] == "CLAIM_CHECK":
-        normalized["needs_search"] = True
-        normalized["research_depth"] = "3_5_7"
-        normalized["source_policy"] = "evidence_verification"
-
-    if normalized["response_mode"] == "SOCIAL_RESEARCH":
-        normalized["needs_search"] = True
-        normalized["research_depth"] = "social_handoff"
-        normalized["source_policy"] = "platform_native"
+    # research_profile is owned by response_mode during this migration phase.
+    # Later MAGI versions may allow persona and research strategy to vary
+    # independently after each controller supports that behavior.
+    normalized["research_profile"] = MODE_INVARIANTS[response_mode][
+        "research_profile"
+    ]
 
     platforms = normalized.get("social_platforms", [])
     if not isinstance(platforms, list):
@@ -107,10 +180,18 @@ def _normalize_plan(plan):
         for platform in platforms
         if str(platform).lower().strip() in VALID_SOCIAL_PLATFORMS
     ]
-    normalized["social_platforms"] = list(dict.fromkeys(normalized["social_platforms"]))
+    normalized["social_platforms"] = list(
+        dict.fromkeys(normalized["social_platforms"])
+    )
 
     if not isinstance(normalized.get("claim_to_verify"), str):
         normalized["claim_to_verify"] = None
+    elif not normalized["claim_to_verify"].strip():
+        normalized["claim_to_verify"] = None
+    else:
+        normalized["claim_to_verify"] = normalized[
+            "claim_to_verify"
+        ].strip()[:500]
 
     normalized["reason"] = str(normalized.get("reason", ""))[:280]
     return normalized
@@ -144,9 +225,9 @@ def plan_request(user_message, conversation_context=""):
         input_text,
         expect_json=True,
         num_ctx=4096,
-        num_predict=320,
+        num_predict=420,
     )
 
     plan = _normalize_plan(raw_plan)
-    print("[melchior PLAN]", json.dumps(plan, ensure_ascii=False))
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan
