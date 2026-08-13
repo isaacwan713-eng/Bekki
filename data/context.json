@@ -1,8 +1,28 @@
 {
-  "current_topic": null,
-  "entities": [],
-  "date_context": "2026-08-09",
-  "current_goal": null,
-  "last_user_intent": "greeting the assistant",
-  "open_references": {}
+  "current_topic": "洛杉矶道奇本周信息",
+  "entities": [
+    {
+      "name": "Los Angeles Dodgers",
+      "type": "team"
+    },
+    {
+      "name": "GraceChen",
+      "type": "user"
+    },
+    {
+      "name": "Rouge noir",
+      "type": "user"
+    }
+  ],
+  "date_context": "this week",
+  "current_goal": "获取洛杉矶道奇本周在小红书上的讨论信息",
+  "last_user_intent": "请求在小红书上查找洛杉矶道奇这周的信息",
+  "open_references": {
+    "platform": "小红书",
+    "team": "Los Angeles Dodgers",
+    "posts": [
+      "GraceChen 的帖子（1天前）",
+      "Rouge noir 的帖子（3天前）"
+    ]
+  }
 }

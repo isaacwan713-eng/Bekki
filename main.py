@@ -5,6 +5,8 @@
 import json
 import sys
 from unittest import result
+import task_ai
+import tasks
 
 import memory
 import tools
@@ -21,7 +23,12 @@ import emotion
 import localization as i18n
 
 from PySide6.QtCore import QObject, QThread, Slot, QTimer
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMessageBox,
+    QSystemTrayIcon,
+)
 import document
 
 from ui import BekkiWindow
@@ -533,7 +540,57 @@ def process_request(message, status_callback):
             message,
             recent_context,
         )
-        response_mode = melchior_plan["response_mode"]
+
+        response_mode = (
+            melchior_plan["response_mode"]
+        )
+
+        if response_mode == "TASK_ACTION":
+            status_callback(
+                i18n.t("task_understanding")
+            )
+
+            task_plan = (
+                task_ai.plan_task_action(
+                    message,
+                    recent_context,
+                )
+            )
+
+            task_result = (
+                tasks.execute_task_plan(
+                    task_plan
+                )
+            )
+
+            print(
+                "[TASK RESULT]",
+                json.dumps(
+                    task_result,
+                    ensure_ascii=False,
+                ),
+            )
+
+            action_context = (
+                "TASK ACTION RESULT\n"
+                "This is the authoritative result "
+                "from Bekki's local Task system.\n"
+                "Do not change, contradict, or "
+                "invent its task data.\n\n"
+                + json.dumps(
+                    task_result,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n\n"
+                "Respond naturally in the Bekki "
+                "system language.\n"
+                "If needs_clarification is true, "
+                "ask exactly one concise clarifying "
+                "question.\n"
+                "Do not claim the task was saved "
+                "unless success is true."
+            )
 
     status_callback(i18n.t("emotion"))
     try:
@@ -705,48 +762,127 @@ class RequestUIBridge(QObject):
         super().__init__()
         self.thinking_widget = None
 
-    def set_thinking_widget(self, widget):
+    def set_thinking_widget(
+        self,
+        widget,
+    ):
         self.thinking_widget = widget
 
     @Slot(str)
-    def on_status(self, text):
-        if self.thinking_widget is not None:
-            self.thinking_widget.set_text(text)
+    def on_status(
+        self,
+        text,
+    ):
+        if (
+            self.thinking_widget
+            is not None
+        ):
+            self.thinking_widget.set_text(
+                text
+            )
 
-        window.set_status(text)
+        window.set_status(
+            text
+        )
 
     @Slot(object)
-    def on_finished(self, payload):
-        if isinstance(payload, dict):
-            reply = payload.get("reply", "")
-            sources = payload.get("sources", [])
-            highlights = payload.get("highlights", [])
+    def on_finished(
+        self,
+        payload,
+    ):
+        if isinstance(
+            payload,
+            dict,
+        ):
+            reply = payload.get(
+                "reply",
+                "",
+            )
+
+            sources = payload.get(
+                "sources",
+                [],
+            )
+
+            highlights = payload.get(
+                "highlights",
+                [],
+            )
+
+            response_mode = payload.get(
+                "response_mode",
+                "LOCAL_ANSWER",
+            )
+
         else:
             reply = str(payload)
             sources = []
             highlights = []
+            response_mode = (
+                "LOCAL_ANSWER"
+            )
 
-        print("[FACT CHECK SOURCES RECEIVED]", len(sources))
+        print(
+            "[FACT CHECK SOURCES RECEIVED]",
+            len(sources),
+        )
 
-        if self.thinking_widget is not None:
-            self.thinking_widget.set_text(reply)
-            self.thinking_widget.set_highlights(highlights)
-            self.thinking_widget.set_sources(sources)
+        if (
+            self.thinking_widget
+            is not None
+        ):
+            self.thinking_widget.set_text(
+                reply
+            )
 
-        save_message("Bekki", reply, sources=sources, highlights=highlights)
+            self.thinking_widget.set_highlights(
+                highlights
+            )
+
+            self.thinking_widget.set_sources(
+                sources
+            )
+
+        save_message(
+            "Bekki",
+            reply,
+            sources=sources,
+            highlights=highlights,
+        )
+
+        # This slot runs on Qt's UI thread.
+        if (
+            response_mode
+            == "TASK_ACTION"
+        ):
+            refresh_task_drawer()
 
         window.set_status("")
         window.set_busy(False)
         window.focus_input()
 
     @Slot(str)
-    def on_failed(self, error):
-        failure_reply = i18n.t("failed", error=error)
+    def on_failed(
+        self,
+        error,
+    ):
+        failure_reply = i18n.t(
+            "failed",
+            error=error,
+        )
 
-        if self.thinking_widget is not None:
-            self.thinking_widget.set_text(failure_reply)
+        if (
+            self.thinking_widget
+            is not None
+        ):
+            self.thinking_widget.set_text(
+                failure_reply
+            )
 
-        save_message("Bekki", failure_reply)
+        save_message(
+            "Bekki",
+            failure_reply,
+        )
 
         window.set_status("")
         window.set_busy(False)
@@ -1186,6 +1322,174 @@ def reset_current_context():
         window.set_status("当前 Context 已重置 ✨")
         window.focus_input()
 
+def get_pending_tasks():
+    task_data = tasks.load_tasks()
+
+    pending_tasks = [
+        task
+        for task in task_data.get(
+            "tasks",
+            [],
+        )
+        if task.get("status")
+        == "pending"
+    ]
+
+    pending_tasks.sort(
+        key=lambda task: task.get(
+            "due_at",
+            "",
+        )
+    )
+
+    return pending_tasks
+
+
+def refresh_task_drawer():
+    window.set_tasks(
+        get_pending_tasks()
+    )
+
+
+def complete_task_from_ui(
+    task_id,
+):
+    if current_thread is not None:
+        return
+
+    result = (
+        tasks.execute_task_plan(
+            {
+                "action": "COMPLETE",
+                "task_id": task_id,
+                "task_reference": None,
+                "title": "",
+                "due_at": None,
+                "recurrence": "NONE",
+                "clarification": None,
+                "reason": (
+                    "User completed the task "
+                    "through the Task UI."
+                ),
+            }
+        )
+    )
+
+    if result.get("success"):
+        refresh_task_drawer()
+
+        window.set_status(
+            i18n.t(
+                "task_completed"
+            )
+        )
+
+        QTimer.singleShot(
+            2500,
+            lambda:
+            window.set_status(""),
+        )
+
+    else:
+        window.set_status(
+            i18n.t(
+                "task_action_failed",
+                error=result.get(
+                    "message",
+                    "Unknown error",
+                ),
+            )
+        )
+
+
+def delete_task_from_ui(
+    task_id,
+):
+    if current_thread is not None:
+        return
+
+    task = next(
+        (
+            item
+            for item
+            in get_pending_tasks()
+            if item.get("id")
+            == task_id
+        ),
+        None,
+    )
+
+    if task is None:
+        refresh_task_drawer()
+        return
+
+    title = str(
+        task.get(
+            "title",
+            "",
+        )
+    )
+
+    answer = QMessageBox.question(
+        window,
+        i18n.t(
+            "confirm_task_delete_title"
+        ),
+        i18n.t(
+            "confirm_task_delete_text",
+            title=title,
+        ),
+        QMessageBox.Yes
+        | QMessageBox.No,
+        QMessageBox.No,
+    )
+
+    if answer != QMessageBox.Yes:
+        return
+
+    result = (
+        tasks.execute_task_plan(
+            {
+                "action": "DELETE",
+                "task_id": task_id,
+                "task_reference": None,
+                "title": "",
+                "due_at": None,
+                "recurrence": "NONE",
+                "clarification": None,
+                "reason": (
+                    "User deleted the task "
+                    "through the Task UI."
+                ),
+            }
+        )
+    )
+
+    if result.get("success"):
+        refresh_task_drawer()
+
+        window.set_status(
+            i18n.t(
+                "task_deleted"
+            )
+        )
+
+        QTimer.singleShot(
+            2500,
+            lambda:
+            window.set_status(""),
+        )
+
+    else:
+        window.set_status(
+            i18n.t(
+                "task_action_failed",
+                error=result.get(
+                    "message",
+                    "Unknown error",
+                ),
+            )
+        )
 
 def change_system_language(language):
     """Refresh user-facing UI after Header has persisted the selection."""
@@ -1203,7 +1507,70 @@ active_messages = history.get_active_session(history_data).get("messages", [])
 rebuild_conversation()
 window = BekkiWindow(show_welcome=False)
 ui_bridge = RequestUIBridge()
+task_tray = QSystemTrayIcon(
+    window.windowIcon(),
+    app,
+)
 
+task_tray.setToolTip("Bekki")
+task_tray.show()
+
+
+def check_due_tasks():
+    """Show newly due reminders through Windows."""
+
+    try:
+        due_tasks = (
+            tasks.pop_due_notifications()
+        )
+
+    except Exception as error:
+        print(
+            "[TASK NOTIFICATION ERROR]",
+            repr(error),
+        )
+        return
+
+    for task in due_tasks:
+        title = str(
+            task.get(
+                "title",
+                "",
+            )
+        ).strip()
+
+        if not title:
+            continue
+
+        print(
+            "[TASK DUE]",
+            task.get("id"),
+            title,
+        )
+
+        task_tray.showMessage(
+            i18n.t("reminder_title"),
+            title,
+            QSystemTrayIcon.Information,
+            12000,
+        )
+    refresh_task_drawer()      
+
+
+task_timer = QTimer(app)
+
+task_timer.timeout.connect(
+    check_due_tasks
+)
+
+# Check every 30 seconds.
+task_timer.start(30_000)
+
+# Also check shortly after startup.
+QTimer.singleShot(
+    1500,
+    check_due_tasks,
+)
 if not active_messages:
     window.add_welcome_message(
         presence.create_startup_greeting()
@@ -1245,6 +1612,15 @@ window.connect_delete_chat(delete_chat)
 window.connect_clear_chat(clear_current_chat)
 window.connect_reset_context(reset_current_context)
 window.connect_language_change(change_system_language)
+window.connect_task_complete(
+    complete_task_from_ui
+)
+
+window.connect_task_delete(
+    delete_task_from_ui
+)
+
+refresh_task_drawer()
 refresh_session_list()
 
 window.show()

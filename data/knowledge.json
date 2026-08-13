@@ -1,0 +1,382 @@
+[
+  {
+    "id": "knowledge_6ac750b285a22184",
+    "subject": "Manchester United club history",
+    "claim": "Manchester United was founded in 1878 as Newton Heath L&YR Football Club.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://ir.manutd.com/company-information/history.aspx",
+    "source_domain": "ir.manutd.com",
+    "source_name": "History – Manchester United",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:46:44.414591+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "Fact is supported by an official Manchester United source and has no conflict or duplication.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Historical founding fact, unlikely to change."
+  },
+  {
+    "id": "knowledge_c0a94ff6ac165197",
+    "subject": "Manchester United club history",
+    "claim": "The club entered the English First Division for the first time in the 1892-93 season.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://ir.manutd.com/company-information/history.aspx",
+    "source_domain": "ir.manutd.com",
+    "source_name": "History – Manchester United",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:46:47.371216+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an official Manchester United source and does not conflict with or duplicate existing knowledge.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "First First Division entry is a fixed historical event."
+  },
+  {
+    "id": "knowledge_d17d924a3da671c6",
+    "subject": "Manchester United club history",
+    "claim": "The club moved to Old Trafford, its current stadium, in 1910.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://ir.manutd.com/company-information/history.aspx",
+    "source_domain": "ir.manutd.com",
+    "source_name": "History – Manchester United",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:46:50.629952+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim that Manchester United moved to Old Trafford in 1910 is supported by the official club history source and does not conflict with or duplicate existing knowledge.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Move to Old Trafford is a permanent historical fact."
+  },
+  {
+    "id": "knowledge_cfdbc901e39feff4",
+    "subject": "Manchester United club history",
+    "claim": "The Old Trafford stadium was originally opened on February 19, 1910 with a capacity of approximately 80,000.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://ir.manutd.com/company-information/history.aspx",
+    "source_domain": "ir.manutd.com",
+    "source_name": "History – Manchester United",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:46:54.386210+00:00",
+    "confidence": 0.6,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "The candidate claims a specific opening date and capacity for Old Trafford that is not explicitly supported by the approved source. The information may be accurate but requires verification against the official club history or other reliable records before it can be accepted.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Opening date and capacity of Old Trafford are fixed historical details; pending review but still stable."
+  },
+  {
+    "id": "knowledge_b92579e1c81dcb4d",
+    "subject": "Manchester United founding and name change",
+    "claim": "Manchester United Football Club was founded on 5 March 1878 as Newton Heath LYR Football Club and changed its name to Manchester United on 24 April 1902.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://en.wikipedia.org/wiki/Manchester_United_F.C.",
+    "source_domain": "en.wikipedia.org",
+    "source_name": "Manchester United F.C. - Wikipedia",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:03.707655+00:00",
+    "confidence": 0.95,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by the approved Wikipedia source, adds a specific founding date and name change date not present in existing knowledge, and does not conflict with any current entries.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Founding and name‑change dates are immutable historical facts."
+  },
+  {
+    "id": "knowledge_ec038e9ff0819b33",
+    "subject": "First league title",
+    "claim": "Manchester United won its first First Division (top-flight) league title in the 1907–08 season.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://en.wikipedia.org/wiki/Manchester_United_F.C.",
+    "source_domain": "en.wikipedia.org",
+    "source_name": "Manchester United F.C. - Wikipedia",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:07.030973+00:00",
+    "confidence": 0.9,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an approved source, adds new factual information not present in existing knowledge, and does not conflict with or duplicate any current entries.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "First league title season is a fixed historical event."
+  },
+  {
+    "id": "knowledge_587bb2a973bd1dd3",
+    "subject": "European Cup victory",
+    "claim": "Manchester United became the first English club to win the European Cup in 1968, defeating Benfica 4–1 in the final.",
+    "topics": [
+      "manchester united club history"
+    ],
+    "source_url": "https://en.wikipedia.org/wiki/Manchester_United_F.C.",
+    "source_domain": "en.wikipedia.org",
+    "source_name": "Manchester United F.C. - Wikipedia",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:13.747238+00:00",
+    "confidence": 0.92,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by the approved Wikipedia source, adds new factual information not present in existing knowledge, and does not conflict with or duplicate any current entries.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "European Cup victory date is a permanent fact."
+  },
+  {
+    "id": "knowledge_5b0e478de743883c",
+    "subject": "Los Angeles Dodgers franchise history",
+    "claim": "The Los Angeles Dodgers moved to Los Angeles before the 1958 season and played their first four seasons at the Los Angeles Memorial Coliseum.",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "source_url": "https://www.linkedin.com/company/los-angeles-dodgers",
+    "source_domain": "linkedin.com",
+    "source_name": "Los Angeles Dodgers | LinkedIn",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:23.290602+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by the approved official Dodgers LinkedIn source and does not conflict with or duplicate any existing knowledge.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Relocation and stadium usage are historical facts."
+  },
+  {
+    "id": "knowledge_fcbddd585b79c64f",
+    "subject": "Los Angeles Dodgers stadium history",
+    "claim": "Dodger Stadium, the current home of the Los Angeles Dodgers, is the third-oldest ballpark in Major League Baseball, after Fenway Park and Wrigley Field.",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "source_url": "https://www.linkedin.com/company/los-angeles-dodgers",
+    "source_domain": "linkedin.com",
+    "source_name": "Los Angeles Dodgers | LinkedIn",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:26.589157+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an approved official source (Los Angeles Dodgers LinkedIn), has no conflict with existing knowledge, and does not duplicate any current entry.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Stadium age ranking is a fixed historical fact."
+  },
+  {
+    "id": "knowledge_d010fcd4a77ecdd0",
+    "subject": "Los Angeles Dodgers ownership",
+    "claim": "Since 2012, the Los Angeles Dodgers have been led by Guggenheim Baseball Management and a group of owners including Mark Walter, Magic Johnson, Todd Boehly, Bobby Patton Jr., Peter Guber, Billie Jean King, and Ilana Kloss.",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "source_url": "https://www.linkedin.com/company/los-angeles-dodgers",
+    "source_domain": "linkedin.com",
+    "source_name": "Los Angeles Dodgers | LinkedIn",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:29.946645+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an approved official source, adds new factual information about Dodgers ownership that does not duplicate or conflict with existing entries.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Ownership structure since 2012 is a stable fact."
+  },
+  {
+    "id": "knowledge_2e5d0bf2a27ee63f",
+    "subject": "Los Angeles Dodgers championships",
+    "claim": "The Los Angeles Dodgers have won seven World Series titles and 21 National League pennants.",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "source_url": "https://www.linkedin.com/company/los-angeles-dodgers",
+    "source_domain": "linkedin.com",
+    "source_name": "Los Angeles Dodgers | LinkedIn",
+    "published_at": null,
+    "learned_at": "2026-08-12T18:47:33.314947+00:00",
+    "confidence": 1.0,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "New factual claim about Dodgers championships, supported by approved LinkedIn source, no duplication or conflict.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Championship counts are fixed historical data."
+  },
+  {
+    "id": "knowledge_8974c179cd348554",
+    "subject": "Microsoft Foundry",
+    "claim": "Microsoft Foundry is a unified platform as a service (PaaS) that enables the development and deployment of generative AI applications and agents, providing access to a model catalog, agent hosting through Foundry Agent Service, fine‑tuning, evaluation tools, and responsible AI capabilities.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/ai-get-started",
+    "source_domain": "learn.microsoft.com",
+    "source_name": "Get Started with AI Architecture Design - Azure Architecture Center | Microsoft Learn",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:27:59.811095+00:00",
+    "confidence": 0.95,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "pending_review",
+    "judge_reason": "The candidate expands the existing Microsoft Foundry description with additional supported features, providing a more complete claim without conflict.",
+    "lifecycle_version": 1,
+    "created_at": "2026-08-12T19:19:23.103572+00:00",
+    "updated_at": "2026-08-12T19:27:59.811095+00:00"
+  },
+  {
+    "id": "knowledge_25c0fc67196b2d5d",
+    "subject": "Azure Machine Learning",
+    "claim": "Azure Machine Learning supports open‑source machine learning frameworks such as PyTorch, TensorFlow, and scikit-learn for building, training, and deploying models at scale.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/ai-get-started",
+    "source_domain": "learn.microsoft.com",
+    "source_name": "Get Started with AI Architecture Design - Azure Architecture Center | Microsoft Learn",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:19:26.527106+00:00",
+    "confidence": 0.85,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an approved Microsoft Learn source, adds new factual information about Azure Machine Learning, and does not conflict with or duplicate any existing knowledge.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Azure Machine Learning capabilities are stable technical facts."
+  },
+  {
+    "id": "knowledge_b62eb62656671be6",
+    "subject": "Model Context Protocol (MCP)",
+    "claim": "The Model Context Protocol provides a standardized interface for exposing tools and resources to large language model agents, thereby reducing fragmentation in connector schemas.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://arxiv.org/html/2601.12560v1",
+    "source_domain": "arxiv.org",
+    "source_name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:19:34.177931+00:00",
+    "confidence": 0.9,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by an approved academic source, adds new useful knowledge about a standardized interface for LLM agents, and does not conflict with or duplicate existing entries.",
+    "knowledge_type": "stable",
+    "lifecycle_version": 1,
+    "lifecycle_reason": "Model Context Protocol description is a stable architectural fact."
+  },
+  {
+    "id": "knowledge_1c5700b98755e323",
+    "subject": "Fabric IQ",
+    "claim": "Fabric IQ is an intelligence layer that derives insights from structured enterprise data managed in Microsoft Fabric, including analytics models, key performance indicators (KPIs), and business entities.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/ai-get-started",
+    "source_domain": "learn.microsoft.com",
+    "source_name": "Get Started with AI Architecture Design - Azure Architecture Center | Microsoft Learn",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:28:07.733879+00:00",
+    "confidence": 0.9,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Claim about Fabric IQ is not supported by the approved Microsoft Learn source; requires verification from a reliable source before acceptance.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_60f0cc9cc16dd6ed",
+    "subject": "Native Computer Use",
+    "claim": "Native computer use allows agents to operate user interfaces through screenshots and mouse and keyboard actions, expanding interaction modes beyond text-based tool calls.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://arxiv.org/html/2601.12560v1",
+    "source_domain": "arxiv.org",
+    "source_name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:28:20.957418+00:00",
+    "confidence": 0.92,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "No duplication or conflict; claim is supported by approved source and low risk.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_931f8812f6f8881e",
+    "subject": "Action Representation Shift",
+    "claim": "Modern LLM-based agents are shifting from JSON style function calling to using code as an action, enabling more flexible and expressive interactions with external systems.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://arxiv.org/html/2601.12560v1",
+    "source_domain": "arxiv.org",
+    "source_name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:28:24.838086+00:00",
+    "confidence": 0.9,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is supported by the approved academic source, adds a novel architectural insight, and does not conflict with or duplicate existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_a555653b8b1f4737",
+    "subject": "Multi‑Agent Interaction Topologies",
+    "claim": "Common multi‑agent interaction patterns include chain, star, mesh, and explicit workflow graphs, which are used in frameworks such as CAMEL, AutoGen, MetaGPT, LangGraph, Swarm, and MAKER.",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "source_url": "https://arxiv.org/html/2601.12560v1",
+    "source_domain": "arxiv.org",
+    "source_name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "published_at": null,
+    "learned_at": "2026-08-12T19:28:28.487384+00:00",
+    "confidence": 0.88,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "Claim is supported by approved academic source, no duplication or conflict with existing knowledge.",
+    "lifecycle_version": 1
+  }
+]

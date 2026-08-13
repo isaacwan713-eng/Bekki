@@ -1,0 +1,261 @@
+[
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:29:23.554791+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 0,
+    "source_candidates_discovered": 13,
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": []
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:35:31.377842+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 0,
+    "source_candidates_discovered": 0,
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": []
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:36:36.516729+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 0,
+    "source_candidates_discovered": 0,
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": []
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:44:07.105742+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 0,
+    "source_candidates_discovered": 0,
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": []
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:47:33.316331+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 0,
+    "source_reviews": {
+      "approved": 3,
+      "pending": 7,
+      "rejected": 2,
+      "errors": 1
+    },
+    "verified": 10,
+    "pending_review": 1,
+    "duplicate": 1,
+    "errors": 0,
+    "summary": [
+      "Manchester United was founded in 1878 as Newton Heath L&YR Football Club.",
+      "The club entered the English First Division for the first time in the 1892-93 season.",
+      "The club moved to Old Trafford, its current stadium, in 1910.",
+      "The Old Trafford stadium was originally opened on February 19, 1910 with a capacity of approximately 80,000.",
+      "Manchester United Football Club was founded on 5 March 1878 as Newton Heath LYR Football Club and changed its name to Manchester United on 24 April 1902.",
+      "Manchester United won its first First Division (top-flight) league title in the 1907–08 season.",
+      "Manchester United became the first English club to win the European Cup in 1968, defeating Benfica 4–1 in the final.",
+      "The Los Angeles Dodgers moved to Los Angeles before the 1958 season and played their first four seasons at the Los Angeles Memorial Coliseum.",
+      "Dodger Stadium, the current home of the Los Angeles Dodgers, is the third-oldest ballpark in Major League Baseball, after Fenway Park and Wrigley Field.",
+      "Since 2012, the Los Angeles Dodgers have been led by Guggenheim Baseball Management and a group of owners including Mark Walter, Magic Johnson, Todd Boehly, Bobby Patton Jr., Peter Guber, Billie Jean King, and Ilana Kloss.",
+      "The Los Angeles Dodgers have won seven World Series titles and 21 National League pennants."
+    ]
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T18:51:16.867759+00:00",
+    "topics": [
+      "manchester united club history",
+      "manchester united tactical evolution",
+      "los angeles dodgers franchise history",
+      "los angeles dodgers pitching analytics"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 0,
+    "source_reviews": {
+      "approved": 3,
+      "pending": 7,
+      "rejected": 2,
+      "errors": 1
+    },
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 8,
+    "errors": 0,
+    "summary": []
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T19:19:34.179286+00:00",
+    "topics": [
+      "manchester united history and tactics",
+      "los angeles dodgers team dynamics",
+      "emerging ai model architectures"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 8,
+    "source_reviews": {
+      "approved": 3,
+      "pending": 2,
+      "rejected": 0,
+      "errors": 3
+    },
+    "verified": 3,
+    "pending_review": 2,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": [
+      "Max Muncy hit a walk-off single in the 10th inning of a Los Angeles Dodgers game on August 11, 2026.",
+      "Blake Snell struck out ten batters in his return from elbow surgery during a Los Angeles Dodgers game on August 11, 2026.",
+      "Microsoft Foundry is a unified platform-as-a-service (PaaS) that enables developers to build, deploy, and manage generative AI applications and agents on Azure.",
+      "Azure Machine Learning supports open‑source machine learning frameworks such as PyTorch, TensorFlow, and scikit-learn for building, training, and deploying models at scale.",
+      "The Model Context Protocol provides a standardized interface for exposing tools and resources to large language model agents, thereby reducing fragmentation in connector schemas."
+    ]
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T19:28:28.488782+00:00",
+    "topics": [
+      "manchester united history and tactics",
+      "los angeles dodgers team dynamics",
+      "emerging ai model architectures"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 0,
+    "source_reviews": {
+      "approved": 0,
+      "pending": 0,
+      "rejected": 0,
+      "errors": 3
+    },
+    "lifecycle_audit": {
+      "kept": 14,
+      "expired": 0,
+      "removed": 2
+    },
+    "verified": 3,
+    "pending_review": 1,
+    "duplicate": 2,
+    "errors": 0,
+    "log_only": 4,
+    "updated": 1,
+    "summary": [
+      "The Los Angeles Dodgers played the Kansas City Royals on August 11, 2026.",
+      "Max Muncy hit a walk‑off single in the 10th inning of the Dodgers vs Royals game on August 11, 2026.",
+      "Blake Snell struck out ten batters in his first start after returning from elbow surgery on August 11, 2026.",
+      "Prospect Davalan, the Dodgers' No. 8 prospect, recorded a three‑hit, three‑RBI outing on August 1, 2026.",
+      "Microsoft Foundry is a unified platform as a service (PaaS) that enables the development and deployment of generative AI applications and agents, providing access to a model catalog, agent hosting through Foundry Agent Service, fine‑tuning, evaluation tools, and responsible AI capabilities.",
+      "Fabric IQ is an intelligence layer that derives insights from structured enterprise data managed in Microsoft Fabric, including analytics models, key performance indicators (KPIs), and business entities.",
+      "Native computer use allows agents to operate user interfaces through screenshots and mouse and keyboard actions, expanding interaction modes beyond text-based tool calls.",
+      "Modern LLM-based agents are shifting from JSON style function calling to using code as an action, enabling more flexible and expressive interactions with external systems.",
+      "Common multi‑agent interaction patterns include chain, star, mesh, and explicit workflow graphs, which are used in frameworks such as CAMEL, AutoGen, MetaGPT, LangGraph, Swarm, and MAKER."
+    ]
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T22:40:42.603626+00:00",
+    "topics": [
+      "manchester united history and tactics",
+      "los angeles dodgers team dynamics",
+      "emerging ai model architectures"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 0,
+    "source_reviews": {
+      "approved": 0,
+      "pending": 0,
+      "rejected": 0,
+      "errors": 3
+    },
+    "lifecycle_audit": {
+      "kept": 0,
+      "expired": 0,
+      "removed": 0
+    },
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 7,
+    "errors": 0,
+    "log_only": 4,
+    "summary": [
+      "The Los Angeles Dodgers played the Kansas City Royals on August 12, 2026 at 7:10 PM PDT.",
+      "Max Muncy hit a walk‑off single in the 10th inning of a Dodgers game on August 11, 2026.",
+      "Blake Snell struck out ten batters in his first start after returning from elbow surgery on August 11, 2026.",
+      "A new Dodgers prospect showcased a nasty pitch in his debut at Double‑A on August 8, 2026."
+    ]
+  },
+  {
+    "date": "2026-08-12",
+    "finished_at": "2026-08-12T22:45:02.567638+00:00",
+    "topics": [
+      "manchester united history and tactics",
+      "los angeles dodgers team dynamics",
+      "emerging ai model architectures"
+    ],
+    "sources_checked": 3,
+    "source_candidates_discovered": 0,
+    "source_reviews": {
+      "approved": 0,
+      "pending": 0,
+      "rejected": 0,
+      "errors": 3
+    },
+    "lifecycle_audit": {
+      "kept": 0,
+      "expired": 0,
+      "removed": 0
+    },
+    "verified": 0,
+    "pending_review": 0,
+    "duplicate": 7,
+    "errors": 0,
+    "log_only": 4,
+    "summary": [
+      "The Los Angeles Dodgers played the Kansas City Royals on August 12, 2026 at 7:10 PM PDT.",
+      "Max Muncy hit a walk‑off single in the 10th inning of a Dodgers game on August 11, 2026.",
+      "Blake Snell struck out ten batters in his first start after returning from elbow surgery on August 11, 2026.",
+      "A new Dodgers prospect showcased a nasty pitch in his debut at Double‑A on August 8, 2026."
+    ]
+  }
+]

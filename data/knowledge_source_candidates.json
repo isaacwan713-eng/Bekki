@@ -1,0 +1,339 @@
+[
+  {
+    "name": "Manchester United | History, Records & Achievements | Britannica",
+    "url": "https://www.britannica.com/topic/Manchester-United",
+    "domain": "britannica.com",
+    "topics": [
+      "manchester united club history"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:21.979529+00:00"
+  },
+  {
+    "name": "History – Manchester United",
+    "url": "https://ir.manutd.com/company-information/history.aspx",
+    "domain": "ir.manutd.com",
+    "topics": [
+      "manchester united club history"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:21.980516+00:00",
+    "source_class": "official",
+    "trust_score": 0.92,
+    "judgment_reason": "The page is hosted on Manchester United’s investor‑relations subdomain (ir.manutd.com), a primary, authoritative source that directly presents club history and facts from the organization.",
+    "reviewed_at": "2026-08-12T18:49:37.851268+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "History of Manchester United Football Club plc – FundingUniverse",
+    "url": "https://www.fundinguniverse.com/company-histories/manchester-united-football-club-plc-history/",
+    "domain": "fundinguniverse.com",
+    "topics": [
+      "manchester united club history"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:21.981268+00:00",
+    "source_class": "aggregator",
+    "trust_score": 0.4,
+    "judgment_reason": "FundingUniverse compiles company histories but lacks primary documentation or official editorial oversight from Manchester United or an authoritative sports historian, making its reliability for autonomous learning uncertain.",
+    "reviewed_at": "2026-08-12T18:49:41.682754+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Manchester United FC - history, facts and stats",
+    "url": "https://www.footballhistory.org/club/manchester-united.html",
+    "domain": "footballhistory.org",
+    "topics": [
+      "manchester united club history"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-12T18:29:21.982101+00:00",
+    "source_class": "community",
+    "trust_score": 0.3,
+    "judgment_reason": "The site appears to be a fan‑run aggregation of football history data with no clear editorial oversight or primary source verification. While it contains useful information about Manchester United, its authority and reliability for autonomous learning cannot be confirmed without further evidence.",
+    "reviewed_at": "2026-08-12T18:49:46.043441+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Manchester United F.C. - Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Manchester_United_F.C.",
+    "domain": "en.wikipedia.org",
+    "topics": [
+      "manchester united club history"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-12T18:29:21.982851+00:00",
+    "source_class": "established_reference",
+    "trust_score": 0.82,
+    "judgment_reason": "The page is a Wikipedia article, which is a widely recognized secondary source with community editorial oversight and citation requirements. It provides comprehensive, verifiable information about Manchester United F.C., making it suitable for autonomous learning on the club’s history.",
+    "reviewed_at": "2026-08-12T18:49:51.038827+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "The Evolution of Manchester United's Tactical Systems: From Busby to Amorim",
+    "url": "https://www.mufcinfo.com/manupag/articles/article_pages/evolution-of-manchester-united-tactical-systems.html",
+    "domain": "mufcinfo.com",
+    "topics": [
+      "manchester united tactical evolution"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:22.783934+00:00",
+    "source_class": "community",
+    "trust_score": 0.42,
+    "judgment_reason": "The site appears to be a fan‑run portal with no verifiable institutional affiliation, editorial oversight, or primary source citations. While it contains historical content that could aid learning about Manchester United’s tactical evolution, the lack of confirmed authorship and formal editorial standards prevents automatic approval.",
+    "reviewed_at": "2026-08-12T18:49:55.374848+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "The Global Legacy of Manchester United Football Club - DailyNewsReleases",
+    "url": "https://www.dailynewsreleases.com/manchester-united-football-club/",
+    "domain": "dailynewsreleases.com",
+    "topics": [
+      "manchester united tactical evolution"
+    ],
+    "status": "reject",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:22.785030+00:00",
+    "source_class": "unknown",
+    "trust_score": 0.1,
+    "judgment_reason": "The page is a generic blog with an unverified author and lacks any editorial oversight, primary documentation, or authoritative references to Manchester United. It does not meet criteria for autonomous learning.",
+    "reviewed_at": "2026-08-12T18:49:59.136592+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "A 20-Year Analysis of Manchester United (2005-2025)",
+    "url": "https://www.ijbmi.org/papers/Vol(14)10/14108096.pdf",
+    "domain": "ijbmi.org",
+    "topics": [
+      "manchester united tactical evolution"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-12T18:29:22.785821+00:00",
+    "source_class": "academic",
+    "trust_score": 0.42,
+    "judgment_reason": "The paper appears to be published in a niche, possibly low‑impact journal (International Journal of Business and Management Invention) with unclear editorial standards and limited recognition in mainstream academia. While it contains scholarly content on Manchester United’s tactical evolution, the source’s institutional credibility and peer‑review rigor cannot be confidently verified.",
+    "reviewed_at": "2026-08-12T18:50:05.603803+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Manchester United (Football Club) - Overview | StudyGuides.com",
+    "url": "https://studyguides.com/study-methods/overview/cmkyhsv2gd3kn01d5te94itz6",
+    "domain": "studyguides.com",
+    "topics": [
+      "manchester united tactical evolution"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:22.786615+00:00",
+    "source_class": "community",
+    "trust_score": 0.35,
+    "judgment_reason": "The page is hosted on a generic educational site without clear editorial oversight or primary documentation from Manchester United; its provenance and authority cannot be confidently verified.",
+    "reviewed_at": "2026-08-12T18:50:09.251952+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "The Tactical Evolution of Manchester United Under Ruben Amorim - footboom1.com",
+    "url": "https://www.footboom1.com/en/news/football/2019539-the-tactical-evolution-of-manchester-united-under-ruben-amorim",
+    "domain": "footboom1.com",
+    "topics": [
+      "manchester united tactical evolution"
+    ],
+    "status": "reject",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:22.787396+00:00",
+    "source_class": "community",
+    "trust_score": 0.1,
+    "judgment_reason": "Footboom1.com appears to be a generic sports news aggregator with no clear editorial oversight, official affiliation, or primary source verification. The article is user-generated commentary lacking authoritative documentation on Manchester United’s tactical evolution.",
+    "reviewed_at": "2026-08-12T18:50:13.343165+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Los Angeles Dodgers Team History & Encyclopedia | Baseball-Reference.com",
+    "url": "https://www.baseball-reference.com/teams/LAD/index.shtml",
+    "domain": "baseball-reference.com",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:23.552148+00:00",
+    "source_class": "established_reference",
+    "trust_score": 0.8,
+    "judgment_reason": "Baseball‑Reference.com provides comprehensive, well‑curated historical data on MLB franchises and is widely recognized as a reliable secondary source for sports statistics.",
+    "reviewed_at": "2026-08-12T18:50:17.617390+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Los Angeles Dodgers | Sports and Leisure | Research Starters | EBSCO Research",
+    "url": "https://www.ebsco.com/research-starters/sports-and-leisure/los-angeles-dodgers",
+    "domain": "ebsco.com",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:23.553093+00:00",
+    "source_class": "aggregator",
+    "trust_score": 0.42,
+    "judgment_reason": "The page is a curated research starter hosted on the EBSCO domain, which aggregates content from various sources rather than providing primary official documentation. The editorial responsibility and authorship are unclear beyond a single named author, and while the information appears relevant to Los Angeles Dodgers history, it lacks direct verification of source provenance or institutional backing.",
+    "reviewed_at": "2026-08-12T18:50:21.214336+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Los Angeles Dodgers | LinkedIn",
+    "url": "https://www.linkedin.com/company/los-angeles-dodgers",
+    "domain": "linkedin.com",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T18:29:23.553963+00:00",
+    "source_class": "official",
+    "trust_score": 0.55,
+    "judgment_reason": "The LinkedIn company profile is an official page but lacks primary editorial structure and comprehensive historical documentation; it may be useful for basic facts but cannot be relied upon as a definitive source for autonomous learning about franchise history.",
+    "reviewed_at": "2026-08-12T18:50:26.026056+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "The Official Illustrated History of Manchester United 1878-2012 | Book by MUFC | Official Publisher Page | Simon & Schuster",
+    "url": "https://www.simonandschuster.com/books/The-Official-Illustrated-History-of-Manchester-United-1878-2012/MUFC/MUFC/9781471102622",
+    "domain": "simonandschuster.com",
+    "topics": [
+      "manchester united history and tactics"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:30.439090+00:00"
+  },
+  {
+    "name": "History | Manchester United",
+    "url": "https://manutd.com/en/history",
+    "domain": "manutd.com",
+    "topics": [
+      "manchester united history and tactics"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:30.440606+00:00"
+  },
+  {
+    "name": "Official Los Angeles Dodgers Website | MLB.com",
+    "url": "https://www.mlb.com/dodgers",
+    "domain": "mlb.com",
+    "topics": [
+      "los angeles dodgers team dynamics"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:31.468192+00:00",
+    "source_class": "official",
+    "trust_score": 0.92,
+    "judgment_reason": "The URL is the official Los Angeles Dodgers page hosted on MLB.com, providing primary, authoritative content about the team and its activities.",
+    "reviewed_at": "2026-08-12T19:18:43.013126+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "The Evolution of AI Model Architectures: A Comprehensive Guide to LLMs, VLMs, SLMs, and Beyond | by Amresh Kumar | Medium",
+    "url": "https://medium.com/@amresh.kumar11/the-evolution-of-ai-model-architectures-a-comprehensive-guide-to-llms-vlms-slms-and-beyond-e718428808ac",
+    "domain": "medium.com",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:32.403358+00:00"
+  },
+  {
+    "name": "Get Started with AI Architecture Design - Azure Architecture Center | Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/ai-get-started",
+    "domain": "learn.microsoft.com",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:32.404848+00:00",
+    "source_class": "official",
+    "trust_score": 0.95,
+    "judgment_reason": "The page is hosted on learn.microsoft.com, a Microsoft official documentation domain. It provides primary technical guidance from the company’s Azure Architecture Center, meeting criteria for an authoritative source relevant to AI architecture design.",
+    "reviewed_at": "2026-08-12T19:18:47.836597+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "url": "https://arxiv.org/html/2601.12560v1",
+    "domain": "arxiv.org",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-12T19:18:32.405905+00:00",
+    "source_class": "academic",
+    "trust_score": 0.92,
+    "judgment_reason": "The source is a primary research paper hosted on arXiv, authored by researchers affiliated with recognized universities and institutions. The content includes formal abstract, author affiliations, and structured academic sections, indicating it meets the criteria for an established reference suitable for autonomous learning.",
+    "reviewed_at": "2026-08-12T19:18:51.397021+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Does AI Scale from Here — or Stall? In Search of a New Architecture",
+    "url": "https://adeia.com/blog/does-ai-scale-from-here-in-search-of-a-new-architecture",
+    "domain": "adeia.com",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:32.406925+00:00",
+    "source_class": "community",
+    "trust_score": 0.25,
+    "judgment_reason": "The source is a company blog post from adeia.com, which does not provide verifiable editorial oversight or primary documentation for the topic of AI architecture. While it may contain useful insights, its identity and authority cannot be confidently established as an official or academic reference.",
+    "reviewed_at": "2026-08-12T19:18:55.387787+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Why Architecture Determines the Future of AI Innovation",
+    "url": "https://emerj.com/why-architecture-determines-the-future-of-ai-innovation/",
+    "domain": "emerj.com",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-12T19:18:32.408019+00:00",
+    "source_class": "journalism",
+    "trust_score": 0.45,
+    "judgment_reason": "Emerj.com is a commercial AI‑focused media outlet, not an official institution or primary source. The article cites industry experts and secondary data but lacks institutional editorial oversight or primary documentation required for autonomous learning approval.",
+    "reviewed_at": "2026-08-12T19:18:59.524666+00:00",
+    "policy_version": 2
+  }
+]

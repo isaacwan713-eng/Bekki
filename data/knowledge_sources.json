@@ -1,0 +1,116 @@
+[
+  {
+    "name": "Python News",
+    "url": "https://www.python.org/blogs/",
+    "domain": "python.org",
+    "topics": [
+      "python",
+      "programming"
+    ],
+    "trust": "official",
+    "status": "approved"
+  },
+  {
+    "name": "Ollama Blog",
+    "url": "https://ollama.com/blog",
+    "domain": "ollama.com",
+    "topics": [
+      "ollama",
+      "local ai",
+      "language models"
+    ],
+    "trust": "official",
+    "status": "approved"
+  },
+  {
+    "name": "Qt for Python",
+    "url": "https://doc.qt.io/qtforpython-6/",
+    "domain": "doc.qt.io",
+    "topics": [
+      "pyside6",
+      "qt",
+      "python",
+      "desktop development"
+    ],
+    "trust": "official",
+    "status": "approved"
+  },
+  {
+    "name": "History – Manchester United",
+    "url": "https://ir.manutd.com/company-information/history.aspx",
+    "domain": "ir.manutd.com",
+    "topics": [
+      "manchester united club history"
+    ],
+    "trust": "official",
+    "trust_score": 0.92,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T18:45:30.483309+00:00"
+  },
+  {
+    "name": "Manchester United F.C. - Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Manchester_United_F.C.",
+    "domain": "en.wikipedia.org",
+    "topics": [
+      "manchester united club history"
+    ],
+    "trust": "established_reference",
+    "trust_score": 0.72,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T18:45:46.504950+00:00"
+  },
+  {
+    "name": "Los Angeles Dodgers Team History & Encyclopedia | Baseball-Reference.com",
+    "url": "https://www.baseball-reference.com/teams/LAD/index.shtml",
+    "domain": "baseball-reference.com",
+    "topics": [
+      "los angeles dodgers franchise history"
+    ],
+    "trust": "established_reference",
+    "trust_score": 0.8,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T18:50:17.618625+00:00"
+  },
+  {
+    "name": "Official Los Angeles Dodgers Website | MLB.com",
+    "url": "https://www.mlb.com/dodgers",
+    "domain": "mlb.com",
+    "topics": [
+      "los angeles dodgers team dynamics"
+    ],
+    "trust": "official",
+    "trust_score": 0.92,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T19:18:43.014246+00:00"
+  },
+  {
+    "name": "Get Started with AI Architecture Design - Azure Architecture Center | Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/ai-get-started",
+    "domain": "learn.microsoft.com",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "trust": "official",
+    "trust_score": 0.95,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T19:18:47.837848+00:00"
+  },
+  {
+    "name": "Agentic Artificial Intelligence (AI): Architectures, Taxonomies, and Evaluation of Large Language Model Agents",
+    "url": "https://arxiv.org/html/2601.12560v1",
+    "domain": "arxiv.org",
+    "topics": [
+      "emerging ai model architectures"
+    ],
+    "trust": "academic",
+    "trust_score": 0.92,
+    "status": "approved",
+    "approved_by": "source_judge_ai",
+    "approved_at": "2026-08-12T19:18:51.398196+00:00"
+  }
+]

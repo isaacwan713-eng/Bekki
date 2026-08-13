@@ -1,0 +1,12 @@
+{
+  "current_topic": "reminders",
+  "entities": [
+    "明天上午9点交报告"
+  ],
+  "date_context": null,
+  "current_goal": "delete the test instant refresh reminder",
+  "last_user_intent": "asked to delete the test instant refresh reminder",
+  "open_references": {
+    "existing_reminder": "明天上午9点交报告"
+  }
+}

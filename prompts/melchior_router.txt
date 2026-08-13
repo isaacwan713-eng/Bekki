@@ -7,7 +7,7 @@ query. Return one valid JSON object only, with no markdown or extra text.
 Return exactly this structure:
 
 {
-  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH",
+  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH | TASK_ACTION",
   "needs_search": true,
   "research_depth": "none | ranked_feed | direct_lookup | 3_5_7 | social_handoff",
   "source_policy": "local_context | weighted_news | official_first | evidence_verification | platform_native",
@@ -35,6 +35,40 @@ Examples:
 - "What is in this screenshot?" when an image is active
 - translation, writing, coding, math, and stable general knowledge
 - questions about Bekki's own identity, creator, configuration, or local models
+
+### TASK_ACTION
+
+Use when the user wants to create, list, complete, cancel, or delete a local
+task or reminder.
+
+Melchior only decides that the request belongs to the Task system.
+A separate Task AI will extract the task title, time, recurrence, and target.
+
+Examples:
+
+- "明天上午 9 点提醒我交报告"
+- "Remind me to call Mom at 6 PM"
+- "每周五下午 6 点提醒我整理周报"
+- "我有哪些提醒？"
+- "把交报告标记为完成"
+- "删除牙医提醒"
+
+For TASK_ACTION:
+
+- needs_search=false
+- research_depth="none"
+- source_policy="local_context"
+- research_profile="local_context"
+
+Do not use TASK_ACTION merely because the user mentions a date or completed
+activity.
+
+Examples that are not TASK_ACTION:
+
+- "明天天气怎么样？" → FACT_LOOKUP
+- "我今天完成了很多工作" → LOCAL_ANSWER
+- "帮我写一份周报" → LOCAL_ANSWER
+- "周报应该怎么写？" → LOCAL_ANSWER
 
 ### NEWS_FEED
 
@@ -210,6 +244,11 @@ For the current migration phase, research_profile must match response_mode:
 - SOCIAL_RESEARCH:
   needs_search=true, research_depth="social_handoff",
   source_policy="platform_native", research_profile="platform_native".
+- TASK_ACTION:
+  needs_search=false,
+  research_depth="none",
+  source_policy="local_context",
+  research_profile="local_context".
 
 
 ## Important rules

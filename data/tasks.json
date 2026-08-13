@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "dfd8668a3baf4d5283f105a5fc50fc02",
+      "title": "测试 Bekki 通知",
+      "due_at": "2026-08-13T09:37:31.787090-07:00",
+      "recurrence": "NONE",
+      "status": "completed",
+      "created_at": "2026-08-13T09:36:35.203200-07:00",
+      "completed_at": "2026-08-13T09:57:05.183360-07:00",
+      "last_notified_at": "2026-08-13T09:37:43.534876-07:00"
+    }
+  ]
+}

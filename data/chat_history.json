@@ -1,0 +1,218 @@
+{
+  "version": 3,
+  "active_session_id": "130034c17a34433a90a9bbba7b5001bf",
+  "sessions": [
+    {
+      "id": "130034c17a34433a90a9bbba7b5001bf",
+      "title": "你知道陈欣慈码",
+      "created_at": "2026-08-12T21:34:24",
+      "updated_at": "2026-08-13T10:06:07",
+      "messages": [
+        {
+          "role": "You",
+          "text": "你知道陈欣慈码",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-12T21:34:39"
+        },
+        {
+          "role": "Bekki",
+          "text": "抱歉，我不太明白你说的“陈欣慈码”指什么。能否再说明一下？",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-12T21:35:10"
+        },
+        {
+          "role": "You",
+          "text": "你认识陈欣慈吗？",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-12T21:35:25"
+        },
+        {
+          "role": "Bekki",
+          "text": "抱歉，我不认识陈欣慈。也许她是某个领域的人物，如果你能告诉我更多背景，我可以帮你查找相关信息。",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-12T21:35:52"
+        },
+        {
+          "role": "You",
+          "text": "你去搜索看看认识陈欣慈吗",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-12T21:36:29"
+        },
+        {
+          "role": "Bekki",
+          "text": "我暂时不能确认这个说法 🥺\n\n我已经按 3→5→7 读取并核对了多个来源，但它们没有形成足够一致的证据。\n原因：No source provided any answer.",
+          "sources": [
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://newsroom.northumbria.ac.uk/pressreleases/bekki-heads-to-beijing-following-scholarship-win-1846936",
+              "source_score": 20,
+              "domain": "newsroom.northumbria.ac.uk"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://en.wikipedia.org/wiki/Becky_(television_personality)",
+              "source_score": 18,
+              "domain": "en.wikipedia.org"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://x.com/becky_bekiko?lang=en",
+              "source_score": 15,
+              "domain": "x.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://spy-x-family.fandom.com/wiki/Becky_Blackbell",
+              "source_score": 12,
+              "domain": "spy-x-family.fandom.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://x.com/bekki?lang=en",
+              "source_score": 10,
+              "domain": "x.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://www.youtube.com/channel/UCzPVvCIxmpV3P0MVdlxHrIw",
+              "source_score": 8,
+              "domain": "youtube.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://x.com/Bekki_x",
+              "source_score": 7,
+              "domain": "x.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://www.reddit.com/r/japan/comments/43op8c/japanese_tv_personality_becky_%E3%83%99%E3%83%83%E3%82%AD%E3%83%BC_bekk%C4%ABs_career/",
+              "source_score": 6,
+              "domain": "reddit.com"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://www.twitch.tv/bekki_k?lang=de",
+              "source_score": 5,
+              "domain": "twitch.tv"
+            },
+            {
+              "content_type": "NEWS",
+              "is_concrete_news": true,
+              "url": "https://www.tumblr.com/call-me-bekki",
+              "source_score": 4,
+              "domain": "tumblr.com"
+            }
+          ],
+          "highlights": [],
+          "created_at": "2026-08-12T21:39:04"
+        },
+        {
+          "role": "You",
+          "text": "明天上午9点提醒我交报告",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:28:43"
+        },
+        {
+          "role": "Bekki",
+          "text": "好的，已为你设置明天上午9点交报告的提醒！如果还有其他需要帮忙的，随时告诉我哦～",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:29:12"
+        },
+        {
+          "role": "You",
+          "text": "我有哪些提醒？",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:30:01"
+        },
+        {
+          "role": "Bekki",
+          "text": "你有一个提醒：明天上午9点交报告。",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:30:29"
+        },
+        {
+          "role": "You",
+          "text": "晚点提醒我喝水",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:30:33"
+        },
+        {
+          "role": "Bekki",
+          "text": "你想在几点提醒你喝水呢？",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:31:02"
+        },
+        {
+          "role": "You",
+          "text": "一分钟后提醒我测试 Bekki 通知",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:36:25"
+        },
+        {
+          "role": "Bekki",
+          "text": "好的，已为你设置一分钟后测试 Bekki 通知的提醒！稍等片刻就会收到通知啦～",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T09:36:58"
+        },
+        {
+          "role": "You",
+          "text": "五分钟后提醒我测试即时刷新",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T10:03:18"
+        },
+        {
+          "role": "You",
+          "text": "五分钟后提醒我测试即时刷新",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T10:04:54"
+        },
+        {
+          "role": "Bekki",
+          "text": "好的，已为你设置五分钟后测试即时刷新的提醒！稍等片刻就会收到通知啦～",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T10:05:26"
+        },
+        {
+          "role": "You",
+          "text": "删除测试即时刷新的提醒",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T10:05:38"
+        },
+        {
+          "role": "Bekki",
+          "text": "已删除“测试即时刷新”的提醒，任务已成功移除。",
+          "sources": [],
+          "highlights": [],
+          "created_at": "2026-08-13T10:06:07"
+        }
+      ]
+    }
+  ]
+}

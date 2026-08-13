@@ -6,6 +6,7 @@ import os
 import sys
 import html
 import localization as i18n
+from datetime import datetime
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
@@ -236,6 +237,7 @@ class HeaderWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._language_handler = None
+        self._task_handler = None
 
         brand_mark = QLabel("♥")
         brand_mark.setAlignment(Qt.AlignCenter)
@@ -312,6 +314,34 @@ class HeaderWidget(QWidget):
             """
         )
 
+        self.task_button = QPushButton("✓")
+        self.task_button.setFixedSize(28,28)
+        self.task_button.setCursor(
+            Qt.PointingHandCursor
+        )
+        self.task_button.setToolTip(i18n.t("tasks"))
+        self.task_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f0f9f6;
+                border: 1px solid #d4ece3;
+                border-radius: 14px;
+                color: #58a489;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #def3eb;
+                border-color: #acd9c8;
+            }
+
+            QPushButton:pressed {
+                background-color: #d1ebdf;
+            }
+            """
+        )
+
         self.language_button = QPushButton(i18n.badge())
         self.language_button.setFixedSize(32, 28)
         self.language_button.setCursor(Qt.PointingHandCursor)
@@ -340,6 +370,7 @@ class HeaderWidget(QWidget):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.addLayout(brand_layout)
         title_layout.addStretch()
+        title_layout.addWidget(self.task_button)
         title_layout.addWidget(self.language_button)
         title_layout.addWidget(self.history_button)
         title_layout.addWidget(version_badge)
@@ -381,6 +412,15 @@ class HeaderWidget(QWidget):
         self.language_button.setText(i18n.badge())
         self.language_button.setToolTip(i18n.t("language"))
         self.history_button.setToolTip(i18n.t("history_toggle"))
+        self.task_button.setToolTip(i18n.t("tasks"))
+
+    def connect_task_toggle(self
+                            ,handler,
+                            ):
+        self._task_handler = handler
+        self.task_button.clicked.connect(
+            handler
+        )
 
 
 class HistorySidebar(QFrame):
@@ -1315,15 +1355,548 @@ class InputArea(QWidget):
         self.document_close_button.clicked.connect(handler)
 
 
-class BekkiWindow(QWidget):
-    def __init__(self, show_welcome=True):
+class TaskCard(QFrame):
+    """One pending task displayed inside the task drawer."""
+
+    def __init__(
+        self,
+        task,
+        complete_handler=None,
+        delete_handler=None,
+    ):
         super().__init__()
 
-        self.setObjectName("mainWindow")
-        self.setWindowTitle("Bekki AI")
-        self.setWindowIcon(QIcon(resource_path("assets/bekki.ico")))
+        self.task = task
+        self.task_id = str(
+            task.get("id", "")
+        )
+
+        self.setObjectName("taskCard")
+        self.setStyleSheet(
+            f"""
+            QFrame#taskCard {{
+                background-color: #ffffff;
+                border: 1px solid #dce9f6;
+                border-radius: 14px;
+            }}
+
+            QLabel {{
+                border: none;
+                background: transparent;
+                font-family: {UI_FONT};
+            }}
+            """
+        )
+
+        title = QLabel(
+            str(
+                task.get(
+                    "title",
+                    i18n.t("untitled_task"),
+                )
+            )
+        )
+
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #344b63;
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            """
+        )
+
+        due_label = QLabel(
+            self._due_text(
+                task.get("due_at")
+            )
+        )
+
+        due_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #7290ad;
+                font-family: {UI_FONT};
+                font-size: 10px;
+            }}
+            """
+        )
+
+        recurrence = str(
+            task.get(
+                "recurrence",
+                "NONE",
+            )
+        ).upper()
+
+        recurrence_label = QLabel(
+            self._recurrence_text(
+                recurrence
+            )
+        )
+
+        recurrence_label.setVisible(
+            recurrence != "NONE"
+        )
+
+        recurrence_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #9b6f8c;
+                background-color: #fff0f7;
+                border: 1px solid #f2d8e5;
+                border-radius: 8px;
+                font-family: {UI_FONT};
+                font-size: 9px;
+                font-weight: 700;
+                padding: 2px 7px;
+            }}
+            """
+        )
+
+        complete_button = QPushButton("✓")
+        complete_button.setFixedSize(27, 27)
+        complete_button.setCursor(
+            Qt.PointingHandCursor
+        )
+        complete_button.setToolTip(
+            i18n.t("complete_task")
+        )
+        complete_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #eaf8f3;
+                border: 1px solid #cceade;
+                border-radius: 13px;
+                color: #53a486;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background-color: #d9f2e8;
+                border-color: #9ed8c2;
+            }
+
+            QPushButton:pressed {
+                background-color: #ccebdd;
+            }
+            """
+        )
+
+        delete_button = QPushButton("×")
+        delete_button.setFixedSize(27, 27)
+        delete_button.setCursor(
+            Qt.PointingHandCursor
+        )
+        delete_button.setToolTip(
+            i18n.t("delete_task")
+        )
+        delete_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #fff3f7;
+                border: 1px solid #f2d9e3;
+                border-radius: 13px;
+                color: #b97691;
+                font-size: 15px;
+                font-weight: 600;
+            }
+
+            QPushButton:hover {
+                background-color: #ffe5ef;
+                border-color: #eabbd0;
+            }
+
+            QPushButton:pressed {
+                background-color: #f8d9e6;
+            }
+            """
+        )
+
+        if complete_handler:
+            complete_button.clicked.connect(
+                lambda checked=False:
+                complete_handler(
+                    self.task_id
+                )
+            )
+
+        if delete_handler:
+            delete_button.clicked.connect(
+                lambda checked=False:
+                delete_handler(
+                    self.task_id
+                )
+            )
+
+        metadata_layout = QHBoxLayout()
+        metadata_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        metadata_layout.setSpacing(6)
+        metadata_layout.addWidget(
+            due_label
+        )
+        metadata_layout.addStretch()
+        metadata_layout.addWidget(
+            recurrence_label
+        )
+
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        button_layout.setSpacing(6)
+        button_layout.addStretch()
+        button_layout.addWidget(
+            complete_button
+        )
+        button_layout.addWidget(
+            delete_button
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(
+            12,
+            11,
+            10,
+            9,
+        )
+        layout.setSpacing(7)
+        layout.addWidget(title)
+        layout.addLayout(
+            metadata_layout
+        )
+        layout.addLayout(
+            button_layout
+        )
+
+        self.setLayout(layout)
+
+    def _due_text(self, value):
+        if not isinstance(value, str):
+            return i18n.t(
+                "task_time_unknown"
+            )
+
+        try:
+            due_at = (
+                datetime.fromisoformat(
+                    value.replace(
+                        "Z",
+                        "+00:00",
+                    )
+                )
+            )
+
+        except ValueError:
+            return i18n.t(
+                "task_time_unknown"
+            )
+
+        local_due_at = (
+            due_at.astimezone()
+        )
+
+        current_time = (
+            datetime.now().astimezone()
+        )
+
+        prefix = "◷ "
+
+        if local_due_at < current_time:
+            prefix = "● "
+
+        return (
+            prefix
+            + local_due_at.strftime(
+                "%Y-%m-%d  %H:%M"
+            )
+        )
+
+    def _recurrence_text(
+        self,
+        recurrence,
+    ):
+        keys = {
+            "DAILY": "recurrence_daily",
+            "WEEKLY": "recurrence_weekly",
+            "MONTHLY": "recurrence_monthly",
+        }
+
+        key = keys.get(
+            recurrence
+        )
+
+        return (
+            i18n.t(key)
+            if key
+            else ""
+        )
+
+
+class TaskDrawer(QFrame):
+    """Modern right-side panel for pending tasks."""
+
+    def __init__(self):
+        super().__init__()
+
+        self._complete_handler = None
+        self._delete_handler = None
+        self._tasks = []
+
+        self.setObjectName(
+            "taskDrawer"
+        )
+
+        self.setFixedWidth(260)
+
+        self.setStyleSheet(
+            f"""
+            QFrame#taskDrawer {{
+                background-color: #f9fbff;
+                border: 1px solid #dce8f5;
+                border-radius: 18px;
+            }}
+
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+
+            QScrollArea > QWidget >
+            QWidget {{
+                background: transparent;
+            }}
+            """
+        )
+
+        self.title_label = QLabel(
+            i18n.t("tasks")
+        )
+
+        self.title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #4587c2;
+                font-family: {UI_FONT};
+                font-size: 15px;
+                font-weight: 750;
+            }}
+            """
+        )
+
+        self.count_label = QLabel("0")
+        self.count_label.setAlignment(
+            Qt.AlignCenter
+        )
+        self.count_label.setFixedSize(
+            24,
+            24,
+        )
+        self.count_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #6e9bc4;
+                background-color: #edf6ff;
+                border: 1px solid #d4e8fa;
+                border-radius: 12px;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+            }}
+            """
+        )
+
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        title_layout.addWidget(
+            self.title_label
+        )
+        title_layout.addStretch()
+        title_layout.addWidget(
+            self.count_label
+        )
+
+        self.empty_label = QLabel(
+            i18n.t("no_pending_tasks")
+        )
+        self.empty_label.setAlignment(
+            Qt.AlignCenter
+        )
+        self.empty_label.setWordWrap(
+            True
+        )
+        self.empty_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #91a7bb;
+                font-family: {UI_FONT};
+                font-size: 11px;
+                padding: 30px 12px;
+            }}
+            """
+        )
+
+        self.task_container = QWidget()
+
+        self.task_layout = QVBoxLayout()
+        self.task_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        self.task_layout.setSpacing(8)
+        self.task_layout.addStretch()
+
+        self.task_container.setLayout(
+            self.task_layout
+        )
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(
+            True
+        )
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        scroll_area.setWidget(
+            self.task_container
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(
+            12,
+            14,
+            12,
+            12,
+        )
+        layout.setSpacing(10)
+        layout.addLayout(
+            title_layout
+        )
+        layout.addWidget(
+            self.empty_label
+        )
+        layout.addWidget(
+            scroll_area,
+            1,
+        )
+
+        self.setLayout(layout)
+        self.setVisible(False)
+
+    def set_tasks(self, tasks):
+        self._tasks = (
+            tasks
+            if isinstance(tasks, list)
+            else []
+        )
+
+        while (
+            self.task_layout.count()
+            > 1
+        ):
+            item = (
+                self.task_layout.takeAt(
+                    0
+                )
+            )
+
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        for task in self._tasks:
+            card = TaskCard(
+                task,
+                self._complete_handler,
+                self._delete_handler,
+            )
+
+            self.task_layout.insertWidget(
+                self.task_layout.count() - 1,
+                card,
+            )
+
+        self.count_label.setText(
+            str(len(self._tasks))
+        )
+
+        self.empty_label.setVisible(
+            not self._tasks
+        )
+
+    def connect_complete(
+        self,
+        handler,
+    ):
+        self._complete_handler = handler
+        self.set_tasks(self._tasks)
+
+    def connect_delete(
+        self,
+        handler,
+    ):
+        self._delete_handler = handler
+        self.set_tasks(self._tasks)
+
+    def apply_language(self):
+        self.title_label.setText(
+            i18n.t("tasks")
+        )
+
+        self.empty_label.setText(
+            i18n.t(
+                "no_pending_tasks"
+            )
+        )
+
+        self.set_tasks(self._tasks)
+
+
+class BekkiWindow(QWidget):
+    def __init__(
+        self,
+        show_welcome=True,
+    ):
+        super().__init__()
+
+        self.setObjectName(
+            "mainWindow"
+        )
+        self.setWindowTitle(
+            "Bekki AI"
+        )
+        self.setWindowIcon(
+            QIcon(
+                resource_path(
+                    "assets/bekki.ico"
+                )
+            )
+        )
         self.resize(680, 620)
-        self.setMinimumSize(440, 540)
+        self.setMinimumSize(
+            440,
+            540,
+        )
         self.setStyleSheet(
             """
             #mainWindow {
@@ -1333,104 +1906,303 @@ class BekkiWindow(QWidget):
         )
 
         self.header = HeaderWidget()
-        self.chat = ChatArea(show_welcome=show_welcome)
+        self.chat = ChatArea(
+            show_welcome=show_welcome
+        )
         self.input_area = InputArea()
         self.sidebar = HistorySidebar()
+        self.task_drawer = TaskDrawer()
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
         main_layout.setSpacing(8)
-        main_layout.addWidget(self.header)
-        main_layout.addWidget(self.chat)
-        main_layout.addWidget(self.input_area)
+        main_layout.addWidget(
+            self.header
+        )
+        main_layout.addWidget(
+            self.chat
+        )
+        main_layout.addWidget(
+            self.input_area
+        )
 
         main_panel = QWidget()
-        main_panel.setLayout(main_layout)
+        main_panel.setLayout(
+            main_layout
+        )
 
         root_layout = QHBoxLayout()
-        root_layout.setContentsMargins(12, 12, 16, 16)
+        root_layout.setContentsMargins(
+            12,
+            12,
+            16,
+            16,
+        )
         root_layout.setSpacing(10)
-        root_layout.addWidget(self.sidebar)
-        root_layout.addWidget(main_panel, 1)
-        self.setLayout(root_layout)
+        root_layout.addWidget(
+            self.sidebar
+        )
+        root_layout.addWidget(
+            main_panel,
+            1,
+        )
+        root_layout.addWidget(
+            self.task_drawer
+        )
 
-        self.header.connect_history_toggle(self.toggle_sidebar)
+        self.setLayout(
+            root_layout
+        )
 
-    def connect_language_change(self, handler):
-        self.header.connect_language_change(handler)
+        self.header.connect_history_toggle(
+            self.toggle_sidebar
+        )
+
+        self.header.connect_task_toggle(
+            self.toggle_task_drawer
+        )
+
+    def connect_language_change(
+        self,
+        handler,
+    ):
+        self.header.connect_language_change(
+            handler
+        )
 
     def apply_language(self):
         self.header.apply_language()
         self.sidebar.apply_language()
+        self.task_drawer.apply_language()
         self.input_area.apply_language()
 
     def get_message(self):
-        return self.input_area.get_text()
+        return (
+            self.input_area.get_text()
+        )
 
     def clear_input(self):
         self.input_area.clear()
 
     def set_status(self, text):
-        self.input_area.set_status(text)
+        self.input_area.set_status(
+            text
+        )
 
     def set_busy(self, busy):
-        self.input_area.set_busy(busy)
+        self.input_area.set_busy(
+            busy
+        )
 
     def focus_input(self):
         self.input_area.focus_input()
 
-    def add_message(self, role, message, sources=None, highlights=None):
-        return self.chat.add_message(role, message, sources, highlights)
+    def add_message(
+        self,
+        role,
+        message,
+        sources=None,
+        highlights=None,
+    ):
+        return self.chat.add_message(
+            role,
+            message,
+            sources,
+            highlights,
+        )
 
-    def add_welcome_message(self, message=None):
-        self.chat.add_welcome_message(message)
+    def add_welcome_message(
+        self,
+        message=None,
+    ):
+        self.chat.add_welcome_message(
+            message
+        )
 
     def clear_chat(self):
         self.chat.clear_messages()
 
     def toggle_sidebar(self):
-        self.sidebar.setVisible(not self.sidebar.isVisible())
-        self.resize(680 if self.sidebar.isVisible() else 440, self.height())
+        opening = (
+            not self.sidebar.isVisible()
+        )
 
-    def set_sessions(self, sessions, active_session_id):
-        self.sidebar.set_sessions(sessions, active_session_id)
+        if opening:
+            self.task_drawer.setVisible(
+                False
+            )
+            self.sidebar.setVisible(
+                True
+            )
+            self.resize(
+                680,
+                self.height(),
+            )
 
-    def connect_new_chat(self, handler):
-        self.sidebar._new_handler = handler
+        else:
+            self.sidebar.setVisible(
+                False
+            )
+            self.resize(
+                440,
+                self.height(),
+            )
 
-    def connect_session_select(self, handler):
-        self.sidebar._select_handler = handler
+    def toggle_task_drawer(self):
+        opening = (
+            not self.task_drawer.isVisible()
+        )
 
-    def connect_delete_chat(self, handler):
-        self.sidebar._delete_handler = handler
+        if opening:
+            self.sidebar.setVisible(
+                False
+            )
+            self.task_drawer.setVisible(
+                True
+            )
+            self.resize(
+                720,
+                self.height(),
+            )
 
-    def connect_clear_chat(self, handler):
-        self.sidebar._clear_handler = handler
+        else:
+            self.task_drawer.setVisible(
+                False
+            )
+            self.resize(
+                440,
+                self.height(),
+            )
 
-    def connect_reset_context(self, handler):
-        self.sidebar._reset_context_handler = handler
+    def set_tasks(self, task_items):
+        self.task_drawer.set_tasks(
+            task_items
+        )
 
-    def connect_send(self, handler):
-        self.input_area.connect_send(handler)
+    def connect_task_complete(
+        self,
+        handler,
+    ):
+        self.task_drawer.connect_complete(
+            handler
+        )
 
-    def connect_attach(self, handler):
-        self.input_area.connect_attach(handler)
+    def connect_task_delete(
+        self,
+        handler,
+    ):
+        self.task_drawer.connect_delete(
+            handler
+        )
 
-    def connect_desktop_read(self, screen_handler, window_handler, snip_handler):
+    def set_sessions(
+        self,
+        sessions,
+        active_session_id,
+    ):
+        self.sidebar.set_sessions(
+            sessions,
+            active_session_id,
+        )
+
+    def connect_new_chat(
+        self,
+        handler,
+    ):
+        self.sidebar._new_handler = (
+            handler
+        )
+
+    def connect_session_select(
+        self,
+        handler,
+    ):
+        self.sidebar._select_handler = (
+            handler
+        )
+
+    def connect_delete_chat(
+        self,
+        handler,
+    ):
+        self.sidebar._delete_handler = (
+            handler
+        )
+
+    def connect_clear_chat(
+        self,
+        handler,
+    ):
+        self.sidebar._clear_handler = (
+            handler
+        )
+
+    def connect_reset_context(
+        self,
+        handler,
+    ):
+        self.sidebar._reset_context_handler = (
+            handler
+        )
+
+    def connect_send(
+        self,
+        handler,
+    ):
+        self.input_area.connect_send(
+            handler
+        )
+
+    def connect_attach(
+        self,
+        handler,
+    ):
+        self.input_area.connect_attach(
+            handler
+        )
+
+    def connect_desktop_read(
+        self,
+        screen_handler,
+        window_handler,
+        snip_handler,
+    ):
         self.input_area.connect_desktop_read(
             screen_handler,
             window_handler,
             snip_handler,
         )
 
-    def set_document(self, file_name):
-        self.input_area.set_document(file_name)
+    def set_document(
+        self,
+        file_name,
+    ):
+        self.input_area.set_document(
+            file_name
+        )
 
-    def set_image(self, file_name, file_path=None):
-        self.input_area.set_image(file_name, file_path)
+    def set_image(
+        self,
+        file_name,
+        file_path=None,
+    ):
+        self.input_area.set_image(
+            file_name,
+            file_path,
+        )
 
     def clear_document(self):
         self.input_area.clear_document()
 
-    def connect_document_close(self, handler):
-        self.input_area.connect_document_close(handler)
+    def connect_document_close(
+        self,
+        handler,
+    ):
+        self.input_area.connect_document_close(
+            handler
+        )

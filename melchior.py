@@ -21,6 +21,7 @@ VALID_MODES = {
     "FACT_LOOKUP",
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
+    "TASK_ACTION",
 }
 
 VALID_SOCIAL_PLATFORMS = {
@@ -87,6 +88,12 @@ MODE_INVARIANTS = {
         "source_policy": "platform_native",
         "research_profile": "platform_native",
     },
+    "TASK_ACTION": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },    
 }
 
 DEFAULT_PLAN = {
