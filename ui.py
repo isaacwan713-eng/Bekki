@@ -4,6 +4,8 @@
 
 import os
 import sys
+import html
+import localization as i18n
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
@@ -11,6 +13,7 @@ from PySide6.QtCore import (
     QUrl,
 )
 from PySide6.QtGui import (
+    QColor,
     QDesktopServices,
     QFontMetrics,
     QIcon,
@@ -19,7 +22,9 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
@@ -31,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QGridLayout,
     QMenu,
+    QWidgetAction,
 )
 
 def resource_path(relative_path):
@@ -38,8 +44,161 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-UI_FONT = '"Microsoft YaHei UI", "Segoe UI"'
+UI_FONT = '"Segoe UI Variable", "Microsoft YaHei UI", "Segoe UI"'
 _AVATAR_CACHE = {}
+
+COLORS = {
+    "canvas": "#f7faff",
+    "surface": "#ffffff",
+    "surface_soft": "#f2f7fd",
+    "line": "#dce8f5",
+    "text": "#26384d",
+    "muted": "#71849a",
+    "blue": "#5ba6ef",
+    "blue_dark": "#377fbe",
+    "blue_soft": "#eaf5ff",
+    "pink": "#f4cfe0",
+    "pink_soft": "#fff1f7",
+    "danger": "#c96d8e",
+}
+
+
+class ModernMenu(QMenu):
+    """Borderless Bekki popup used instead of the native Windows menu."""
+
+    def __init__(self, parent=None, width=272):
+        super().__init__(parent)
+        self._menu_width = width
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.FramelessWindowHint
+            | Qt.NoDropShadowWindowHint
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet(
+            f"""
+            QMenu {{
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['line']};
+                border-radius: 16px;
+                padding: 8px;
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {COLORS['line']};
+                margin: 5px 10px;
+            }}
+            """
+        )
+
+    def add_modern_item(self, title, subtitle, handler, tone="blue"):
+        action = QWidgetAction(self)
+        button = QPushButton(title + "\n" + subtitle)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedWidth(self._menu_width - 18)
+        button.setMinimumHeight(58)
+        button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                border-radius: 11px;
+                color: {COLORS['text']};
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 1.35;
+                padding: 9px 12px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['blue_soft'] if tone == 'blue' else COLORS['pink_soft']};
+                color: {COLORS['blue_dark'] if tone == 'blue' else COLORS['danger']};
+            }}
+            QPushButton:pressed {{ background-color: #deefff; }}
+            """
+        )
+
+        def activate():
+            self.close()
+            handler()
+
+        button.clicked.connect(activate)
+        action.setDefaultWidget(button)
+        self.addAction(action)
+        return action
+
+    def add_compact_item(self, title, shortcut, handler, enabled=True, danger=False):
+        action = QWidgetAction(self)
+        label = title + (("    " + shortcut) if shortcut else "")
+        button = QPushButton(label)
+        button.setCursor(Qt.PointingHandCursor if enabled else Qt.ArrowCursor)
+        button.setEnabled(enabled)
+        button.setFixedWidth(self._menu_width - 18)
+        button.setFixedHeight(38)
+        button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                border-radius: 9px;
+                color: {COLORS['danger'] if danger else COLORS['text']};
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 500;
+                padding: 0 11px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['pink_soft'] if danger else COLORS['blue_soft']};
+                color: {COLORS['danger'] if danger else COLORS['blue_dark']};
+            }}
+            QPushButton:disabled {{ color: #b8c3cf; }}
+            """
+        )
+
+        def activate():
+            self.close()
+            handler()
+
+        button.clicked.connect(activate)
+        action.setDefaultWidget(button)
+        self.addAction(action)
+        return action
+
+
+class ModernLineEdit(QLineEdit):
+    """Line edit with a compact Bekki-styled editing menu."""
+
+    def contextMenuEvent(self, event):
+        menu = ModernMenu(self, width=224)
+        selected = self.hasSelectedText()
+        menu.add_compact_item(
+            i18n.t("undo"), "Ctrl+Z", self.undo, self.isUndoAvailable()
+        )
+        menu.add_compact_item(
+            i18n.t("redo"), "Ctrl+Y", self.redo, self.isRedoAvailable()
+        )
+        menu.addSeparator()
+        menu.add_compact_item(
+            i18n.t("cut"), "Ctrl+X", self.cut, selected and not self.isReadOnly()
+        )
+        menu.add_compact_item(i18n.t("copy"), "Ctrl+C", self.copy, selected)
+        menu.add_compact_item(
+            i18n.t("paste"),
+            "Ctrl+V",
+            self.paste,
+            bool(QApplication.clipboard().text()) and not self.isReadOnly(),
+        )
+        menu.add_compact_item(
+            i18n.t("delete"), "Delete", lambda: self.insert(""),
+            selected and not self.isReadOnly(), danger=True
+        )
+        menu.addSeparator()
+        menu.add_compact_item(
+            i18n.t("select_all"), "Ctrl+A", self.selectAll, bool(self.text())
+        )
+        menu.exec(event.globalPos())
 
 
 def create_round_avatar(path, size=42):
@@ -76,18 +235,47 @@ def create_round_avatar(path, size=42):
 class HeaderWidget(QWidget):
     def __init__(self):
         super().__init__()
+        self._language_handler = None
 
-        title_label = QLabel("🩵  Bekki")
-        title_label.setStyleSheet(
+        brand_mark = QLabel("♥")
+        brand_mark.setAlignment(Qt.AlignCenter)
+        brand_mark.setFixedSize(36, 36)
+        brand_mark.setStyleSheet(
             f"""
             QLabel {{
-                color: #4c9df2;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #73c4ff,
+                    stop:1 #8d9cff
+                );
+                border: 1px solid #d9eaff;
+                border-radius: 18px;
+                color: white;
                 font-family: {UI_FONT};
-                font-size: 25px;
+                font-size: 16px;
                 font-weight: 700;
             }}
             """
         )
+
+        title_label = QLabel("Bekki")
+        title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #347fc3;
+                font-family: {UI_FONT};
+                font-size: 27px;
+                font-weight: 750;
+                letter-spacing: -0.4px;
+            }}
+            """
+        )
+
+        brand_layout = QHBoxLayout()
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(10)
+        brand_layout.addWidget(brand_mark)
+        brand_layout.addWidget(title_label)
 
         version_badge = QLabel("V1")
         version_badge.setAlignment(Qt.AlignCenter)
@@ -110,7 +298,7 @@ class HeaderWidget(QWidget):
         self.history_button = QPushButton("☰")
         self.history_button.setFixedSize(28, 28)
         self.history_button.setCursor(Qt.PointingHandCursor)
-        self.history_button.setToolTip("显示 / 隐藏聊天记录")
+        self.history_button.setToolTip(i18n.t("history_toggle"))
         self.history_button.setStyleSheet(
             """
             QPushButton {
@@ -124,39 +312,75 @@ class HeaderWidget(QWidget):
             """
         )
 
-        subtitle = QLabel("Your Personal AI Companion")
-        subtitle.setStyleSheet(
+        self.language_button = QPushButton(i18n.badge())
+        self.language_button.setFixedSize(32, 28)
+        self.language_button.setCursor(Qt.PointingHandCursor)
+        self.language_button.setToolTip(i18n.t("language"))
+        self.language_button.setStyleSheet(
             f"""
-            QLabel {{
-                color: #8290a2;
+            QPushButton {{
+                background-color: #fff2f8;
+                border: 1px solid #f0d8e4;
+                border-radius: 14px;
+                color: #a96786;
                 font-family: {UI_FONT};
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 700;
             }}
+            QPushButton:hover {{ background-color: #ffe7f2; }}
             """
         )
+        self.language_button.clicked.connect(self.show_language_menu)
 
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("color: #dce7f1;")
+        divider.setStyleSheet("color: #e2ebf5;")
 
         title_layout = QHBoxLayout()
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.addWidget(title_label)
+        title_layout.addLayout(brand_layout)
         title_layout.addStretch()
+        title_layout.addWidget(self.language_button)
         title_layout.addWidget(self.history_button)
         title_layout.addWidget(version_badge)
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 13, 20, 8)
-        layout.setSpacing(3)
+        layout.setContentsMargins(20, 14, 20, 7)
+        layout.setSpacing(8)
         layout.addLayout(title_layout)
-        layout.addWidget(subtitle)
-        layout.addSpacing(2)
         layout.addWidget(divider)
         self.setLayout(layout)
 
     def connect_history_toggle(self, handler):
         self.history_button.clicked.connect(handler)
+
+    def connect_language_change(self, handler):
+        self._language_handler = handler
+
+    def show_language_menu(self):
+        menu = ModernMenu(self.language_button, width=220)
+        for code, name in i18n.SUPPORTED_LANGUAGES.items():
+            menu.add_compact_item(
+                name,
+                "✓" if code == i18n.get_language() else "",
+                lambda selected=code: self.select_language(selected),
+            )
+        menu.exec(
+            self.language_button.mapToGlobal(
+                self.language_button.rect().bottomLeft()
+            )
+        )
+
+    def select_language(self, language):
+        if i18n.set_language(language):
+            self.apply_language()
+            if self._language_handler:
+                self._language_handler(language)
+
+    def apply_language(self):
+        self.language_button.setText(i18n.badge())
+        self.language_button.setToolTip(i18n.t("language"))
+        self.history_button.setToolTip(i18n.t("history_toggle"))
 
 
 class HistorySidebar(QFrame):
@@ -180,10 +404,10 @@ class HistorySidebar(QFrame):
             """
         )
 
-        title = QLabel("Chats")
-        title.setStyleSheet(f"font-family: {UI_FONT}; font-size: 13px; font-weight: 700; color: #4d8fcb;")
+        self.title_label = QLabel(i18n.t("chats"))
+        self.title_label.setStyleSheet(f"font-family: {UI_FONT}; font-size: 13px; font-weight: 700; color: #4d8fcb;")
 
-        self.new_button = QPushButton("＋  New chat")
+        self.new_button = QPushButton(i18n.t("new_chat"))
         self.new_button.setCursor(Qt.PointingHandCursor)
         self.new_button.setStyleSheet(
             f"""QPushButton {{ background:#ffffff; border:1px solid #c9e1f7;
@@ -203,8 +427,8 @@ class HistorySidebar(QFrame):
         self.list_layout.setAlignment(Qt.AlignTop)
         self.scroll.setWidget(self.list_container)
 
-        self.clear_button = QPushButton("Clear current chat")
-        self.reset_button = QPushButton("Reset current context")
+        self.clear_button = QPushButton(i18n.t("clear_chat"))
+        self.reset_button = QPushButton(i18n.t("reset_context"))
         for button in (self.clear_button, self.reset_button):
             button.setCursor(Qt.PointingHandCursor)
             button.setStyleSheet(
@@ -218,7 +442,7 @@ class HistorySidebar(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(9)
-        layout.addWidget(title)
+        layout.addWidget(self.title_label)
         layout.addWidget(self.new_button)
         layout.addWidget(self.scroll, 1)
         layout.addWidget(self.clear_button)
@@ -237,6 +461,12 @@ class HistorySidebar(QFrame):
         self._clear_handler = clear_handler
         self._reset_context_handler = reset_context_handler
 
+    def apply_language(self):
+        self.title_label.setText(i18n.t("chats"))
+        self.new_button.setText(i18n.t("new_chat"))
+        self.clear_button.setText(i18n.t("clear_chat"))
+        self.reset_button.setText(i18n.t("reset_context"))
+
     def set_sessions(self, sessions, active_session_id):
         while self.list_layout.count():
             item = self.list_layout.takeAt(0)
@@ -254,7 +484,7 @@ class HistorySidebar(QFrame):
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(3)
 
-            full_title = str(session.get("title") or "New chat")
+            full_title = str(session.get("title") or i18n.t("new_chat_title"))
             button = QPushButton()
             button.setMinimumWidth(0)
             button.setSizePolicy(
@@ -287,7 +517,7 @@ class HistorySidebar(QFrame):
                 QSizePolicy.Fixed,
             )
             delete_button.setCursor(Qt.PointingHandCursor)
-            delete_button.setToolTip("Delete this chat")
+            delete_button.setToolTip(i18n.t("delete_chat"))
             delete_button.setStyleSheet(
                 f"""QPushButton {{ background:transparent; border:1px solid transparent;
                 border-radius:12px; color:#9ab0c4; font-family:{UI_FONT}; font-size:15px;
@@ -305,7 +535,7 @@ class HistorySidebar(QFrame):
 
 
 class MessageWidget(QWidget):
-    def __init__(self, sender, text, sources=None):
+    def __init__(self, sender, text, sources=None, highlights=None):
         super().__init__()
 
         is_user = sender.lower() in {"you", "user", "isaac"}
@@ -316,7 +546,9 @@ class MessageWidget(QWidget):
         avatar_label = QLabel()
         avatar_label.setFixedSize(42, 42)
 
-        self.bubble = QLabel(text)
+        self._plain_text = str(text)
+        self._highlights = highlights or []
+        self.bubble = QLabel()
         self.bubble.setWordWrap(True)
         self.bubble.setTextInteractionFlags(
             Qt.TextSelectableByMouse
@@ -326,6 +558,7 @@ class MessageWidget(QWidget):
             QSizePolicy.Minimum,
             QSizePolicy.Preferred,
         )
+        self._render_text()
 
         name_label = QLabel(sender)
         message_layout = QVBoxLayout()
@@ -458,9 +691,47 @@ class MessageWidget(QWidget):
             self.set_sources(sources)
 
     def set_text(self, text):
-        self.bubble.setText(text)
+        self._plain_text = str(text)
+        self._render_text()
         self.bubble.adjustSize()
         self.bubble.updateGeometry()
+
+    def set_highlights(self, highlights):
+        self._highlights = highlights or []
+        self._render_text()
+        self.bubble.adjustSize()
+        self.bubble.updateGeometry()
+
+    def _render_text(self):
+        styles = {
+            "important": "font-weight:700;color:#347fc3;",
+            "warning": "font-weight:700;color:#b87532;",
+            "critical": "font-weight:700;color:#bd5877;",
+            "technical": "font-family:'Cascadia Code','Consolas',monospace;background-color:#eaf4ff;color:#356f9f;",
+        }
+        ranges = []
+        for item in self._highlights[:8]:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("text", ""))
+            style = str(item.get("style", ""))
+            start = self._plain_text.find(value) if value else -1
+            end = start + len(value)
+            if start < 0 or style not in styles:
+                continue
+            if any(start < old_end and end > old_start for old_start, old_end, _ in ranges):
+                continue
+            ranges.append((start, end, style))
+        ranges.sort(key=lambda value: value[0])
+        parts, cursor = [], 0
+        for start, end, style in ranges:
+            parts.append(html.escape(self._plain_text[cursor:start]))
+            parts.append('<span style="' + styles[style] + '">' + html.escape(self._plain_text[start:end]) + "</span>")
+            cursor = end
+        parts.append(html.escape(self._plain_text[cursor:]))
+        self.bubble.setTextFormat(Qt.RichText if ranges else Qt.PlainText)
+        self.bubble.setText("".join(parts).replace("\n", "<br>") if ranges else self._plain_text)
+
     def set_sources(self, sources):
         while self.source_layout.count():
             item = self.source_layout.takeAt(0)
@@ -540,33 +811,11 @@ class MessageWidget(QWidget):
         if hidden_sources:
             more_badge = make_badge(
                 "↗ +" + str(len(hidden_sources)),
-                "查看其余来源",
+                i18n.t("more_sources"),
             )
 
             def show_source_menu():
-                menu = QMenu(self)
-                menu.setStyleSheet(
-                    f"""
-                    QMenu {{
-                        background-color: #fffafd;
-                        border: 1px solid #d5e6f8;
-                        border-radius: 12px;
-                        color: #425b74;
-                        font-family: {UI_FONT};
-                        font-size: 12px;
-                        padding: 6px;
-                    }}
-                    QMenu::item {{
-                        background: transparent;
-                        border-radius: 8px;
-                        padding: 9px 18px;
-                    }}
-                    QMenu::item:selected {{
-                        background-color: #eaf5ff;
-                        color: #347bb8;
-                    }}
-                    """
-                )
+                menu = ModernMenu(self, width=300)
                 for source in hidden_sources:
                     url = source["url"]
                     domain = source.get("domain", "") or url
@@ -575,14 +824,15 @@ class MessageWidget(QWidget):
                         "",
                     )
 
-                    title = domain
-                    if content_type and content_type != "NEWS":
-                        title += " · " + content_type
-
-                    action = menu.addAction(title)
-                    action.triggered.connect(
-                        lambda checked=False, target=url:
-                        QDesktopServices.openUrl(QUrl(target))
+                    subtitle = (
+                        content_type
+                        if content_type and content_type != "NEWS"
+                        else i18n.t("source_open")
+                    )
+                    menu.add_modern_item(
+                        domain,
+                        subtitle,
+                        lambda target=url: QDesktopServices.openUrl(QUrl(target)),
                     )
 
                 menu.exec(
@@ -667,8 +917,8 @@ class ChatArea(QWidget):
             ),
         )
 
-    def add_message(self, role, message, sources=None):
-        widget = MessageWidget(role, message, sources)
+    def add_message(self, role, message, sources=None, highlights=None):
+        widget = MessageWidget(role, message, sources, highlights)
         self.message_layout.addWidget(widget)
         self.scroll_to_bottom()
         return widget
@@ -691,63 +941,98 @@ class ChatArea(QWidget):
 class InputArea(QWidget):
     def __init__(self):
         super().__init__()
+        self._desktop_handlers = None
 
         self.attachment_bar = QFrame()
         self.attachment_bar.setVisible(False)
         self.attachment_bar.setStyleSheet(
             f"""
             QFrame {{
-                background-color: #f4f8fe;
-                border: 1px solid #d8e8fa;
-                border-radius: 12px;
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['line']};
+                border-radius: 18px;
+            }}
+            """
+        )
+
+        self.attachment_type = QLabel("IMAGE")
+        self.attachment_type.setFixedHeight(20)
+        self.attachment_type.setAlignment(Qt.AlignCenter)
+        self.attachment_type.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: {COLORS['blue_soft']};
+                border: none;
+                border-radius: 10px;
+                color: {COLORS['blue_dark']};
+                font-family: {UI_FONT};
+                font-size: 9px;
+                font-weight: 700;
+                padding: 0 8px;
             }}
             """
         )
 
         self.attachment_label = QLabel()
+        self.attachment_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.attachment_label.setStyleSheet(
             f"""
             QLabel {{
                 background: transparent;
                 border: none;
-                color: #4d627b;
+                color: {COLORS['text']};
                 font-family: {UI_FONT};
-                font-size: 12px;
-                padding: 4px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 0;
+            }}
+            """
+        )
+
+        self.attachment_subtitle = QLabel(i18n.t("added"))
+        self.attachment_subtitle.setStyleSheet(
+            f"""
+            QLabel {{
+                background: transparent;
+                border: none;
+                color: {COLORS['muted']};
+                font-family: {UI_FONT};
+                font-size: 10px;
             }}
             """
         )
 
         self.image_preview = QLabel()
-        self.image_preview.setFixedSize(104, 68)
+        self.image_preview.setFixedSize(112, 74)
         self.image_preview.setAlignment(Qt.AlignCenter)
         self.image_preview.setVisible(False)
         self.image_preview.setStyleSheet(
             """
             QLabel {
-                background-color: #eaf3fc;
-                border: 1px solid #d2e5f7;
-                border-radius: 9px;
-                padding: 2px;
+                background-color: #edf5fd;
+                border: none;
+                border-radius: 13px;
+                padding: 3px;
             }
             """
         )
 
         self.document_close_button = QPushButton("×")
         self.document_close_button.setFixedSize(27, 27)
-        self.document_close_button.setToolTip("移除当前附件")
+        self.document_close_button.setToolTip(i18n.t("remove_attachment"))
         self.document_close_button.setStyleSheet(
             """
             QPushButton {
-                background: transparent;
-                border: none;
+                background: #f3f7fc;
+                border: 1px solid #e1eaf4;
                 border-radius: 13px;
-                color: #7f91a6;
-                font-size: 18px;
+                color: #8293a7;
+                font-size: 16px;
             }
             QPushButton:hover {
-                background-color: #e1edf9;
-                color: #4b91d9;
+                background-color: #fff0f6;
+                border-color: #f3d2df;
+                color: #c96d8e;
             }
             QPushButton:pressed {
                 background-color: #d2e4f5;
@@ -758,13 +1043,24 @@ class InputArea(QWidget):
             """
         )
 
+        attachment_text_layout = QVBoxLayout()
+        attachment_text_layout.setContentsMargins(0, 0, 0, 0)
+        attachment_text_layout.setSpacing(3)
+        attachment_heading = QHBoxLayout()
+        attachment_heading.setContentsMargins(0, 0, 0, 0)
+        attachment_heading.setSpacing(7)
+        attachment_heading.addWidget(self.attachment_type, 0, Qt.AlignLeft)
+        attachment_heading.addStretch()
+        attachment_text_layout.addLayout(attachment_heading)
+        attachment_text_layout.addWidget(self.attachment_label)
+        attachment_text_layout.addWidget(self.attachment_subtitle)
+
         attachment_layout = QHBoxLayout(self.attachment_bar)
-        attachment_layout.setContentsMargins(10, 4, 6, 4)
-        attachment_layout.setSpacing(6)
+        attachment_layout.setContentsMargins(9, 9, 9, 9)
+        attachment_layout.setSpacing(11)
         attachment_layout.addWidget(self.image_preview)
-        attachment_layout.addWidget(self.attachment_label)
-        attachment_layout.addStretch()
-        attachment_layout.addWidget(self.document_close_button)
+        attachment_layout.addLayout(attachment_text_layout, 1)
+        attachment_layout.addWidget(self.document_close_button, 0, Qt.AlignTop)
 
         self.status_label = QLabel()
         self.status_label.setVisible(False)
@@ -779,8 +1075,8 @@ class InputArea(QWidget):
             """
         )
 
-        self.input_box = QLineEdit()
-        self.input_box.setPlaceholderText("和 Bekki 聊点什么吧…")
+        self.input_box = ModernLineEdit()
+        self.input_box.setPlaceholderText(i18n.t("input_placeholder"))
         self.input_box.setMinimumHeight(44)
         self.input_box.setStyleSheet(
             f"""
@@ -808,7 +1104,7 @@ class InputArea(QWidget):
         # the modern rounded input treatment.
         self.attach_button = QPushButton("＋")
         self.attach_button.setFixedSize(42, 42)
-        self.attach_button.setToolTip("添加文件或图片")
+        self.attach_button.setToolTip(i18n.t("attach"))
         self.attach_button.setStyleSheet(
             """
             QPushButton {
@@ -832,9 +1128,9 @@ class InputArea(QWidget):
             """
         )
 
-        self.desktop_button = QPushButton("▣")
+        self.desktop_button = QPushButton("◫")
         self.desktop_button.setFixedSize(42, 42)
-        self.desktop_button.setToolTip("读取当前桌面")
+        self.desktop_button.setToolTip(i18n.t("desktop"))
         self.desktop_button.setCursor(Qt.PointingHandCursor)
         self.desktop_button.setStyleSheet(
             """
@@ -854,30 +1150,51 @@ class InputArea(QWidget):
             """
         )
 
-        self.send_button = QPushButton("➤")
+        self.send_button = QPushButton("↑")
         self.send_button.setFixedSize(44, 44)
-        self.send_button.setToolTip("发送")
+        self.send_button.setToolTip(i18n.t("send"))
+        self.send_button.setCursor(Qt.PointingHandCursor)
         self.send_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #68acf0;
-                border: none;
-                border-radius: 22px;
+            f"""
+            QPushButton {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #62b7f7,
+                    stop:1 #7e8ff5
+                );
+                border: 1px solid #87bff0;
+                border-radius: 14px;
                 color: white;
-                font-size: 18px;
-                font-weight: 700;
-            }
-            QPushButton:hover {
-                background-color: #559ee8;
-            }
-            QPushButton:pressed {
-                background-color: #438bd5;
-            }
-            QPushButton:disabled {
-                background-color: #bad0e6;
-            }
+                font-family: {UI_FONT};
+                font-size: 23px;
+                font-weight: 600;
+                padding: 0 0 3px 0;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #50aaf0,
+                    stop:1 #6f7fe8
+                );
+                border-color: #75ade2;
+            }}
+            QPushButton:pressed {{
+                background-color: #588bd8;
+                padding-top: 2px;
+            }}
+            QPushButton:disabled {{
+                background-color: #d7e4f1;
+                border-color: #d7e4f1;
+                color: #f7fbff;
+            }}
             """
         )
+
+        send_shadow = QGraphicsDropShadowEffect(self.send_button)
+        send_shadow.setBlurRadius(18)
+        send_shadow.setOffset(0, 4)
+        send_shadow.setColor(QColor(76, 139, 209, 72))
+        self.send_button.setGraphicsEffect(send_shadow)
 
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
@@ -926,32 +1243,49 @@ class InputArea(QWidget):
         self.attach_button.clicked.connect(handler)
 
     def connect_desktop_read(self, screen_handler, window_handler, snip_handler):
-        menu = QMenu(self.desktop_button)
-        menu.setStyleSheet(
-            f"""
-            QMenu {{ background:#fffafd; border:1px solid #d5e6f8;
-            border-radius:10px; color:#425b74; font-family:{UI_FONT};
-            font-size:11px; padding:5px; }}
-            QMenu::item {{ padding:8px 18px; border-radius:7px; }}
-            QMenu::item:selected {{ background:#eaf5ff; color:#347bb8; }}
-            """
+        self._desktop_handlers = (screen_handler, window_handler, snip_handler)
+        menu = ModernMenu(self.desktop_button)
+        menu.add_modern_item(
+            i18n.t("screen"),
+            i18n.t("screen_desc"),
+            screen_handler,
         )
-        screen_action = menu.addAction("▣  读取主显示器")
-        window_action = menu.addAction("▢  读取当前活动窗口")
-        snip_action = menu.addAction("✂  截图并读取")
-        screen_action.triggered.connect(screen_handler)
-        window_action.triggered.connect(window_handler)
-        snip_action.triggered.connect(snip_handler)
+        menu.add_modern_item(
+            i18n.t("window"),
+            i18n.t("window_desc"),
+            window_handler,
+        )
+        menu.add_modern_item(
+            i18n.t("snip"),
+            i18n.t("snip_desc"),
+            snip_handler,
+            tone="pink",
+        )
         self.desktop_button.setMenu(menu)
+
+    def apply_language(self):
+        self.input_box.setPlaceholderText(i18n.t("input_placeholder"))
+        self.attach_button.setToolTip(i18n.t("attach"))
+        self.desktop_button.setToolTip(i18n.t("desktop"))
+        self.send_button.setToolTip(i18n.t("send"))
+        self.document_close_button.setToolTip(i18n.t("remove_attachment"))
+        if self._desktop_handlers:
+            self.connect_desktop_read(*self._desktop_handlers)
 
     def set_document(self, file_name):
         self.image_preview.clear()
         self.image_preview.setVisible(False)
-        self.attachment_label.setText("📄  " + file_name)
+        self.attachment_type.setText("DOCUMENT")
+        self.attachment_label.setText(file_name)
+        self.attachment_subtitle.setText(i18n.t("document_ready"))
         self.attachment_bar.setVisible(True)
 
     def set_image(self, file_name, file_path=None):
-        self.attachment_label.setText("🖼️  " + file_name)
+        self.attachment_type.setText(
+            "SCREENSHOT" if "screenshot" in file_name.lower() else "IMAGE"
+        )
+        self.attachment_label.setText(file_name)
+        self.attachment_subtitle.setText(i18n.t("image_ready"))
 
         preview = QPixmap(file_path) if file_path else QPixmap()
         if preview.isNull():
@@ -960,9 +1294,9 @@ class InputArea(QWidget):
         else:
             self.image_preview.setPixmap(
                 preview.scaled(
-                    100,
-                    64,
-                    Qt.KeepAspectRatio,
+                    106,
+                    68,
+                    Qt.KeepAspectRatioByExpanding,
                     Qt.SmoothTransformation,
                 )
             )
@@ -974,6 +1308,7 @@ class InputArea(QWidget):
         self.image_preview.clear()
         self.image_preview.setVisible(False)
         self.attachment_label.clear()
+        self.attachment_subtitle.clear()
         self.attachment_bar.setVisible(False)
 
     def connect_document_close(self, handler):
@@ -1021,6 +1356,14 @@ class BekkiWindow(QWidget):
 
         self.header.connect_history_toggle(self.toggle_sidebar)
 
+    def connect_language_change(self, handler):
+        self.header.connect_language_change(handler)
+
+    def apply_language(self):
+        self.header.apply_language()
+        self.sidebar.apply_language()
+        self.input_area.apply_language()
+
     def get_message(self):
         return self.input_area.get_text()
 
@@ -1036,8 +1379,8 @@ class BekkiWindow(QWidget):
     def focus_input(self):
         self.input_area.focus_input()
 
-    def add_message(self, role, message, sources=None):
-        return self.chat.add_message(role, message, sources)
+    def add_message(self, role, message, sources=None, highlights=None):
+        return self.chat.add_message(role, message, sources, highlights)
 
     def add_welcome_message(self, message=None):
         self.chat.add_welcome_message(message)

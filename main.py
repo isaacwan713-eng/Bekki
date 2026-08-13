@@ -18,6 +18,7 @@ import location
 import presence
 import balthasar
 import emotion
+import localization as i18n
 
 from PySide6.QtCore import QObject, QThread, Slot, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -29,6 +30,28 @@ import context as context_manager
 
 
 MAX_RECENT_MESSAGES = 6
+HIGHLIGHT_STYLES = {"important", "warning", "critical", "technical"}
+
+
+def clean_highlights(reply, highlights):
+    """Accept only bounded model annotations that reference exact reply text."""
+    if not isinstance(reply, str) or not isinstance(highlights, list):
+        return []
+    clean, seen = [], set()
+    for item in highlights[:8]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", "")).strip()
+        style = str(item.get("style", "")).strip()
+        key = (text, style)
+        if (
+            not text or len(text) > 160 or text not in reply
+            or style not in HIGHLIGHT_STYLES or key in seen
+        ):
+            continue
+        seen.add(key)
+        clean.append({"text": text, "style": style})
+    return clean
 
 REASONING_PROFILE_INSTRUCTIONS = {
     "quick": (
@@ -133,6 +156,7 @@ def parse_ai_result(ai_output):
                 # 不保存不完整的 memory/action。
                 return {
                     "reply": result["reply"],
+                    "highlights": [],
                     "memory": None,
                     "pending_action": None,
                 }, strict_error
@@ -287,6 +311,10 @@ def get_ai_response(
         + "\n\n"
         + BEKKI_PRODUCT_IDENTITY
         + "\n\n############################"
+        + "\nSystem Language Context"
+        + "\n############################\n"
+        + i18n.ai_language_context()
+        + "\n\n############################"
         + "\nLocal Safety and Location Context"
         + "\n############################\n"
         + location.get_localization_context()
@@ -338,7 +366,7 @@ def get_ai_response(
     result, parse_error = parse_ai_result(ai_output)
     if result is None:
         print("[AI JSON ERROR]", parse_error)
-        return "呜，刚才回复格式坏掉了，再试一次吧 🥺"
+        return {"reply": "呜，刚才回复格式坏掉了，再试一次吧 🥺", "highlights": []}
 
     if action_context is not None:
         result["pending_action"] = None
@@ -362,7 +390,10 @@ def get_ai_response(
     )
     print("[DEBUG] AFTER CONTEXT UPDATE")
     print("[DEBUG] RETURNING REPLY:", repr(reply))
-    return reply
+    return {
+        "reply": reply,
+        "highlights": clean_highlights(reply, result.get("highlights")),
+    }
 
 
 def rebuild_conversation():
@@ -384,13 +415,14 @@ def refresh_session_list():
         )
 
 
-def save_message(role, message, sources=None):
+def save_message(role, message, sources=None, highlights=None):
     conversation.append(f"{role} : {message}")
     history.append_message(
         history_data,
         role,
         message,
         sources=sources,
+        highlights=highlights,
     )
     refresh_session_list()
 
@@ -416,9 +448,7 @@ def get_product_identity_reply(message):
         )
     )
     if creator_question:
-        return (
-            "Bekki 是由 YW49 创建并持续维护的本地个人 AI 助手哦 🩵"
-        )
+        return i18n.t("identity_creator")
 
     company_product_question = (
         any(
@@ -437,11 +467,7 @@ def get_product_identity_reply(message):
         )
     )
     if company_product_question:
-        return (
-            "不是哦。Bekki 是 YW49 创建和维护的本地个人 AI 助手，"
-            "不是 OpenAI、ChatGPT 或其他 AI 公司的官方产品。"
-            "普通聊天目前只是通过本地 Ollama 调用 gpt-oss:20b 来生成回复 🩵"
-        )
+        return i18n.t("identity_company")
 
     model_question = any(
         token in normalized
@@ -451,11 +477,7 @@ def get_product_identity_reply(message):
         )
     )
     if model_question:
-        return (
-            "我现在通过本地 Ollama 运行：普通聊天使用 gpt-oss:20b，"
-            "图片理解使用 gemma3:12b。它们是 Bekki 的底层模型，"
-            "Bekki 本身由 YW49 创建和维护 ✨"
-        )
+        return i18n.t("identity_model")
 
     return None
 
@@ -464,7 +486,7 @@ def process_request(message, status_callback):
 
     global emotion_state
 
-    status_callback("正在判断问题… ✨")
+    status_callback(i18n.t("routing"))
 
     identity_reply = get_product_identity_reply(message)
     if identity_reply is not None:
@@ -513,7 +535,7 @@ def process_request(message, status_callback):
         )
         response_mode = melchior_plan["response_mode"]
 
-    status_callback("正在感受你的语气… 🩵")
+    status_callback(i18n.t("emotion"))
     try:
         balthasar_plan = balthasar.plan_response(
             message,
@@ -537,7 +559,7 @@ def process_request(message, status_callback):
             )
 
         else:
-            status_callback("正在整理搜索问题… 🔍")
+            status_callback(i18n.t("query"))
 
             if response_mode == "CLAIM_CHECK":
                 search_query = tools.build_claim_query(
@@ -569,7 +591,7 @@ def process_request(message, status_callback):
 
     # Vision remains independent from web-search mode.
     if vision.has_image():
-        status_callback("正在切换视觉模型… 👀")
+        status_callback(i18n.t("vision"))
         tools.unload_model()
         image_context = vision.analyze_image(
             message,
@@ -614,9 +636,9 @@ def process_request(message, status_callback):
                 ],
             }
 
-    status_callback("正在生成回复… 💭")
+    status_callback(i18n.t("reply"))
 
-    reply = get_ai_response(
+    reply_result = get_ai_response(
         message,
         search_result,
         action_context,
@@ -626,6 +648,8 @@ def process_request(message, status_callback):
         emotion_state,
     )
 
+    reply = reply_result.get("reply", "")
+    highlights = reply_result.get("highlights", [])
     sources = []
     if (
         response_mode in {"CLAIM_CHECK", "NEWS_FEED", "SOCIAL_RESEARCH"}
@@ -666,6 +690,7 @@ def process_request(message, status_callback):
         "reply": reply,
         "response_mode": response_mode,
         "sources": sources,
+        "highlights": highlights,
     }
 
 
@@ -695,17 +720,20 @@ class RequestUIBridge(QObject):
         if isinstance(payload, dict):
             reply = payload.get("reply", "")
             sources = payload.get("sources", [])
+            highlights = payload.get("highlights", [])
         else:
             reply = str(payload)
             sources = []
+            highlights = []
 
         print("[FACT CHECK SOURCES RECEIVED]", len(sources))
 
         if self.thinking_widget is not None:
             self.thinking_widget.set_text(reply)
+            self.thinking_widget.set_highlights(highlights)
             self.thinking_widget.set_sources(sources)
 
-        save_message("Bekki", reply, sources=sources)
+        save_message("Bekki", reply, sources=sources, highlights=highlights)
 
         window.set_status("")
         window.set_busy(False)
@@ -713,7 +741,7 @@ class RequestUIBridge(QObject):
 
     @Slot(str)
     def on_failed(self, error):
-        failure_reply = "呜，刚才处理失败了：" + error
+        failure_reply = i18n.t("failed", error=error)
 
         if self.thinking_widget is not None:
             self.thinking_widget.set_text(failure_reply)
@@ -744,7 +772,7 @@ def send_message():
 
     thinking_widget = window.add_message(
         "Bekki",
-        "正在思考… ✨",
+        i18n.t("thinking"),
     )
     ui_bridge.set_thinking_widget(thinking_widget)
 
@@ -779,7 +807,7 @@ def send_message():
 def attach_file():
     file_path, _ = QFileDialog.getOpenFileName(
         window,
-        "Choose a file",
+        i18n.t("choose_file"),
         "",
         (
             "Supported Files "
@@ -807,7 +835,7 @@ def attach_file():
     )[1].lower()
 
     window.set_status(
-        "正在读取文件… 📎"
+        i18n.t("reading_file")
     )
 
     # ==========================================
@@ -923,7 +951,7 @@ def capture_desktop():
     if current_thread is not None:
         return
 
-    window.set_status("准备读取桌面… 👀")
+    window.set_status(i18n.t("desktop_read"))
     window.hide()
 
     # Give Windows enough time to remove Bekki from the composited desktop.
@@ -934,7 +962,7 @@ def capture_active_window():
     if current_thread is not None:
         return
 
-    window.set_status("准备读取当前窗口… 👀")
+    window.set_status(i18n.t("window_read"))
     window.hide()
     # Hiding Bekki returns focus to the previously active application.
     QTimer.singleShot(650, lambda: finish_desktop_capture("window"))
@@ -996,7 +1024,7 @@ def start_screenshot_reading():
     if current_thread is not None:
         return
 
-    window.set_status("请框选需要读取的区域… ✂")
+    window.set_status(i18n.t("select_region"))
     QApplication.clipboard().clear()
     window.hide()
 
@@ -1158,6 +1186,16 @@ def reset_current_context():
         window.set_status("当前 Context 已重置 ✨")
         window.focus_input()
 
+
+def change_system_language(language):
+    """Refresh user-facing UI after Header has persisted the selection."""
+
+    window.apply_language()
+    refresh_session_list()
+    window.set_status(i18n.t("status_language"))
+    QTimer.singleShot(2600, lambda: window.set_status(""))
+    window.focus_input()
+
 app = QApplication(sys.argv)
 app.aboutToQuit.connect(desktop.clear_capture)
 
@@ -1180,6 +1218,7 @@ for history_item in active_messages:
             role,
             text,
             history_item.get("sources", []),
+            history_item.get("highlights", []),
         )
 
 window.connect_send(
@@ -1205,6 +1244,7 @@ window.connect_session_select(switch_session)
 window.connect_delete_chat(delete_chat)
 window.connect_clear_chat(clear_current_chat)
 window.connect_reset_context(reset_current_context)
+window.connect_language_change(change_system_language)
 refresh_session_list()
 
 window.show()
