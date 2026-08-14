@@ -5,13 +5,16 @@
 import os
 import sys
 import html
+import re
 import localization as i18n
+import image_loader
 from datetime import datetime
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
     QTimer,
     QUrl,
+    Signal,
 )
 from PySide6.QtGui import (
     QColor,
@@ -21,6 +24,8 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
+    QImage,
+    QTextOption,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -30,6 +35,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -198,6 +204,121 @@ class ModernLineEdit(QLineEdit):
         menu.addSeparator()
         menu.add_compact_item(
             i18n.t("select_all"), "Ctrl+A", self.selectAll, bool(self.text())
+        )
+        menu.exec(event.globalPos())
+
+
+class ModernMessageEdit(QPlainTextEdit):
+    """Auto-growing multiline input: Enter sends, Shift+Enter adds a line."""
+
+    sendRequested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Keep two complete text rows visible at all times. This prevents the
+        # editor from scrolling the first row away as soon as wrapping begins.
+        self._minimum_editor_height = 68
+        self._maximum_editor_height = 132
+        self.setMinimumHeight(self._minimum_editor_height)
+        self.setMaximumHeight(self._maximum_editor_height)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setTabChangesFocus(True)
+        self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.textChanged.connect(self._schedule_height_adjustment)
+        QTimer.singleShot(0, self._adjust_height)
+
+    def _schedule_height_adjustment(self):
+        QTimer.singleShot(0, self._adjust_height)
+
+    def _visual_line_count(self):
+        """Estimate wrapped display lines using the editor's real font width."""
+        available_width = max(80, self.viewport().width() - 8)
+        metrics = QFontMetrics(self.font())
+        total_lines = 0
+
+        for logical_line in self.toPlainText().split("\n"):
+            if not logical_line:
+                total_lines += 1
+                continue
+
+            line_width = 0
+            line_count = 1
+            for character in logical_line:
+                character_width = max(1, metrics.horizontalAdvance(character))
+                if line_width and line_width + character_width > available_width:
+                    line_count += 1
+                    line_width = character_width
+                else:
+                    line_width += character_width
+            total_lines += line_count
+
+        return max(1, total_lines)
+
+    def _adjust_height(self):
+        line_height = max(18, QFontMetrics(self.font()).lineSpacing())
+        content_height = self._visual_line_count() * line_height + 22
+        target_height = max(
+            self._minimum_editor_height,
+            min(self._maximum_editor_height, content_height),
+        )
+        if self.height() != target_height:
+            self.setFixedHeight(target_height)
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+            if content_height > self._maximum_editor_height
+            else Qt.ScrollBarAlwaysOff
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_height_adjustment()
+
+    def keyPressEvent(self, event):
+        if event.key() in {Qt.Key_Return, Qt.Key_Enter}:
+            if event.modifiers() & Qt.ShiftModifier:
+                super().keyPressEvent(event)
+            else:
+                event.accept()
+                self.sendRequested.emit()
+            return
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = ModernMenu(self, width=224)
+        cursor = self.textCursor()
+        selected = cursor.hasSelection()
+        menu.add_compact_item(
+            i18n.t("undo"), "Ctrl+Z", self.undo, self.document().isUndoAvailable()
+        )
+        menu.add_compact_item(
+            i18n.t("redo"), "Ctrl+Y", self.redo, self.document().isRedoAvailable()
+        )
+        menu.addSeparator()
+        menu.add_compact_item(
+            i18n.t("cut"), "Ctrl+X", self.cut, selected and not self.isReadOnly()
+        )
+        menu.add_compact_item(i18n.t("copy"), "Ctrl+C", self.copy, selected)
+        menu.add_compact_item(
+            i18n.t("paste"),
+            "Ctrl+V",
+            self.paste,
+            bool(QApplication.clipboard().text()) and not self.isReadOnly(),
+        )
+
+        def delete_selection():
+            delete_cursor = self.textCursor()
+            delete_cursor.removeSelectedText()
+
+        menu.add_compact_item(
+            i18n.t("delete"), "Delete", delete_selection,
+            selected and not self.isReadOnly(), danger=True
+        )
+        menu.addSeparator()
+        menu.add_compact_item(
+            i18n.t("select_all"), "Ctrl+A", self.selectAll,
+            bool(self.toPlainText())
         )
         menu.exec(event.globalPos())
 
@@ -574,11 +695,737 @@ class HistorySidebar(QFrame):
             self.list_layout.addWidget(row)
 
 
+class RemoteResultImage(QLabel):
+    """Asynchronously loaded result-card image."""
+
+    def __init__(
+        self,
+        card_type="article",
+    ):
+        super().__init__()
+
+        self._current_url = ""
+        self._image_job = None
+
+        self.setFixedSize(
+            96,
+            86,
+        )
+
+        self.setAlignment(
+            Qt.AlignCenter
+        )
+
+        icons = {
+            "product": "◈",
+            "social_post": "▧",
+            "news": "◫",
+            "place": "⌖",
+            "person": "◉",
+            "article": "↗",
+        }
+
+        self.setText(
+            icons.get(
+                card_type,
+                "↗",
+            )
+        )
+
+        self.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #72a9d8;
+                background-color: #edf6ff;
+                border: 1px solid #d7e9f8;
+                border-radius: 13px;
+                font-family: {UI_FONT};
+                font-size: 22px;
+                font-weight: 600;
+            }}
+            """
+        )
+
+    def load_url(
+        self,
+        url,
+    ):
+        if not isinstance(
+            url,
+            str,
+        ):
+            return
+
+        url = url.strip()
+
+        if not url:
+            return
+
+        self._current_url = url
+
+        self._image_job = (
+            image_loader.load_image_async(
+                url,
+                self._on_loaded,
+                self._on_failed,
+            )
+        )
+
+    def _on_loaded(
+        self,
+        url,
+        content,
+    ):
+        # Ignore an old request if this card
+        # has already been reused.
+        if url != self._current_url:
+            return
+
+        image = QImage()
+
+        if not image.loadFromData(
+            content
+        ):
+            self._on_failed(
+                url,
+                "Qt could not decode image.",
+            )
+            return
+
+        pixmap = QPixmap.fromImage(
+            image
+        )
+
+        if pixmap.isNull():
+            self._on_failed(
+                url,
+                "Image pixmap is empty.",
+            )
+            return
+
+        self.setPixmap(
+            self._rounded_cover(
+                pixmap
+            )
+        )
+
+        self.setText("")
+
+        self.setStyleSheet(
+            """
+            QLabel {
+                background-color: #edf6ff;
+                border: 1px solid #d7e9f8;
+                border-radius: 13px;
+            }
+            """
+        )
+
+        self._image_job = None
+
+    def _on_failed(
+        self,
+        url,
+        error,
+    ):
+        if url != self._current_url:
+            return
+
+        print(
+            "[RESULT IMAGE FAILED]",
+            url,
+            error,
+        )
+
+        # Keep the placeholder visible.
+        self._image_job = None
+
+    def _rounded_cover(
+        self,
+        source_pixmap,
+    ):
+        target_size = self.size()
+
+        scaled = source_pixmap.scaled(
+            target_size,
+            Qt.KeepAspectRatioByExpanding,
+            Qt.SmoothTransformation,
+        )
+
+        x_offset = max(
+            0,
+            (
+                scaled.width()
+                - target_size.width()
+            )
+            // 2,
+        )
+
+        y_offset = max(
+            0,
+            (
+                scaled.height()
+                - target_size.height()
+            )
+            // 2,
+        )
+
+        cropped = scaled.copy(
+            x_offset,
+            y_offset,
+            target_size.width(),
+            target_size.height(),
+        )
+
+        rounded = QPixmap(
+            target_size
+        )
+
+        rounded.fill(
+            Qt.transparent
+        )
+
+        painter = QPainter(
+            rounded
+        )
+
+        painter.setRenderHint(
+            QPainter.Antialiasing,
+            True,
+        )
+
+        path = QPainterPath()
+
+        path.addRoundedRect(
+            0,
+            0,
+            target_size.width(),
+            target_size.height(),
+            13,
+            13,
+        )
+
+        painter.setClipPath(
+            path
+        )
+
+        painter.drawPixmap(
+            0,
+            0,
+            cropped,
+        )
+
+        painter.end()
+
+        return rounded
+
+class ResultImagePlaceholder(QFrame):
+    """Placeholder used until a remote image is loaded."""
+
+    def __init__(
+        self,
+        card_type="article",
+    ):
+        super().__init__()
+
+        self.setFixedSize(
+            96,
+            86,
+        )
+        self.setObjectName(
+            "resultImagePlaceholder"
+        )
+
+        icons = {
+            "product": "◈",
+            "social_post": "▧",
+            "news": "◫",
+            "place": "⌖",
+            "person": "◉",
+            "article": "↗",
+        }
+
+        icon = QLabel(
+            icons.get(
+                card_type,
+                "↗",
+            )
+        )
+        icon.setAlignment(
+            Qt.AlignCenter
+        )
+        icon.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #72a9d8;
+                background: transparent;
+                border: none;
+                font-family: {UI_FONT};
+                font-size: 22px;
+                font-weight: 600;
+            }}
+            """
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        layout.addWidget(icon)
+        self.setLayout(layout)
+
+        self.setStyleSheet(
+            """
+            QFrame#resultImagePlaceholder {
+                background-color: #edf6ff;
+                border: 1px solid #d7e9f8;
+                border-radius: 13px;
+            }
+            """
+        )
+
+
+
+
+class ResultCard(QFrame):
+    """One safe multimodal result card."""
+
+    def __init__(
+        self,
+        card,
+    ):
+        super().__init__()
+
+        self.card = (
+            card
+            if isinstance(card, dict)
+            else {}
+        )
+
+        self.url = str(
+            self.card.get(
+                "url",
+                "",
+            )
+        )
+
+        card_type = str(
+            self.card.get(
+                "type",
+                "article",
+            )
+        )
+
+        self.setObjectName(
+            "resultCard"
+        )
+
+        self.setStyleSheet(
+            f"""
+            QFrame#resultCard {{
+                background-color: #fbfdff;
+                border: 1px solid #dce9f6;
+                border-radius: 15px;
+            }}
+
+            QLabel {{
+                background: transparent;
+                border: none;
+                font-family: {UI_FONT};
+            }}
+            """
+        )
+
+        image_data = self.card.get(
+            "image",
+            {}
+            )
+
+        if not isinstance(image_data,dict):
+            image_data = {}
+
+        image_url = str(image_data.get("url","",)).strip()
+
+        # News cards may be text-only. Product and social cards keep a visual
+        # area because the image is part of the result itself.
+        image = None
+        should_show_image = bool(image_url) or card_type in {
+            "product",
+            "social_post",
+            "place",
+            "person",
+        }
+
+        if should_show_image:
+            image = RemoteResultImage(card_type)
+            image.setFixedSize(132, 118)
+            if image_url:
+                image.load_url(image_url)
+
+            
+        title = QLabel(
+            str(
+                self.card.get(
+                    "title",
+                    "",
+                )
+            )
+        )
+        title.setWordWrap(True)
+        title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        title.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #344b63;
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            """
+        )
+
+        summary = QLabel(
+            str(
+                self.card.get(
+                    "summary",
+                    "",
+                )
+            )
+        )
+        summary.setWordWrap(True)
+        summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        summary.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #637b92;
+                font-family: {UI_FONT};
+                font-size: 10px;
+            }}
+            """
+        )
+        summary.setVisible(
+            bool(summary.text())
+        )
+
+        domain = str(
+            self.card.get(
+                "domain",
+                "",
+            )
+        )
+
+        metadata = self.card.get(
+            "metadata",
+            {},
+        )
+
+        if not isinstance(
+            metadata,
+            dict,
+        ):
+            metadata = {}
+
+        merchant = str(
+            metadata.get(
+                "merchant",
+                "",
+            )
+        )
+
+        brand = str(
+            metadata.get(
+                "brand",
+                "",
+            )
+        )
+
+        author = str(
+            metadata.get(
+                "author",
+                "",
+            )
+        )
+
+        source_text = (
+            " · ".join(value for value in (merchant, brand) if value)
+            or author
+            or domain
+        )
+
+        source_label = QLabel(
+            source_text
+        )
+        source_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #7da1c2;
+                font-family: {UI_FONT};
+                font-size: 9px;
+                font-weight: 600;
+            }}
+            """
+        )
+
+        price = str(
+            metadata.get(
+                "price",
+                "",
+            )
+        )
+
+        price_label = QLabel(price)
+        price_label.setVisible(
+            bool(price)
+        )
+        price_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #ba6687;
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 750;
+            }}
+            """
+        )
+
+        requirements = self.card.get(
+            "requirements",
+            [],
+        )
+        if not isinstance(requirements, list):
+            requirements = []
+
+        requirement_layout = QHBoxLayout()
+        requirement_layout.setContentsMargins(0, 1, 0, 0)
+        requirement_layout.setSpacing(5)
+
+        requirement_colours = {
+            "MATCH": ("#e8f7f1", "#32866b", "✓"),
+            "MISMATCH": ("#fff0f4", "#b85f7b", "×"),
+            "UNKNOWN": ("#eef5fc", "#6689a8", "?"),
+        }
+
+        popularity_status = str(
+            metadata.get("popularity_status", "UNKNOWN")
+        ).upper()
+        popularity_evidence = str(
+            metadata.get("popularity_evidence", "")
+        ).strip()
+        if popularity_status in {"HIGH", "MEDIUM"} and popularity_evidence:
+            popularity_chip = QLabel(
+                ("🔥 热门" if popularity_status == "HIGH" else "↗ 人气")
+            )
+            popularity_chip.setToolTip(popularity_evidence)
+            popularity_chip.setStyleSheet(
+                f"""
+                QLabel {{
+                    background-color: #fff3e8;
+                    border: 1px solid #ffe0c2;
+                    border-radius: 8px;
+                    color: #b66b2f;
+                    font-family: {UI_FONT};
+                    font-size: 9px;
+                    font-weight: 700;
+                    padding: 3px 6px;
+                }}
+                """
+            )
+            requirement_layout.addWidget(popularity_chip)
+
+        for requirement in requirements[:3]:
+            if not isinstance(requirement, dict):
+                continue
+            status = str(requirement.get("status", "UNKNOWN")).upper()
+            label_text = str(
+                requirement.get("label")
+                or requirement.get("name")
+                or requirement.get("text")
+                or ""
+            ).strip()
+            if not label_text:
+                continue
+            background, colour, symbol = requirement_colours.get(
+                status,
+                requirement_colours["UNKNOWN"],
+            )
+            chip = QLabel(symbol + " " + label_text[:22])
+            chip.setStyleSheet(
+                f"""
+                QLabel {{
+                    background-color: {background};
+                    border: 1px solid {background};
+                    border-radius: 8px;
+                    color: {colour};
+                    font-family: {UI_FONT};
+                    font-size: 9px;
+                    font-weight: 650;
+                    padding: 3px 6px;
+                }}
+                """
+            )
+            requirement_layout.addWidget(chip)
+        requirement_layout.addStretch()
+
+        open_button = QPushButton(
+            "查看商品  ↗" if card_type == "product" else "查看来源  ↗"
+        )
+        open_button.setVisible(bool(self.url))
+        open_button.setCursor(Qt.PointingHandCursor)
+        open_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: #eaf5ff;
+                border: 1px solid #cfe5f8;
+                border-radius: 9px;
+                color: #3e82bd;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+                padding: 5px 9px;
+            }}
+            QPushButton:hover {{
+                background-color: #dcefff;
+                border-color: #a9d1f1;
+            }}
+            """
+        )
+        open_button.clicked.connect(self._open_source)
+
+        source_layout = QHBoxLayout()
+        source_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        source_layout.setSpacing(6)
+        source_layout.addWidget(
+            source_label,
+        )
+        source_layout.addStretch()
+        source_layout.addWidget(
+            price_label,
+        )
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+        text_layout.setSpacing(4)
+        text_layout.addWidget(title)
+        text_layout.addWidget(summary)
+        if requirement_layout.count() > 1:
+            text_layout.addLayout(requirement_layout)
+        text_layout.addStretch()
+        text_layout.addLayout(
+            source_layout
+        )
+        text_layout.addWidget(open_button, 0, Qt.AlignRight)
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(
+            8,
+            8,
+            10,
+            8,
+        )
+        layout.setSpacing(10)
+        if image is not None:
+            layout.addWidget(image)
+        layout.addLayout(
+            text_layout,
+            1,
+        )
+
+        self.setLayout(layout)
+        self.setMinimumHeight(138 if image is not None else 116)
+        self.setMinimumWidth(390)
+        self.setMaximumWidth(470)
+
+    def _open_source(self):
+        if self.url:
+            QDesktopServices.openUrl(
+                QUrl(self.url)
+            )
+
+
+class ResultCardList(QWidget):
+    """Stack each result as its own image-and-text row."""
+
+    def __init__(self):
+        super().__init__()
+
+        self._cards = []
+        self.card_layout = QVBoxLayout()
+        self.card_layout.setContentsMargins(
+            0,
+            4,
+            0,
+            0,
+        )
+        self.card_layout.setSpacing(7)
+
+        self.card_host = QVBoxLayout()
+        self.card_host.setContentsMargins(0, 0, 0, 0)
+
+        self.card_layout.addLayout(self.card_host)
+
+        self.setLayout(
+            self.card_layout
+        )
+        self.setVisible(False)
+
+    def set_cards(self, cards):
+        self._cards = (
+            cards
+            if isinstance(cards, list)
+            else []
+        )
+
+        while self.card_host.count():
+            item = self.card_host.takeAt(0)
+
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        self._cards = [card for card in self._cards[:3] if isinstance(card, dict)]
+        self._render_cards()
+        self.setVisible(bool(self._cards))
+
+        self.adjustSize()
+        self.updateGeometry()
+
+    def _render_cards(self):
+        while self.card_host.count():
+            item = self.card_host.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        for card in self._cards:
+            self.card_host.addWidget(ResultCard(card))
+
+
 class MessageWidget(QWidget):
-    def __init__(self, sender, text, sources=None, highlights=None):
+    def __init__(
+            self,
+            sender,
+            text,
+            sources=None,
+            highlights=None,
+            cards=None,):
         super().__init__()
 
         is_user = sender.lower() in {"you", "user", "isaac"}
+        self._is_user_message = is_user
         outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(2, 6, 2, 6)
         outer_layout.setSpacing(9)
@@ -602,11 +1449,13 @@ class MessageWidget(QWidget):
 
         name_label = QLabel(sender)
         message_layout = QVBoxLayout()
+        self.message_layout = message_layout
         message_layout.setContentsMargins(0, 0, 0, 0)
         message_layout.setSpacing(3)
         self.source_layout = QGridLayout()
         self.source_layout.setContentsMargins(0, 2, 0, 0)
         self.source_layout.setSpacing(4)
+        self.result_cards = (ResultCardList())
 
         if is_user:
             name_label.setAlignment(Qt.AlignRight)
@@ -660,6 +1509,9 @@ class MessageWidget(QWidget):
                 alignment=Qt.AlignTop,
             )
         else:
+            # A stable width lets QLabel calculate the full wrapped height
+            # when the short thinking text is replaced by a longer reply.
+            self.bubble.setFixedWidth(286)
             name_label.setStyleSheet(
                 f"""
                 QLabel {{
@@ -709,6 +1561,11 @@ class MessageWidget(QWidget):
                 0,
                 Qt.AlignLeft,
             )
+            message_layout.addWidget(
+                self.result_cards,
+                0,
+                Qt.AlignLeft,)
+            
             message_layout.addLayout(self.source_layout)
             self.source_layout.setAlignment(Qt.AlignRight)            
             outer_layout.addWidget(
@@ -727,20 +1584,71 @@ class MessageWidget(QWidget):
         self.animation.setEndValue(1.0)
         self.animation.start()
 
+        if cards:
+            self.set_cards(cards)
+
         if sources:
             self.set_sources(sources)
+
+        QTimer.singleShot(0, self._fit_bubble_height)
 
     def set_text(self, text):
         self._plain_text = str(text)
         self._render_text()
-        self.bubble.adjustSize()
-        self.bubble.updateGeometry()
+        self._fit_bubble_height()
 
     def set_highlights(self, highlights):
         self._highlights = highlights or []
         self._render_text()
-        self.bubble.adjustSize()
+        self._fit_bubble_height()
+
+    def _fit_bubble_height(self):
+        """Recalculate wrapped QLabel height after thinking text is replaced."""
+        if self._is_user_message:
+            # User bubbles choose their width from their content. Fixing their
+            # height before the horizontal layout settles clips wrapped lines.
+            self.bubble.setMinimumHeight(0)
+            self.bubble.setMaximumHeight(16777215)
+            self.bubble.adjustSize()
+            self.bubble.updateGeometry()
+            self.adjustSize()
+            self.updateGeometry()
+            return
+
+        self.bubble.setFixedWidth(286)
+        width = self.bubble.width() or min(286, self.bubble.sizeHint().width())
+        required_height = self.bubble.heightForWidth(width)
+        if required_height > 0:
+            # A small allowance avoids Windows clipping the final baseline
+            # when rich text contains mixed CJK and Latin bold runs.
+            self.bubble.setFixedHeight(required_height + 8)
+        else:
+            self.bubble.adjustSize()
         self.bubble.updateGeometry()
+        self.adjustSize()
+        self.updateGeometry()
+
+    def set_cards(self, cards):
+        cards = cards or []
+        self.result_cards.set_cards(
+            cards
+        )
+        # Shopping uses one complete image/text row per product, followed by
+        # Bekki's cross-product recommendation. Other card types keep the
+        # existing reply-first presentation.
+        product_cards = bool(cards) and all(
+            isinstance(card, dict) and card.get("type") == "product"
+            for card in cards
+        )
+        self.message_layout.removeWidget(self.result_cards)
+        self.message_layout.insertWidget(
+            1 if product_cards else 2,
+            self.result_cards,
+            0,
+            Qt.AlignLeft,
+        )
+        self.adjustSize()
+        self.updateGeometry()
 
     def _render_text(self):
         styles = {
@@ -769,8 +1677,26 @@ class MessageWidget(QWidget):
             parts.append('<span style="' + styles[style] + '">' + html.escape(self._plain_text[start:end]) + "</span>")
             cursor = end
         parts.append(html.escape(self._plain_text[cursor:]))
-        self.bubble.setTextFormat(Qt.RichText if ranges else Qt.PlainText)
-        self.bubble.setText("".join(parts).replace("\n", "<br>") if ranges else self._plain_text)
+        rendered = "".join(parts)
+
+        # Bekki may use small Markdown bold markers in otherwise plain replies.
+        # Content is escaped first, so enabling this limited formatting cannot
+        # inject arbitrary HTML into the message bubble.
+        has_markdown_bold = bool(re.search(r"\*\*[^*\n]+\*\*", rendered))
+        if has_markdown_bold:
+            rendered = re.sub(
+                r"\*\*([^*\n]+)\*\*",
+                r'<strong style="font-weight:700;color:#347fc3;">\1</strong>',
+                rendered,
+            )
+
+        use_rich_text = bool(ranges) or has_markdown_bold
+        self.bubble.setTextFormat(Qt.RichText if use_rich_text else Qt.PlainText)
+        self.bubble.setText(
+            rendered.replace("\n", "<br>")
+            if use_rich_text
+            else self._plain_text
+        )
 
     def set_sources(self, sources):
         while self.source_layout.count():
@@ -957,8 +1883,9 @@ class ChatArea(QWidget):
             ),
         )
 
-    def add_message(self, role, message, sources=None, highlights=None):
-        widget = MessageWidget(role, message, sources, highlights)
+    def add_message(self, role, message, sources=None, highlights=None,cards=None,):
+        widget = MessageWidget(
+            role, message, sources = sources, highlights = highlights,cards=cards)
         self.message_layout.addWidget(widget)
         self.scroll_to_bottom()
         return widget
@@ -1115,24 +2042,24 @@ class InputArea(QWidget):
             """
         )
 
-        self.input_box = ModernLineEdit()
+        self.input_box = ModernMessageEdit()
         self.input_box.setPlaceholderText(i18n.t("input_placeholder"))
-        self.input_box.setMinimumHeight(44)
+        self.input_box.setMinimumHeight(68)
         self.input_box.setStyleSheet(
             f"""
-            QLineEdit {{
+            QPlainTextEdit {{
                 background-color: #ffffff;
                 border: 1px solid #d4e1ef;
-                border-radius: 21px;
+                border-radius: 24px;
                 color: #334155;
                 font-family: {UI_FONT};
                 font-size: 13px;
-                padding: 0 15px;
+                padding: 7px 14px;
             }}
-            QLineEdit:focus {{
+            QPlainTextEdit:focus {{
                 border: 1px solid #77b6f3;
             }}
-            QLineEdit:disabled {{
+            QPlainTextEdit:disabled {{
                 background-color: #f4f6f9;
                 color: #9ba7b4;
             }}
@@ -1239,10 +2166,10 @@ class InputArea(QWidget):
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(7)
-        input_layout.addWidget(self.attach_button)
-        input_layout.addWidget(self.desktop_button)
-        input_layout.addWidget(self.input_box)
-        input_layout.addWidget(self.send_button)
+        input_layout.addWidget(self.attach_button, 0, Qt.AlignBottom)
+        input_layout.addWidget(self.desktop_button, 0, Qt.AlignBottom)
+        input_layout.addWidget(self.input_box, 1)
+        input_layout.addWidget(self.send_button, 0, Qt.AlignBottom)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1253,7 +2180,7 @@ class InputArea(QWidget):
         self.setLayout(layout)
 
     def get_text(self):
-        return self.input_box.text().strip()
+        return self.input_box.toPlainText().strip()
 
     def clear(self):
         self.input_box.clear()
@@ -1277,7 +2204,7 @@ class InputArea(QWidget):
 
     def connect_send(self, handler):
         self.send_button.clicked.connect(handler)
-        self.input_box.returnPressed.connect(handler)
+        self.input_box.sendRequested.connect(handler)
 
     def connect_attach(self, handler):
         self.attach_button.clicked.connect(handler)
@@ -2008,12 +2935,14 @@ class BekkiWindow(QWidget):
         message,
         sources=None,
         highlights=None,
+        cards= None
     ):
         return self.chat.add_message(
             role,
             message,
-            sources,
-            highlights,
+            sources=sources,
+            highlights = highlights,
+            cards= cards,
         )
 
     def add_welcome_message(

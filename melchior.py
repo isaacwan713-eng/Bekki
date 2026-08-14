@@ -21,6 +21,7 @@ VALID_MODES = {
     "FACT_LOOKUP",
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
+    "SHOPPING_RESEARCH",
     "TASK_ACTION",
 }
 
@@ -55,6 +56,7 @@ VALID_RESEARCH_PROFILES = {
     "official_first",
     "evidence_verification",
     "platform_native",
+    "shopping_match",
 }
 
 MODE_INVARIANTS = {
@@ -88,12 +90,18 @@ MODE_INVARIANTS = {
         "source_policy": "platform_native",
         "research_profile": "platform_native",
     },
+    "SHOPPING_RESEARCH": {
+        "needs_search": True,
+        "research_depth": "shopping_compare",
+        "source_policy": "merchant_results",
+        "research_profile": "shopping_match",
+    },
     "TASK_ACTION": {
         "needs_search": False,
         "research_depth": "none",
         "source_policy": "local_context",
         "research_profile": "local_context",
-    },    
+    },
 }
 
 DEFAULT_PLAN = {

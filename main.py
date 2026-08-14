@@ -3,11 +3,12 @@
 # Copyright (c) 2026 YW49. All rights reserved.
 
 import json
+import re
 import sys
 from unittest import result
 import task_ai
 import tasks
-
+import result_cards
 import memory
 import tools
 import document
@@ -243,6 +244,33 @@ def get_ai_response(
             "social results.\n"
         )
 
+    if (
+        melchior_plan
+        and melchior_plan.get("response_mode") == "SHOPPING_RESEARCH"
+    ):
+        melchior_instruction += (
+            "\n\nMELCHIOR SHOPPING_RESEARCH RULE:\n"
+            "Products are displayed separately as structured cards.\n"
+            "Do not repeat each product description in the reply; every product "
+            "already has its own image-and-text card. Give only a concise final "
+            "comparison and recommendation based on all supplied cards.\n"
+            "Never paste, repeat, or format a raw URL in the reply.\n"
+            "Do not describe a shopping search page as a product.\n"
+            "Treat UNKNOWN requirements as unverified, not matched.\n"
+            "For shopping, prioritize budget fit, proven sales/popularity, "
+            "brand reliability, then feature fit. Never call UNKNOWN popularity "
+            "popular, and never recommend a visibly low-demand product.\n"
+            "Respect the supplied shopping preference profile: quality-first "
+            "users may prefer a reliable premium option; value-first users "
+            "should prefer trusted value brands over unknown cheapest brands.\n"
+            "State how many product cards were found. When three or more cards "
+            "exist, compare at least the strongest three instead of describing "
+            "only the first card. Summarize each option's main pro and con, "
+            "then give the validated recommendation and its key trade-off. "
+            "Keep the comparison compact.\n"
+            "Tell the user to use the explicit View product button when needed.\n"
+        )
+
     if balthasar_plan:
         balthasar_instruction = (
             "\n\nBALTHASAR EMOTIONAL COMMUNICATION:\n"
@@ -422,7 +450,13 @@ def refresh_session_list():
         )
 
 
-def save_message(role, message, sources=None, highlights=None):
+def save_message(
+    role,
+    message,
+    sources=None,
+    highlights=None,
+    cards=None,
+):
     conversation.append(f"{role} : {message}")
     history.append_message(
         history_data,
@@ -430,6 +464,7 @@ def save_message(role, message, sources=None, highlights=None):
         message,
         sources=sources,
         highlights=highlights,
+        cards=cards,
     )
     refresh_session_list()
 
@@ -615,10 +650,23 @@ def process_request(message, status_callback):
                 status_callback=status_callback,
             )
 
+        elif response_mode == "SHOPPING_RESEARCH":
+            search_result = tools.shopping_research_controller(
+                message,
+                recent_context,
+                status_callback=status_callback,
+            )
+
         else:
             status_callback(i18n.t("query"))
 
-            if response_mode == "CLAIM_CHECK":
+            if response_mode == "NEWS_FEED":
+                search_queries = tools.build_news_queries(
+                    message,
+                    recent_context,
+                )
+                search_query = None
+            elif response_mode == "CLAIM_CHECK":
                 search_query = tools.build_claim_query(
                     melchior_plan.get("claim_to_verify") or message
                 )
@@ -630,7 +678,7 @@ def process_request(message, status_callback):
 
             if response_mode == "NEWS_FEED":
                 search_result = tools.news_feed_controller(
-                    search_query,
+                    search_queries,
                     status_callback=status_callback,
                 )
 
@@ -705,8 +753,34 @@ def process_request(message, status_callback):
         emotion_state,
     )
 
-    reply = reply_result.get("reply", "")
-    highlights = reply_result.get("highlights", [])
+    reply = reply_result.get(
+        "reply",
+        "",
+    )
+    if response_mode == "SHOPPING_RESEARCH":
+        # Product cards own external navigation, so accidental model URLs do
+        # not appear as a shopping web page inside the reply bubble.
+        reply = re.sub(r"https?://\S+", "", reply).strip()
+    highlights = reply_result.get(
+        "highlights",
+        [],
+    )
+    search_cards = (
+        search_result.get("cards", [])
+        if isinstance(search_result, dict)
+        else []
+    )
+    cards = result_cards.clean_cards(
+        search_cards
+        + reply_result.get(
+            "cards",
+            [],
+        )
+    )
+    print(
+        "[CARDS FOR UI]",
+        len(cards),
+    )
     sources = []
     if (
         response_mode in {"CLAIM_CHECK", "NEWS_FEED", "SOCIAL_RESEARCH"}
@@ -748,6 +822,7 @@ def process_request(message, status_callback):
         "response_mode": response_mode,
         "sources": sources,
         "highlights": highlights,
+        "cards": cards,
     }
 
 
@@ -809,6 +884,18 @@ class RequestUIBridge(QObject):
                 [],
             )
 
+            cards = result_cards.clean_cards(
+                payload.get(
+                    "cards",
+                    [],
+                )
+            )
+
+            print(
+                "[CARDS RECEIVED]",
+                len(cards),
+            )
+
             response_mode = payload.get(
                 "response_mode",
                 "LOCAL_ANSWER",
@@ -818,6 +905,7 @@ class RequestUIBridge(QObject):
             reply = str(payload)
             sources = []
             highlights = []
+            cards = []
             response_mode = (
                 "LOCAL_ANSWER"
             )
@@ -842,12 +930,16 @@ class RequestUIBridge(QObject):
             self.thinking_widget.set_sources(
                 sources
             )
+            self.thinking_widget.set_cards(
+                cards
+            )
 
         save_message(
             "Bekki",
             reply,
             sources=sources,
             highlights=highlights,
+            cards=cards,
         )
 
         # This slot runs on Qt's UI thread.
@@ -1231,7 +1323,22 @@ def show_active_session():
             role = item.get("role")
             text = item.get("text")
             if role in {"You", "Bekki"} and isinstance(text, str):
-                window.add_message(role, text, item.get("sources", []))
+                window.add_message(
+                    role,
+                    text,
+                    sources=item.get(
+                        "sources",
+                        [],
+                    ),
+                    highlights=item.get(
+                        "highlights",
+                        [],
+                    ),
+                    cards=item.get(
+                        "cards",
+                        [],
+                    ),
+                )
 
     # Local files are deliberately not auto-reopened when switching chats.
     document.clear_document()
@@ -1506,6 +1613,7 @@ app.aboutToQuit.connect(desktop.clear_capture)
 active_messages = history.get_active_session(history_data).get("messages", [])
 rebuild_conversation()
 window = BekkiWindow(show_welcome=False)
+
 ui_bridge = RequestUIBridge()
 task_tray = QSystemTrayIcon(
     window.windowIcon(),
@@ -1584,8 +1692,18 @@ for history_item in active_messages:
         window.add_message(
             role,
             text,
-            history_item.get("sources", []),
-            history_item.get("highlights", []),
+            sources=history_item.get(
+                "sources",
+                [],
+            ),
+            highlights=history_item.get(
+                "highlights",
+                [],
+            ),
+            cards=history_item.get(
+                "cards",
+                [],
+            ),
         )
 
 window.connect_send(

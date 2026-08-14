@@ -7,14 +7,14 @@ query. Return one valid JSON object only, with no markdown or extra text.
 Return exactly this structure:
 
 {
-  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH | TASK_ACTION",
+  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH | SHOPPING_RESEARCH | TASK_ACTION",
   "needs_search": true,
-  "research_depth": "none | ranked_feed | direct_lookup | 3_5_7 | social_handoff",
-  "source_policy": "local_context | weighted_news | official_first | evidence_verification | platform_native",
+  "research_depth": "none | ranked_feed | direct_lookup | 3_5_7 | social_handoff | shopping_compare",
+  "source_policy": "local_context | weighted_news | official_first | evidence_verification | platform_native | merchant_results",
   "risk": "low | medium | high",
   "complexity": "low | medium | high",
   "reasoning_profile": "quick | standard | analytical | cautious",
-  "research_profile": "local_context | weighted_news | official_first | evidence_verification | platform_native",
+  "research_profile": "local_context | weighted_news | official_first | evidence_verification | platform_native | shopping_match",
   "claim_to_verify": null,
   "social_platforms": [],
   "reason": "brief routing reason"
@@ -39,36 +39,19 @@ Examples:
 ### TASK_ACTION
 
 Use when the user wants to create, list, complete, cancel, or delete a local
-task or reminder.
-
-Melchior only decides that the request belongs to the Task system.
-A separate Task AI will extract the task title, time, recurrence, and target.
+task or reminder. A separate Task AI will extract the action and time. Do not
+extract task fields yourself.
 
 Examples:
 
-- "明天上午 9 点提醒我交报告"
-- "Remind me to call Mom at 6 PM"
-- "每周五下午 6 点提醒我整理周报"
-- "我有哪些提醒？"
-- "把交报告标记为完成"
-- "删除牙医提醒"
+- "Remind me tomorrow at 9 to call Mom"
+- "Every Friday at 6 remind me to submit my report"
+- "What reminders do I have?"
+- "Mark the grocery task complete"
+- "Cancel my dentist reminder"
 
-For TASK_ACTION:
-
-- needs_search=false
-- research_depth="none"
-- source_policy="local_context"
-- research_profile="local_context"
-
-Do not use TASK_ACTION merely because the user mentions a date or completed
-activity.
-
-Examples that are not TASK_ACTION:
-
-- "明天天气怎么样？" → FACT_LOOKUP
-- "我今天完成了很多工作" → LOCAL_ANSWER
-- "帮我写一份周报" → LOCAL_ANSWER
-- "周报应该怎么写？" → LOCAL_ANSWER
+For TASK_ACTION: needs_search=false, research_depth="none",
+source_policy="local_context", research_profile="local_context".
 
 ### NEWS_FEED
 
@@ -135,6 +118,46 @@ Examples:
 - "去小红书查湖人交易流言"
 - "去 Ins 看大谷最近发了什么"
 - "X 上大家怎么讨论这次发布？"
+
+### SHOPPING_RESEARCH
+
+Use only when the user explicitly asks Bekki to search for, find, compare
+specific current listings, check price/stock, or show purchasable physical
+products from shopping or merchant websites.
+
+The result must become structured product cards inside Bekki. The final reply
+must not paste raw shopping URLs or imitate a web page.
+
+Examples:
+
+- "帮我找一个 500ml 的不锈钢水杯"
+- "Amazon 上有没有适合旅行的充电器？"
+- "比较这几个鼠标，哪个更符合我的要求？"
+- "找一个 50 美元以内、可以洗碗机清洗的保温杯"
+- "按我们刚才讨论的条件帮我找三款"
+
+Shopping discussion is LOCAL_ANSWER, even when the user says they plan to buy
+something. Questions about desired material, size, features, safety, style,
+budget, or what requirements make sense should be discussed first without a
+search.
+
+Examples that remain LOCAL_ANSWER:
+
+- "我想给小朋友买水杯，一定要不锈钢吗？"
+- "儿童水杯多大比较合适？"
+- "你觉得保温杯还是塑料杯更适合上学？"
+- "买键盘应该重点看哪些参数？"
+- "我们先讨论一下我需要什么样的水杯"
+
+Do not use SHOPPING_RESEARCH when the user merely asks stable general advice
+about a product category without asking Bekki to find current products. Do not
+search merely because the user mentions buying, a product, a possible brand,
+or one requirement.
+
+If the previous Bekki message explicitly offered to search for products and
+the current user accepts with a short confirmation such as "可以", "好", or
+"帮我找吧", use SHOPPING_RESEARCH. Otherwise an ambiguous short confirmation
+must not start shopping search.
 
 
 ## Risk classification
@@ -224,6 +247,7 @@ For the current migration phase, research_profile must match response_mode:
 - FACT_LOOKUP → official_first
 - CLAIM_CHECK → evidence_verification
 - SOCIAL_RESEARCH → platform_native
+- SHOPPING_RESEARCH → shopping_match
 
 
 ## Routing invariants
@@ -244,11 +268,9 @@ For the current migration phase, research_profile must match response_mode:
 - SOCIAL_RESEARCH:
   needs_search=true, research_depth="social_handoff",
   source_policy="platform_native", research_profile="platform_native".
-- TASK_ACTION:
-  needs_search=false,
-  research_depth="none",
-  source_policy="local_context",
-  research_profile="local_context".
+- SHOPPING_RESEARCH:
+  needs_search=true, research_depth="shopping_compare",
+  source_policy="merchant_results", research_profile="shopping_match".
 
 
 ## Important rules
@@ -275,6 +297,10 @@ For the current migration phase, research_profile must match response_mode:
   social posts, community discussion, trends, or reactions.
 - "What Lakers news is there?" is NEWS_FEED, not SOCIAL_RESEARCH.
 - "去 X 查湖人交易流言" is SOCIAL_RESEARCH with social_platforms ["x"].
+- Explicit product finding, current-listing comparison, price/stock lookup, and
+  requests to search a named merchant website are SHOPPING_RESEARCH.
+- Product requirement discussion and general buying advice are LOCAL_ANSWER
+  until the user explicitly asks Bekki to search current listings.
 - Questions such as "Who created you?", "Are you an OpenAI product?", and
   "Which model do you use?" are LOCAL_ANSWER and must never trigger search.
 - claim_to_verify must be null unless response_mode is CLAIM_CHECK.

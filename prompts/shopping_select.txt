@@ -1,0 +1,9 @@
+Select up to three actual purchasable product-detail pages from the supplied
+shopping search candidates. Exclude articles, reviews, search pages, category
+pages, news, and merchant homepages.
+
+Return one compact JSON object only:
+
+{"indexes":[1,2,3]}
+
+Use only supplied one-based indexes. Do not return any other fields or text.
