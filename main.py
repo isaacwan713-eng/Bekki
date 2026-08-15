@@ -5,9 +5,6 @@
 import json
 import re
 import sys
-from unittest import result
-import task_ai
-import tasks
 import result_cards
 import memory
 import tools
@@ -16,10 +13,10 @@ import vision
 import os
 import melchior
 import history
-import desktop
 import location
 import presence
 import balthasar
+import casper
 import emotion
 import localization as i18n
 
@@ -251,6 +248,9 @@ def get_ai_response(
         melchior_instruction += (
             "\n\nMELCHIOR SHOPPING_RESEARCH RULE:\n"
             "Products are displayed separately as structured cards.\n"
+            "If zero product cards are supplied, do not name, describe, price, "
+            "compare, or recommend any product. State only that no product was "
+            "verified from the available merchant pages.\n"
             "Do not repeat each product description in the reply; every product "
             "already has its own image-and-text card. Give only a concise final "
             "comparison and recommendation based on all supplied cards.\n"
@@ -407,7 +407,11 @@ def get_ai_response(
         result["pending_action"] = None
         memory.clear_pending_action()
     elif result.get("pending_action"):
-        memory.save_pending_action(result["pending_action"])
+        active_session = history.get_active_session(history_data)
+        memory.save_pending_action(
+            result["pending_action"],
+            session_id=active_session.get("id", ""),
+        )
 
     memory.handle_memory(memory_data, result.get("memory"))
 
@@ -539,7 +543,10 @@ def process_request(message, status_callback):
             "sources": [],
         }
 
-    pending = memory.loading_pending_action()
+    active_session = history.get_active_session(history_data)
+    pending = memory.loading_pending_action(
+        session_id=active_session.get("id", ""),
+    )
     search_result = None
     action_context = None
     image_context = None
@@ -550,83 +557,8 @@ def process_request(message, status_callback):
         conversation[-MAX_RECENT_MESSAGES:]
     )
 
-    # Keep the older pending-action behavior isolated from melchior.
-    if pending and tools.is_confirmation(message):
-        if pending.get("type") == "search":
-            query = pending.get("query", "")
-
-            try:
-                search_result = tools.search_controller(
-                    query,
-                    status_callback,
-                )
-                action_context = (
-                    "The user confirmed the pending search. "
-                    "The search has already been completed. "
-                    "Answer directly using the current search evidence. "
-                    "Pending query: " + query
-                )
-                response_mode = "CLAIM_CHECK"
-            finally:
-                memory.clear_pending_action()
-
-    else:
-        melchior_plan = melchior.plan_request(
-            message,
-            recent_context,
-        )
-
-        response_mode = (
-            melchior_plan["response_mode"]
-        )
-
-        if response_mode == "TASK_ACTION":
-            status_callback(
-                i18n.t("task_understanding")
-            )
-
-            task_plan = (
-                task_ai.plan_task_action(
-                    message,
-                    recent_context,
-                )
-            )
-
-            task_result = (
-                tasks.execute_task_plan(
-                    task_plan
-                )
-            )
-
-            print(
-                "[TASK RESULT]",
-                json.dumps(
-                    task_result,
-                    ensure_ascii=False,
-                ),
-            )
-
-            action_context = (
-                "TASK ACTION RESULT\n"
-                "This is the authoritative result "
-                "from Bekki's local Task system.\n"
-                "Do not change, contradict, or "
-                "invent its task data.\n\n"
-                + json.dumps(
-                    task_result,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n\n"
-                "Respond naturally in the Bekki "
-                "system language.\n"
-                "If needs_clarification is true, "
-                "ask exactly one concise clarifying "
-                "question.\n"
-                "Do not claim the task was saved "
-                "unless success is true."
-            )
-
+    # Balthasar observes the user before Melchior plans. It shapes alignment,
+    # never the factual mode or Python safety boundary.
     status_callback(i18n.t("emotion"))
     try:
         balthasar_plan = balthasar.plan_response(
@@ -642,57 +574,76 @@ def process_request(message, status_callback):
         print("[BALTHASAR FALLBACK]", repr(error))
         balthasar_plan = dict(balthasar.DEFAULT_PLAN)
 
-    if melchior_plan and melchior_plan["needs_search"]:
-        if response_mode == "SOCIAL_RESEARCH":
-            search_result = tools.social_research_controller(
-                message,
-                melchior_plan.get("social_platforms", []),
-                status_callback=status_callback,
+    if (
+        pending
+        and pending.get("type") == "search"
+        and tools.is_confirmation(message, pending, recent_context)
+    ):
+        query = pending.get("query", "")
+        melchior_plan = {
+            "response_mode": "CLAIM_CHECK",
+            "needs_search": True,
+            "risk": "low",
+            "complexity": "medium",
+            "reasoning_profile": "standard",
+        }
+        response_mode = "CLAIM_CHECK"
+        try:
+            casper_result = casper.execute_pending_search(query, status_callback)
+            search_result = casper_result.get("search_result")
+            action_context = (
+                "The user confirmed the pending search. Casper completed it. "
+                "Answer directly using the current evidence. Pending query: "
+                + query
             )
+        finally:
+            memory.clear_pending_action()
+    else:
+        melchior_plan = melchior.plan_request(message, recent_context)
+        response_mode = melchior_plan["response_mode"]
 
-        elif response_mode == "SHOPPING_RESEARCH":
-            search_result = tools.shopping_research_controller(
+        user_alignment_context = {
+            "long_term_memory": memory.get_long_term_context(memory_data),
+            "conversation_state": context_manager.load_context(),
+        }
+        try:
+            balthasar_calibration = balthasar.calibrate_execution(
                 message,
-                recent_context,
-                status_callback=status_callback,
+                melchior_plan,
+                balthasar_plan,
+                user_alignment_context,
             )
+        except Exception as error:
+            print("[BALTHASAR CALIBRATION FALLBACK]", repr(error))
+            balthasar_calibration = dict(balthasar.DEFAULT_CALIBRATION)
 
-        else:
-            status_callback(i18n.t("query"))
-
-            if response_mode == "NEWS_FEED":
-                search_queries = tools.build_news_queries(
-                    message,
-                    recent_context,
+        casper_result = casper.execute(
+            message,
+            melchior_plan,
+            balthasar_calibration,
+            recent_context,
+            status_callback,
+        )
+        search_result = casper_result.get("search_result")
+        action_context = casper_result.get("action_context")
+        if casper_result.get("status") in {
+            "failed",
+            "safe_stop",
+            "human_handoff",
+        }:
+            action_context = (
+                "CASPER EXECUTION DID NOT COMPLETE\n"
+                + json.dumps(
+                    {
+                        "status": casper_result.get("status"),
+                        "errors": casper_result.get("errors", []),
+                        "pending_approval": casper_result.get("pending_approval"),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
                 )
-                search_query = None
-            elif response_mode == "CLAIM_CHECK":
-                search_query = tools.build_claim_query(
-                    melchior_plan.get("claim_to_verify") or message
-                )
-            else:
-                search_query = tools.build_search_query(
-                    message,
-                    recent_context,
-                )
-
-            if response_mode == "NEWS_FEED":
-                search_result = tools.news_feed_controller(
-                    search_queries,
-                    status_callback=status_callback,
-                )
-
-            elif response_mode == "FACT_LOOKUP":
-                search_result = tools.fact_lookup_controller(
-                    search_query,
-                    status_callback=status_callback,
-                )
-
-            elif response_mode == "CLAIM_CHECK":
-                search_result = tools.search_controller(
-                    search_query,
-                    status_callback=status_callback,
-                )
+                + "\nExplain the failure without claiming the action succeeded."
+            )
 
     # Vision remains independent from web-search mode.
     if vision.has_image():
@@ -736,7 +687,11 @@ def process_request(message, status_callback):
                         "is_concrete_news": True,
                         "content_type": "NEWS",
                     }
-                    for item in search_result.get("results", [])
+                    for item in (
+                        search_result.get("results", [])
+                        if isinstance(search_result, dict)
+                        else []
+                    )
                     if item.get("url")
                 ],
             }
@@ -1166,7 +1121,7 @@ def attach_file():
 def remove_document():
     document.clear_document()
     vision.clear_image()
-    desktop.clear_capture()
+    casper.clear_desktop_capture()
     window.clear_document()
 
     window.set_status("")
@@ -1198,9 +1153,9 @@ def capture_active_window():
 
 def finish_desktop_capture(capture_mode):
     if capture_mode == "window":
-        capture_result = desktop.capture_active_window()
+        capture_result = casper.capture_active_window()
     else:
-        capture_result = desktop.capture_screen()
+        capture_result = casper.capture_screen()
     load_desktop_capture(capture_result)
 
 
@@ -1256,7 +1211,7 @@ def start_screenshot_reading():
     QApplication.clipboard().clear()
     window.hide()
 
-    start_result = desktop.start_screen_snip()
+    start_result = casper.start_screen_snip()
     if not start_result.get("success"):
         window.show()
         window.set_status("")
@@ -1274,11 +1229,11 @@ def start_screenshot_reading():
 def poll_screenshot_clipboard():
     global screen_snip_attempts
 
-    capture_result = desktop.capture_clipboard_image()
+    capture_result = casper.capture_clipboard_image()
     if capture_result.get("pending", False):
         qt_image = QApplication.clipboard().image()
         if not qt_image.isNull():
-            capture_result = desktop.capture_qt_clipboard_image(qt_image)
+            capture_result = casper.capture_qt_clipboard_image(qt_image)
 
     if capture_result.get("success"):
         load_desktop_capture(capture_result)
@@ -1430,26 +1385,7 @@ def reset_current_context():
         window.focus_input()
 
 def get_pending_tasks():
-    task_data = tasks.load_tasks()
-
-    pending_tasks = [
-        task
-        for task in task_data.get(
-            "tasks",
-            [],
-        )
-        if task.get("status")
-        == "pending"
-    ]
-
-    pending_tasks.sort(
-        key=lambda task: task.get(
-            "due_at",
-            "",
-        )
-    )
-
-    return pending_tasks
+    return casper.list_pending_tasks()
 
 
 def refresh_task_drawer():
@@ -1464,23 +1400,7 @@ def complete_task_from_ui(
     if current_thread is not None:
         return
 
-    result = (
-        tasks.execute_task_plan(
-            {
-                "action": "COMPLETE",
-                "task_id": task_id,
-                "task_reference": None,
-                "title": "",
-                "due_at": None,
-                "recurrence": "NONE",
-                "clarification": None,
-                "reason": (
-                    "User completed the task "
-                    "through the Task UI."
-                ),
-            }
-        )
-    )
+    result = casper.complete_task(task_id)
 
     if result.get("success"):
         refresh_task_drawer()
@@ -1554,23 +1474,7 @@ def delete_task_from_ui(
     if answer != QMessageBox.Yes:
         return
 
-    result = (
-        tasks.execute_task_plan(
-            {
-                "action": "DELETE",
-                "task_id": task_id,
-                "task_reference": None,
-                "title": "",
-                "due_at": None,
-                "recurrence": "NONE",
-                "clarification": None,
-                "reason": (
-                    "User deleted the task "
-                    "through the Task UI."
-                ),
-            }
-        )
-    )
+    result = casper.delete_task(task_id, confirmed=True)
 
     if result.get("success"):
         refresh_task_drawer()
@@ -1608,7 +1512,7 @@ def change_system_language(language):
     window.focus_input()
 
 app = QApplication(sys.argv)
-app.aboutToQuit.connect(desktop.clear_capture)
+app.aboutToQuit.connect(casper.clear_desktop_capture)
 
 active_messages = history.get_active_session(history_data).get("messages", [])
 rebuild_conversation()
@@ -1628,9 +1532,7 @@ def check_due_tasks():
     """Show newly due reminders through Windows."""
 
     try:
-        due_tasks = (
-            tasks.pop_due_notifications()
-        )
+        due_tasks = casper.poll_due_notifications()
 
     except Exception as error:
         print(

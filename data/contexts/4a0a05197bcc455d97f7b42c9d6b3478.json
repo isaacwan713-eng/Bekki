@@ -1,0 +1,25 @@
+{
+  "current_topic": "Amazon search for outdoor water bottles for a 3‑year‑old under $30 with a big brand",
+  "entities": [
+    {
+      "name": "Kids Water Bottle for School 12 oz",
+      "price": "$9.99"
+    },
+    {
+      "name": "Gonfoam 16oz Kids Stainless Steel Insulated Water Bottle, 2 Pack",
+      "price": "$23.97"
+    },
+    {
+      "name": "SANDJEST Kids Water Bottle with Straw Lid - 12 Oz",
+      "price": "$15.99"
+    }
+  ],
+  "date_context": null,
+  "current_goal": "find a big brand water bottle suitable for a 3‑year‑old within or slightly above a $30 budget on Amazon",
+  "last_user_intent": "asked to find a big brand water bottle",
+  "open_references": {
+    "product1": "Kids Water Bottle for School 12 oz",
+    "product2": "Gonfoam 16oz Kids Stainless Steel Insulated Water Bottle, 2 Pack",
+    "product3": "SANDJEST Kids Water Bottle with Straw Lid - 12 Oz"
+  }
+}
