@@ -18,6 +18,18 @@ Rules:
 
 - Select only supplied PRODUCT candidates.
 - Select up to three strong, meaningfully different options when available.
+  Prefer a useful three-route set when evidence supports it:
+  1. strongest exact requirement fit;
+  2. strongest established/reliable brand near the requested specification;
+  3. strongest value or feature alternative.
+- A no-name exact-size option is not automatically better than a reputable
+  near-size option. Make the trade-off explicit and use the preference profile.
+- When the user supplied no meaningful filters beyond the product category,
+  optimize for broadly defensible general-purpose quality: evidence completeness,
+  established product/brand signals, review evidence, source quality, everyday
+  suitability, and a useful spread of best-overall, value, and premium or
+  specialized routes. Do not reward an arbitrary niche feature that the user
+  never requested.
 - Respect explicit hard requirements and budget. Do not select a visible
   MISMATCH for a hard requirement unless no compliant options exist; if you
   include it for comparison, state that limitation in reason.
@@ -25,6 +37,13 @@ Rules:
   transparent caveat rather than a known conflict.
 - Balance requirement fit, source quality, evidence completeness, price,
   popularity evidence, brand evidence, and the preference profile.
+- Prefer candidates with a validated product-detail URL and a real product
+  image. A category/search/article URL must never be selected. When enough
+  image-backed options exist, do not select an image-less option.
+- Product-page evidence is required for specifications, price, availability,
+  rating and popularity. General brand familiarity may be used only as a weak
+  selection prior to create a useful comparison; never present that familiarity
+  as verified evidence or let it override a visible requirement mismatch.
 - Do not treat search rank as popularity and do not invent reputation.
 - Avoid duplicate listings of the same product unless they offer a meaningful
   merchant/price difference relevant to the user.

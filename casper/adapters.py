@@ -47,17 +47,30 @@ def execute_mode(
         )
         return search_result, action_context
 
-    if mode == "SHOPPING_RESEARCH":
+    if mode in {"SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH"}:
         from . import browser as casper_browser
+        from . import recommendation
 
         try:
-            search_result = casper_browser.shopping_research_controller(
-                message,
-                recent_context,
-                status_callback=status_callback,
-            )
+            domain = melchior_plan.get("recommendation_domain") or "PRODUCT"
+            if domain == "PRODUCT" and mode == "SHOPPING_RESEARCH":
+                search_result = casper_browser.shopping_research_controller(
+                    message,
+                    recent_context,
+                    status_callback=status_callback,
+                )
+                if isinstance(search_result, dict):
+                    search_result["recommendation_domain"] = "PRODUCT"
+            else:
+                search_result = recommendation.research_controller(
+                    message,
+                    domain,
+                    calibration,
+                    recent_context,
+                    status_callback=status_callback,
+                )
         except Exception as error:
-            print("[CASPER SHOPPING BROWSER UNAVAILABLE]", repr(error))
+            print("[CASPER RECOMMENDATION BROWSER UNAVAILABLE]", repr(error))
             search_result = {"status": "BROWSER_UNAVAILABLE", "results": []}
 
         return search_result, action_context

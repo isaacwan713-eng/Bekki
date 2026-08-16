@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -15,6 +16,107 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 CDP_PORT = 9224
 CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 MAX_PAGE_TEXT = 15000
+_browser_process = None
+
+
+def _merchant_product_url(domain, url):
+    """Structural URL contract for merchants whose detail URLs are known."""
+    domain = str(domain).lower().strip().removeprefix("www.")
+    try:
+        parsed = urlparse(str(url))
+    except ValueError:
+        return False
+    host = parsed.netloc.lower().removeprefix("www.")
+    path = parsed.path
+    if not host or not (host == domain or host.endswith("." + domain)):
+        return False
+    if host.startswith(("help.", "support.", "blog.", "community.")):
+        return False
+    if domain.startswith("amazon.") or host.startswith("amazon."):
+        return bool(re.search(r"/(?:dp|gp/product)/[A-Z0-9]{10}(?:[/?]|$)", path, re.I))
+    if domain == "walmart.com":
+        return "/ip/" in path and bool(re.search(r"/\d+(?:[/?]|$)", path))
+    if domain == "target.com":
+        return "/p/" in path
+    if domain == "nordstrom.com":
+        return bool(re.search(r"/s/[^/]+/\d+(?:[/?]|$)", path, re.I))
+    if domain == "buybuybaby.com":
+        return "/store/product/" in path or "/product/" in path
+    if domain == "ebay.com":
+        return "/itm/" in path
+    if domain == "taobao.com":
+        return host == "item.taobao.com" and path.endswith("item.htm")
+    if domain == "tmall.com":
+        return host == "detail.tmall.com" and path.endswith("item.htm")
+    if domain == "jd.com":
+        return host == "item.jd.com" and bool(re.search(r"/\d+\.html$", path))
+    # Unknown merchants are judged from rendered page evidence by AI.
+    return True
+
+
+def _merchant_discovery_query(domain, query):
+    """Aim search engines at known concrete product-detail URL shapes."""
+    domain = str(domain).lower().strip().removeprefix("www.")
+    path_hints = {
+        "amazon.com": "/dp/",
+        "walmart.com": "/ip/",
+        "target.com": "/p/",
+        "nordstrom.com": "/s/",
+        "buybuybaby.com": "/store/product/",
+        "ebay.com": "/itm/",
+    }
+    site_target = domain + path_hints.get(domain, "")
+    return ("site:" + site_target + " " + str(query)).strip()[:300]
+
+
+def _product_json_ld(raw_scripts):
+    """Return compact Product JSON-LD and its first HTTPS image when present."""
+    products = []
+
+    def visit(value):
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        value_type = value.get("@type")
+        types = value_type if isinstance(value_type, list) else [value_type]
+        if any(str(item).lower() == "product" for item in types):
+            products.append(value)
+        graph = value.get("@graph")
+        if graph is not None:
+            visit(graph)
+
+    for raw in raw_scripts:
+        try:
+            visit(json.loads(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    if not products:
+        return "", ""
+    product = products[0]
+    image = product.get("image", "")
+    if isinstance(image, list):
+        image = next((item for item in image if isinstance(item, str)), "")
+    elif isinstance(image, dict):
+        image = image.get("url") or image.get("contentUrl") or ""
+    image = str(image).strip()
+    if not image.startswith("https://"):
+        image = ""
+    return json.dumps(product, ensure_ascii=False)[:12000], image[:2048]
+
+
+def _usable_product_image(url):
+    """Reject empty, non-HTTPS, and obvious merchant/logo artwork."""
+    value = str(url or "").strip()
+    if not value.startswith("https://"):
+        return ""
+    lowered = value.lower()
+    blocked = ("logo", "sprite", "favicon", "placeholder", "transparent")
+    if any(token in lowered for token in blocked):
+        return ""
+    return value[:2048]
 
 
 def _status(callback, text):
@@ -70,6 +172,7 @@ def _cdp_ready():
 
 def ensure_browser():
     """Start a separate headless Edge profile owned by Casper."""
+    global _browser_process
     if _cdp_ready():
         return
 
@@ -84,7 +187,7 @@ def ensure_browser():
         "--headless=new",
         "--window-size=1280,900",
     ]
-    subprocess.Popen(
+    _browser_process = subprocess.Popen(
         command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -96,6 +199,62 @@ def ensure_browser():
             return
         time.sleep(0.25)
     raise RuntimeError("Casper Browser did not start.")
+
+
+def _stop_casper_browser():
+    """Close only Casper's CDP browser so its profile can be reopened visibly."""
+    global _browser_process
+    if _cdp_ready():
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.connect_over_cdp(CDP_URL)
+                browser.close()
+        except Exception as error:
+            print("[CASPER BROWSER CLOSE ERROR]", repr(error))
+    if _browser_process is not None and _browser_process.poll() is None:
+        try:
+            _browser_process.terminate()
+            _browser_process.wait(timeout=5)
+        except Exception as error:
+            print("[CASPER BROWSER TERMINATE ERROR]", repr(error))
+    _browser_process = None
+    deadline = time.time() + 8
+    while _cdp_ready() and time.time() < deadline:
+        time.sleep(0.2)
+
+
+def open_human_handoff(url):
+    """Reopen Casper's persistent profile visibly for user verification."""
+    global _browser_process
+    target = str(url).strip()
+    parsed = urlparse(target)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Human handoff requires a public web URL.")
+    _stop_casper_browser()
+    command = [
+        _edge_executable(),
+        f"--remote-debugging-port={CDP_PORT}",
+        "--remote-debugging-address=127.0.0.1",
+        f"--user-data-dir={_profile_dir()}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--start-maximized",
+        target,
+    ]
+    _browser_process = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        if _cdp_ready():
+            print("[CASPER HUMAN HANDOFF OPENED]", parsed.netloc)
+            return True
+        time.sleep(0.25)
+    raise RuntimeError("Visible Casper Browser did not start.")
 
 
 def _protected_event(text):
@@ -110,6 +269,14 @@ def _protected_event(text):
     )
     if any(signal in lowered for signal in captcha_signals):
         return "captcha"
+    access_block_signals = (
+        "access denied",
+        "unusual activity",
+        "security notice",
+        "request blocked",
+    )
+    if any(signal in lowered for signal in access_block_signals):
+        return "access_block"
     return None
 
 
@@ -638,21 +805,53 @@ def read_url(url):
                     "error": "Protected browser event: " + protected,
                     "protected_event": protected,
                 }
-            if len(text) < 250:
-                return {
-                    "success": False,
-                    "reader_type": "casper_browser",
-                    "content": text[:MAX_PAGE_TEXT],
-                    "error": "Rendered page contained too little usable text.",
-                }
             image_url = ""
+            structured_product = ""
             published = ""
             try:
-                image = page.locator(
-                    'meta[property="og:image"], meta[name="twitter:image"]'
-                ).first
-                if image.count():
-                    image_url = image.get_attribute("content") or ""
+                scripts = page.locator('script[type="application/ld+json"]')
+                raw_scripts = scripts.all_text_contents()[:20] if scripts.count() else []
+                structured_product, structured_image = _product_json_ld(raw_scripts)
+                image_url = _usable_product_image(structured_image)
+
+                # Prefer a concrete product image over generic OpenGraph art.
+                if not image_url:
+                    product_image = page.locator(
+                        'meta[itemprop="image"], img#landingImage, '
+                        'img[data-old-hires], img[itemprop="image"]'
+                    ).first
+                    if product_image.count():
+                        for attribute in ("content", "data-old-hires", "src"):
+                            image_url = _usable_product_image(
+                                product_image.get_attribute(attribute) or ""
+                            )
+                            if image_url:
+                                break
+                        if not image_url:
+                            dynamic = product_image.get_attribute(
+                                "data-a-dynamic-image"
+                            ) or ""
+                            try:
+                                dynamic_urls = json.loads(dynamic)
+                            except (TypeError, ValueError, json.JSONDecodeError):
+                                dynamic_urls = {}
+                            if isinstance(dynamic_urls, dict):
+                                for candidate_url in dynamic_urls:
+                                    image_url = _usable_product_image(candidate_url)
+                                    if image_url:
+                                        break
+
+                if not image_url:
+                    image = page.locator(
+                        'meta[property="og:image"], meta[name="twitter:image"], '
+                        'link[rel="image_src"]'
+                    ).first
+                    if image.count():
+                        image_url = _usable_product_image(
+                            image.get_attribute("content")
+                            or image.get_attribute("href")
+                            or ""
+                        )
                 date_meta = page.locator(
                     'meta[property="article:published_time"], '
                     'meta[name="date"], meta[name="pubdate"]'
@@ -661,11 +860,23 @@ def read_url(url):
                     published = date_meta.get_attribute("content") or ""
             except PlaywrightError:
                 pass
+            # Modern merchant pages can expose a complete Product object while
+            # rendering very little body text. That is still usable evidence.
+            if len(text) < 250 and not structured_product:
+                return {
+                    "success": False,
+                    "reader_type": "casper_browser",
+                    "content": text[:MAX_PAGE_TEXT],
+                    "final_url": page.url,
+                    "error": "Rendered page contained too little usable product evidence.",
+                }
             return {
                 "success": True,
                 "reader_type": "casper_browser",
                 "content": text[:MAX_PAGE_TEXT],
                 "image_url": image_url[:2048],
+                "structured_product": structured_product,
+                "final_url": page.url,
                 "published": published[:160],
                 "error": None,
             }
@@ -979,6 +1190,7 @@ def _extract_shopping_products_batch(user_request, plan, region, candidates):
                 "page_error": item.get("page_error", ""),
                 "page_content": str(item.get("page_content", ""))[:7500],
                 "page_image_url": item.get("image_url", ""),
+                "structured_product": item.get("structured_product", ""),
             }
             for index, item in enumerate(candidates[:12], start=1)
         ],
@@ -1103,6 +1315,8 @@ def _select_shopping_products(user_request, plan, products):
             "fit_score": item.get("fit_score", 0),
             "source_score": item.get("source_score", 50),
             "evidence_quality": item.get("evidence_quality", "LOW"),
+            "has_product_image": bool(item.get("image_url")),
+            "is_product_detail_url": bool(item.get("is_product_detail_url")),
         }
         for index, item in enumerate(products, start=1)
         if item.get("page_type") == "PRODUCT"
@@ -1146,6 +1360,92 @@ def _select_shopping_products(user_request, plan, products):
     return output
 
 
+def _discover_shopping_merchants(user_request, plan, region, status_callback=None):
+    """Let AI choose merchants only from domains Casper actually discovered."""
+    import tools
+
+    queries = plan.get("queries", [])
+    core_query = queries[0] if queries else str(user_request)
+    country = str(region.get("country_name", "") or region.get("country_code", ""))
+    discovery_query = (core_query + " buy online " + country).strip()[:240]
+    discovery = discover_web(
+        discovery_query,
+        count=12,
+        status_callback=status_callback,
+    )
+    if discovery.get("status") == "HUMAN_HANDOFF":
+        return {"status": "HUMAN_HANDOFF", "event": discovery.get("event", "captcha")}
+
+    sources = []
+    seen = set()
+    for item in discovery.get("results", []):
+        if not isinstance(item, dict):
+            continue
+        domain = str(item.get("domain", "")).lower().strip().removeprefix("www.")
+        if not domain or domain in seen:
+            continue
+        seen.add(domain)
+        sources.append(
+            {
+                "index": len(sources) + 1,
+                "domain": domain,
+                "title": str(item.get("title", ""))[:240],
+                "description": str(item.get("description", ""))[:500],
+                "url": str(item.get("url", ""))[:1000],
+            }
+        )
+    if not sources:
+        return {"status": "NO_RESULTS", "merchants": []}
+
+    result = tools.run_ai_prompt(
+        "prompts/casper_shopping_merchants.txt",
+        json.dumps(
+            {
+                "shopping_region": region,
+                "original_user_request": str(user_request),
+                "shopping_plan": plan,
+                "discovered_sources": sources,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        expect_json=True,
+        num_ctx=8192,
+        num_predict=900,
+    )
+    selected = result.get("merchants") if isinstance(result, dict) else None
+    if not isinstance(selected, list):
+        return {"status": "INVALID_AI_CONTRACT", "merchants": []}
+
+    by_index = {item["index"]: item for item in sources}
+    merchants = []
+    selected_domains = set()
+    for value in selected[:4]:
+        if not isinstance(value, dict):
+            continue
+        try:
+            source_index = int(value.get("source_index"))
+        except (TypeError, ValueError):
+            continue
+        source = by_index.get(source_index)
+        if source is None or source["domain"] in selected_domains:
+            continue
+        selected_domains.add(source["domain"])
+        merchants.append(
+            {
+                "name": str(value.get("name", "")).strip()[:80] or source["domain"],
+                "domain": source["domain"],
+                "reason": str(value.get("reason", "")).strip()[:220],
+            }
+        )
+    return {
+        "status": "OK" if merchants else "NO_VERIFIED_MERCHANTS",
+        "merchants": merchants,
+        "discovery_query": discovery_query,
+        "discovered_sources": sources,
+    }
+
+
 def shopping_research_controller(
     user_request,
     recent_context="",
@@ -1161,6 +1461,30 @@ def shopping_research_controller(
     region = shopping_region.detect_shopping_region()
     plan = tools.build_shopping_plan(user_request, recent_context, region)
     merchants = plan.get("merchants", [])
+    if plan.get("merchant_scope") != "exclusive":
+        _status(status_callback, "Casper 正在确认本地区真实商家… 🧭")
+        merchant_discovery = _discover_shopping_merchants(
+            user_request,
+            plan,
+            region,
+            status_callback=status_callback,
+        )
+        if merchant_discovery.get("status") == "HUMAN_HANDOFF":
+            return {
+                "status": "HUMAN_HANDOFF",
+                "pending_approval": {
+                    "event": merchant_discovery.get("event", "captcha"),
+                    "reason": "Merchant discovery requires human control.",
+                },
+                "results": [],
+                "cards": [],
+            }
+        merchants = merchant_discovery.get("merchants", [])
+        plan["merchants"] = merchants
+        print(
+            "[CASPER VERIFIED MERCHANTS]",
+            json.dumps(merchants, ensure_ascii=False),
+        )
     merchant_domains = [item.get("domain", "") for item in merchants if item.get("domain")]
     queries = plan.get("queries", [])
     if not merchant_domains or not queries:
@@ -1174,21 +1498,24 @@ def shopping_research_controller(
         }
 
     scoped_queries = []
-    for domain in merchant_domains:
-        for query in queries[:2]:
+    # Interleave merchants so one blocked or noisy domain cannot consume the
+    # entire candidate budget before the other AI-selected sources are tried.
+    for query in queries[:3]:
+        for domain in merchant_domains:
             scoped_queries.append(
                 {
                     "domain": domain,
-                    "query": "site:" + domain + " " + query,
+                    "query": _merchant_discovery_query(domain, query),
                 }
             )
-            if len(scoped_queries) >= 6:
+            if len(scoped_queries) >= 9:
                 break
-        if len(scoped_queries) >= 6:
+        if len(scoped_queries) >= 9:
             break
     _status(status_callback, "Casper 正在后台浏览器中寻找商品… 🌐")
     discovered = []
     seen_urls = set()
+    domain_counts = {domain: 0 for domain in merchant_domains}
     for scoped in scoped_queries:
         discovery = discover_web(
             scoped["query"],
@@ -1220,9 +1547,19 @@ def shopping_research_controller(
                 domain == merchant or domain.endswith("." + merchant)
                 for merchant in merchant_domains
             )
-            if url and allowed and url not in seen_urls:
+            product_url = _merchant_product_url(scoped["domain"], url)
+            scoped_domain = scoped["domain"]
+            if (
+                url
+                and allowed
+                and product_url
+                and url not in seen_urls
+                and domain_counts.get(scoped_domain, 0) < 4
+            ):
                 seen_urls.add(url)
+                item["is_product_detail_url"] = True
                 discovered.append(item)
+                domain_counts[scoped_domain] = domain_counts.get(scoped_domain, 0) + 1
                 if len(discovered) >= 12:
                     break
         if len(discovered) >= 12:
@@ -1248,25 +1585,42 @@ def shopping_research_controller(
             "length=" + str(len(str(page.get("content", "")))),
             "error=" + str(page.get("error", ""))[:220],
         )
-        if page.get("protected_event") == "captcha":
+        protected_event = page.get("protected_event")
+        exclusive_handoff = (
+            plan.get("merchant_scope") == "exclusive"
+            and protected_event in {"captcha", "access_block"}
+        )
+        if protected_event == "captcha" or exclusive_handoff:
+            handoff_url = page.get("final_url", "") or candidate.get("url", "")
+            open_human_handoff(handoff_url)
             return {
                 "status": "HUMAN_HANDOFF",
                 "query": " | ".join(item["query"] for item in scoped_queries),
                 "pending_approval": {
-                    "event": "captcha",
-                    "reason": "A merchant requested human verification.",
-                    "url": candidate.get("url", ""),
+                    "event": protected_event or "captcha",
+                    "reason": "The selected merchant requires user verification.",
+                    "url": handoff_url,
+                    "original_request": str(user_request),
+                    "resume_after_user_confirmation": True,
                 },
                 "results": products,
                 "cards": [],
             }
         enriched = dict(candidate)
+        final_url = page.get("final_url", "") or candidate.get("url", "")
+        final_is_product = _merchant_product_url(
+            candidate.get("domain", ""),
+            final_url,
+        )
         enriched.update(
             {
                 "page_success": page.get("success", False),
                 "page_content": page.get("content", ""),
                 "page_error": page.get("error"),
                 "image_url": page.get("image_url", ""),
+                "structured_product": page.get("structured_product", ""),
+                "url": final_url,
+                "is_product_detail_url": final_is_product,
                 "reader_type": "casper_browser",
             }
         )
@@ -1307,7 +1661,13 @@ def shopping_research_controller(
                 "shopping_reason": decision["reason"],
             }
         )
-        validated_products.append(product)
+        # Known merchants must still end on one concrete product-detail page.
+        # Redirects to a search/category page are not eligible for a card.
+        if (
+            product.get("page_type") == "PRODUCT"
+            and product.get("is_product_detail_url")
+        ):
+            validated_products.append(product)
 
     products = validated_products
 

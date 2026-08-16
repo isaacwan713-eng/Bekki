@@ -5,10 +5,13 @@ return compact JSON only. Do not explain or think aloud in the response.
 Return exactly:
 
 {
-  "merchant_scope": "exclusive",
-  "merchants": [{"name": "Amazon", "domain": "amazon.com", "reason": "requested merchant"}],
+  "merchant_scope": "exclusive | regional_mix",
+  "merchants": [{"name": "merchant", "domain": "merchant.example", "reason": "regional/category fit"}],
   "queries": ["specific query 1", "specific query 2", "specific query 3"],
   "requirements": ["every resolved requirement"],
+  "localized_constraints": [
+    {"kind": "capacity", "original": "500 ml", "search_value": "17 oz", "display_value": "500 ml (16.9 US fl oz)", "reason": "US catalog unit"}
+  ],
   "preference_profile": {
     "shopping_style": "quality_first | balanced | value_first | unknown",
     "price_sensitivity": "low | medium | high | unknown",
@@ -18,13 +21,51 @@ Return exactly:
 }
 
 Rules:
+- Distinguish comparison count from purchase quantity. "Find/show me three X"
+  and "帮我找三个X" normally request three different candidate options. Do not
+  write "three items", "3-pack", or a bundle requirement unless the user
+  explicitly says three-pack/三件套/三只装/买三个同款 or otherwise clearly asks
+  to purchase multiple units.
 - Preserve every concrete product condition and budget from current and prior
   context.
-- Build three progressive queries. Query 1 contains only the natural core
-  product and use case. Query 2 adds age/compatibility. Query 3 adds budget plus
-  best-seller, high-review-count, or trusted-brand wording. Repeat the same core
-  product phrase in all three queries.
+- If the user did not name a merchant, use regional_mix and choose two to four
+  sources appropriate to the product category and shopping region. Do not
+  default to Amazon or make up a requested-merchant constraint.
+- Build a diverse source mix when available: at most one general marketplace,
+  plus category-specialist retailers and official manufacturer stores that
+  offer concrete product-detail pages. Examples for US strollers include a
+  trusted baby-gear specialist and stroller-brand official stores; examples are
+  guidance, not a mandatory fixed list.
+- If the user gives no budget, use case, compatibility, or feature constraints,
+  interpret the request as asking for broadly strong general-purpose options.
+  Search for best-overall, established, well-reviewed candidates suitable for
+  typical buyers. Do not invent newborn compatibility, outdoor use, a budget,
+  or another hard requirement.
+- For an unconstrained category request, use this query progression:
+  1. natural product category;
+  2. the same category plus "best overall";
+  3. the same category plus "top rated trusted brand".
+  Do not insert newborn, toddler, lightweight, terrain, travel, premium, budget,
+  or another segment unless the user supplied it.
+- In an unconstrained request, requirements contains only the actual product
+  category/use case. Words such as "best overall" and "well reviewed" guide
+  discovery and ranking; they are not fabricated user requirements.
+- Build three progressive queries. Query 1 contains the natural core product
+  and use case without exact size. Query 2 adds the exact localized size or
+  compatibility constraint. Query 3 adds best-seller, high-review-count, or
+  trusted-brand wording and may include common nearby market sizes so reliable
+  alternatives are not excluded. Repeat the same core product phrase, not
+  every filter, in all three queries.
 - Do not force every condition into every query. Never say "matching
   conditions" or use the vague word "products" as the product category.
-- Use concrete English queries for Amazon US.
+- Use the shopping region's natural catalog language. For US merchants,
+  normally use concrete English queries.
+- Choose only real merchant or manufacturer domains you know with high
+  confidence. Never infer that a generic domain matching the product name is
+  an official brand store. If unsure about an official store, prefer a known
+  specialist retailer or one regional marketplace instead of inventing it.
+- Localize units and market standards while preserving the original. In the
+  US, 500 ml is about 16.9 fl oz: use 17 oz in the exact query, keep the broad
+  query size-free, and allow a trusted-brand query to discover nearby 16, 18,
+  or 20 oz options. Never call those nearby sizes exact 500 ml matches.
 - Output fewer than 260 words and JSON only.

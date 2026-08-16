@@ -22,6 +22,7 @@ VALID_MODES = {
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
     "SHOPPING_RESEARCH",
+    "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
 }
 
@@ -57,6 +58,7 @@ VALID_RESEARCH_PROFILES = {
     "evidence_verification",
     "platform_native",
     "shopping_match",
+    "recommendation_match",
 }
 
 MODE_INVARIANTS = {
@@ -96,6 +98,12 @@ MODE_INVARIANTS = {
         "source_policy": "merchant_results",
         "research_profile": "shopping_match",
     },
+    "RECOMMENDATION_RESEARCH": {
+        "needs_search": True,
+        "research_depth": "recommendation_compare",
+        "source_policy": "domain_evidence",
+        "research_profile": "recommendation_match",
+    },
     "TASK_ACTION": {
         "needs_search": False,
         "research_depth": "none",
@@ -115,6 +123,7 @@ DEFAULT_PLAN = {
     "research_profile": "local_context",
     "claim_to_verify": None,
     "social_platforms": [],
+    "recommendation_domain": None,
     "reason": "Fallback route: answer from local context when possible.",
 }
 
@@ -199,6 +208,16 @@ def _normalize_plan(plan):
         dict.fromkeys(normalized["social_platforms"])
     )
 
+    domain = str(normalized.get("recommendation_domain", "")).upper().strip()
+    valid_domains = {
+        "PRODUCT", "RESTAURANT", "LOCAL_SERVICE", "HEALTHCARE_PROVIDER",
+    }
+    if response_mode == "SHOPPING_RESEARCH":
+        domain = "PRODUCT"
+    elif response_mode != "RECOMMENDATION_RESEARCH" or domain not in valid_domains:
+        domain = None
+    normalized["recommendation_domain"] = domain
+
     if not isinstance(normalized.get("claim_to_verify"), str):
         normalized["claim_to_verify"] = None
     elif not normalized["claim_to_verify"].strip():
@@ -239,9 +258,39 @@ def plan_request(user_message, conversation_context=""):
         "prompts/melchior_router.txt",
         input_text,
         expect_json=True,
-        num_ctx=4096,
-        num_predict=420,
+        num_ctx=8192,
+        num_predict=2048,
+        think=False,
     )
+
+    # A local model can still occasionally truncate structured output.  Ask
+    # Melchior to make the routing judgment again; Python only detects the
+    # format failure and never substitutes a semantic route here.
+    if not isinstance(raw_plan, dict):
+        recovery_input = json.dumps(
+            {
+                "current_date": datetime.now().date().isoformat(),
+                "current_conversation_state": state,
+                "recent_conversation": conversation_context[-5000:],
+                "current_user_message": user_message,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        raw_plan = tools.run_ai_prompt(
+            "prompts/melchior_router_recover.txt",
+            recovery_input,
+            expect_json=True,
+            num_ctx=4096,
+            num_predict=700,
+            think=False,
+            model_name="llama3.2:latest",
+        )
+
+    if not isinstance(raw_plan, dict):
+        raise RuntimeError(
+            "Melchior could not produce a complete routing plan."
+        )
 
     plan = _normalize_plan(raw_plan)
     print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))

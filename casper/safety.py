@@ -8,11 +8,13 @@ SUPPORTED_MODES = {
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
     "SHOPPING_RESEARCH",
+    "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
 }
 
 HUMAN_ONLY_EVENTS = {
     "captcha": "CAPTCHA requires human control.",
+    "access_block": "Website security verification requires human control.",
     "payment": "Final payment requires human confirmation.",
     "permission_escalation": "Permission escalation requires human approval.",
     "credential_request": "Credentials must not be requested through Casper.",
@@ -48,4 +50,3 @@ def reflex(event_type, detail=""):
             "detail": str(detail)[:500],
         },
     }
-

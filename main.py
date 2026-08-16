@@ -243,32 +243,56 @@ def get_ai_response(
 
     if (
         melchior_plan
-        and melchior_plan.get("response_mode") == "SHOPPING_RESEARCH"
+        and melchior_plan.get("response_mode") in {
+            "SHOPPING_RESEARCH",
+            "RECOMMENDATION_RESEARCH",
+        }
     ):
         melchior_instruction += (
-            "\n\nMELCHIOR SHOPPING_RESEARCH RULE:\n"
-            "Products are displayed separately as structured cards.\n"
-            "If zero product cards are supplied, do not name, describe, price, "
-            "compare, or recommend any product. State only that no product was "
-            "verified from the available merchant pages.\n"
-            "Do not repeat each product description in the reply; every product "
-            "already has its own image-and-text card. Give only a concise final "
-            "comparison and recommendation based on all supplied cards.\n"
+            "\n\nMELCHIOR RECOMMENDATION_RESEARCH RULE:\n"
+            "Candidates are displayed separately as structured cards.\n"
+            "If zero cards are supplied, do not invent or recommend a candidate.\n"
+            "Do not repeat each card description. Give a concise direct verdict, "
+            "the main routes/options, and the validated trade-offs.\n"
+            "When one or more verified candidate cards exist, never answer only "
+            "that evidence is insufficient. Introduce the strongest candidates "
+            "and explain their supported pros, cons, and best-for differences. "
+            "UNKNOWN fields are caveats, not a reason to hide valid candidates.\n"
+            "When three or more cards exist, name and compare at least three. "
+            "If no single overall winner is justified, give conditional routes "
+            "such as best-supported for atmosphere, value, convenience, or the "
+            "user's occasion. Do not ask permission to repeat research that "
+            "Casper has already completed.\n"
             "Never paste, repeat, or format a raw URL in the reply.\n"
-            "Do not describe a shopping search page as a product.\n"
+            "Do not describe a search/category page as a real candidate.\n"
             "Treat UNKNOWN requirements as unverified, not matched.\n"
-            "For shopping, prioritize budget fit, proven sales/popularity, "
+            "For SHOPPING_RESEARCH PRODUCT only, prioritize budget fit, proven sales/popularity, "
             "brand reliability, then feature fit. Never call UNKNOWN popularity "
             "popular, and never recommend a visibly low-demand product.\n"
-            "Respect the supplied shopping preference profile: quality-first "
+            "For SHOPPING_RESEARCH PRODUCT only, respect the supplied shopping preference profile: quality-first "
             "users may prefer a reliable premium option; value-first users "
             "should prefer trusted value brands over unknown cheapest brands.\n"
-            "State how many product cards were found. When three or more cards "
+            "For RECOMMENDATION_RESEARCH PRODUCT, base the verdict on supplied "
+            "professional review, comparison, testing, roundup and official-spec "
+            "evidence. Do not imply that review-source cards are current purchase "
+            "pages, and do not invent price, stock or availability.\n"
+            "State how many cards were found. When three or more cards "
             "exist, compare at least the strongest three instead of describing "
             "only the first card. Summarize each option's main pro and con, "
             "then give the validated recommendation and its key trade-off. "
             "Keep the comparison compact.\n"
-            "Tell the user to use the explicit View product button when needed.\n"
+            "For PRODUCT, a request such as 'find/show me three products' or "
+            "'帮我找三个商品' means three different recommendation candidates, "
+            "not a three-pack or an intention to purchase three units. Never "
+            "mention a bundle, buying three, ordering three, or the absence of "
+            "a three-piece set unless the user explicitly requested 三件套、三只装、"
+            "三个同款, a multipack, or a purchase quantity.\n"
+            "When units were localized for search, lead with the user's original "
+            "unit and show the local equivalent second. For example, say "
+            "'500 ml（约 16.9 US fl oz）', not only '17 oz'. Clearly label nearby "
+            "commercial sizes as alternatives rather than exact matches.\n"
+            "When useful, refer to the card's action button without claiming a "
+            "review-source card is a merchant purchase page.\n"
         )
 
     if balthasar_plan:
@@ -557,6 +581,20 @@ def process_request(message, status_callback):
         conversation[-MAX_RECENT_MESSAGES:]
     )
 
+    if (
+        pending
+        and pending.get("type") == "browser_handoff"
+        and tools.is_confirmation(message, pending, recent_context)
+    ):
+        original_request = str(pending.get("original_request", "")).strip()
+        memory.clear_pending_action()
+        if original_request:
+            message = original_request
+            recent_context += (
+                "\nSystem: The user completed browser verification and asked "
+                "Casper to resume the original request."
+            )
+
     # Balthasar observes the user before Melchior plans. It shapes alignment,
     # never the factual mode or Python safety boundary.
     status_callback(i18n.t("emotion"))
@@ -644,6 +682,30 @@ def process_request(message, status_callback):
                 )
                 + "\nExplain the failure without claiming the action succeeded."
             )
+        if casper_result.get("status") == "human_handoff":
+            approval = casper_result.get("pending_approval") or {}
+            if approval.get("resume_after_user_confirmation"):
+                active_session = history.get_active_session(history_data)
+                memory.save_pending_action(
+                    {
+                        "type": "browser_handoff",
+                        "original_request": approval.get("original_request") or message,
+                        "url": approval.get("url", ""),
+                        "event": approval.get("event", "captcha"),
+                    },
+                    session_id=active_session.get("id", ""),
+                )
+                return {
+                    "reply": (
+                        "这个网站需要你亲自完成安全验证。\n\n"
+                        "我已经打开 Casper 浏览器。验证完成后回到这里说“继续”，"
+                        "我会复用同一个浏览器会话完成刚才的请求。"
+                    ),
+                    "response_mode": response_mode,
+                    "sources": [],
+                    "highlights": [],
+                    "cards": [],
+                }
 
     # Vision remains independent from web-search mode.
     if vision.has_image():
@@ -712,9 +774,9 @@ def process_request(message, status_callback):
         "reply",
         "",
     )
-    if response_mode == "SHOPPING_RESEARCH":
-        # Product cards own external navigation, so accidental model URLs do
-        # not appear as a shopping web page inside the reply bubble.
+    if response_mode in {"SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH"}:
+        # Cards own external navigation, so accidental model URLs do not
+        # appear as a web page inside the reply bubble.
         reply = re.sub(r"https?://\S+", "", reply).strip()
     highlights = reply_result.get(
         "highlights",

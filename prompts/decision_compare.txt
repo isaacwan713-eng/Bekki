@@ -51,6 +51,17 @@ Rules:
 - Never recommend a visibly low-demand shopping option merely because it has
   stronger feature fit. Do not treat UNKNOWN popularity as popular.
 - Pros and cons must be grounded in supplied evidence.
-- A recommendation may be null when evidence is too weak.
+- Missing evidence lowers confidence but does not erase grounded candidate
+  information. When options have candidate-specific facts, describe their
+  supported pros, cons and best-for routes even if some requested dimensions
+  remain UNKNOWN.
+- Prefer a conditional recommendation (for example, best supported for
+  atmosphere, best supported for value, or best supported overall) when the
+  evidence distinguishes options. State the missing facts as tradeoffs or
+  unknowns instead of refusing the entire comparison.
+- recommended_option_id may be null only when the supplied evidence cannot
+  distinguish any option at all or every option fails a hard requirement.
+- best_value_option_id or best_quality_option_id may remain null when price or
+  quality evidence is genuinely absent. Do not invent those judgments.
 - Do not invent price, specifications, reputation, availability, or reviews.
 - Do not output URLs or user-facing prose.

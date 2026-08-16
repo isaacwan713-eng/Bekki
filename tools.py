@@ -1154,6 +1154,28 @@ def build_shopping_plan(user_message, recent_context="", region=None):
         if str(value).strip()
     ][:8]
 
+    localized_constraints = raw.get("localized_constraints", [])
+    if not isinstance(localized_constraints, list):
+        localized_constraints = []
+    clean_localized_constraints = []
+    for item in localized_constraints[:10]:
+        if not isinstance(item, dict):
+            continue
+        original = str(item.get("original", "")).strip()[:100]
+        search_value = str(item.get("search_value", "")).strip()[:100]
+        display_value = str(item.get("display_value", "")).strip()[:140]
+        if not original or not search_value:
+            continue
+        clean_localized_constraints.append(
+            {
+                "kind": str(item.get("kind", "other")).strip()[:40],
+                "original": original,
+                "search_value": search_value,
+                "display_value": display_value or original,
+                "reason": str(item.get("reason", "")).strip()[:180],
+            }
+        )
+
     preference_profile = raw.get("preference_profile", {})
     if not isinstance(preference_profile, dict):
         preference_profile = {}
@@ -1177,6 +1199,7 @@ def build_shopping_plan(user_message, recent_context="", region=None):
         "merchants": clean_merchants,
         "queries": queries,
         "requirements": requirements,
+        "localized_constraints": clean_localized_constraints,
         "preference_profile": clean_profile,
     }
 

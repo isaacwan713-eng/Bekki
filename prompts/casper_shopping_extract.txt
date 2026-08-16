@@ -49,9 +49,22 @@ Rules:
   UNKNOWN, never MATCH.
 - Extract the actual product title and description from the rendered page, not
   from unrelated recommendations or advertisements.
+- Use shopping_plan.localized_constraints to interpret locally expressed
+  measurements and market standards. A product may match an original capacity
+  when its local-unit value is genuinely equivalent within normal rounding.
+- Do not treat a nearby commercial size as an exact match unless the user's
+  request allows flexibility. For example, 17 US fl oz is approximately 503 ml
+  and may reasonably match 500 ml; 16 US fl oz is about 473 ml and is not an
+  exact 500 ml match.
+- When useful in the title, summary, facts or requirement evidence, show both
+  the original value and localized display value. Do not replace or erase the
+  user's original unit.
 - Price, stock, brand, rating, review count, popularity, specifications, and
   safety/compatibility claims require visible evidence. Never infer them from
   model knowledge.
+- Structured Product JSON-LD supplied with a candidate is rendered-page
+  evidence and may establish the exact product identity, image, offers/price,
+  availability, brand, rating or review count when those fields are present.
 - A merchant logo or generic brand banner is not product-image evidence; image
   handling is performed separately from page metadata.
 - Popularity UNKNOWN is allowed and must remain UNKNOWN.

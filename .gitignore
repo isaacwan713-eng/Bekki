@@ -1,20 +1,29 @@
-# python
---pycache--/
-*.pyc
-
-# Virtual Environment 
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
 .venv/
+venv/
 
-#VS Code
-.vscode/
-
-#macIS
-.DS_Store
-
-#save api
+# Secrets and local configuration
 .env
-# PyInstaller build artifacts
+.env.*
+!.env.example
+
+# Runtime user data
+data/
+logs/
+*.log
+casper_browser_profile/
+
+# Build outputs
 build/
 dist/
-*.spec
-social_browser_profile/
+*.zip
+*.exe
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -722,6 +722,8 @@ class RemoteResultImage(QLabel):
             "news": "◫",
             "place": "⌖",
             "person": "◉",
+            "provider": "✚",
+            "service": "◇",
             "article": "↗",
         }
 
@@ -942,6 +944,8 @@ class ResultImagePlaceholder(QFrame):
             "news": "◫",
             "place": "⌖",
             "person": "◉",
+            "provider": "✚",
+            "service": "◇",
             "article": "↗",
         }
 
@@ -1057,6 +1061,8 @@ class ResultCard(QFrame):
             "social_post",
             "place",
             "person",
+            "provider",
+            "service",
         }
 
         if should_show_image:
@@ -1241,6 +1247,7 @@ class ResultCard(QFrame):
             status = str(requirement.get("status", "UNKNOWN")).upper()
             label_text = str(
                 requirement.get("label")
+                or requirement.get("requirement")
                 or requirement.get("name")
                 or requirement.get("text")
                 or ""
@@ -1322,6 +1329,41 @@ class ResultCard(QFrame):
         text_layout.addWidget(summary)
         if requirement_layout.count() > 1:
             text_layout.addLayout(requirement_layout)
+
+        sections = self.card.get("sections", [])
+        if isinstance(sections, list):
+            for section in sections[:4]:
+                if not isinstance(section, dict):
+                    continue
+                kind = str(section.get("kind", "")).lower()
+                lines = []
+                if kind == "facts":
+                    values = section.get("items", {})
+                    if isinstance(values, dict):
+                        lines = [
+                            str(key) + ": " + str(value)
+                            for key, value in list(values.items())[:3]
+                        ]
+                elif kind == "pros_cons":
+                    pros = section.get("pros", [])
+                    cons = section.get("cons", [])
+                    if isinstance(pros, list) and pros:
+                        lines.append("＋ " + str(pros[0]))
+                    if isinstance(cons, list) and cons:
+                        lines.append("－ " + str(cons[0]))
+                elif kind in {"fit", "warning", "note"}:
+                    label = str(section.get("label", "")).strip()
+                    value = str(section.get("text", "")).strip()
+                    if value:
+                        lines = [((label + ": ") if label else "") + value]
+                if not lines:
+                    continue
+                section_label = QLabel("\n".join(lines))
+                section_label.setWordWrap(True)
+                section_label.setStyleSheet(
+                    f"color:#58738d;font-family:{UI_FONT};font-size:9px;"
+                )
+                text_layout.addWidget(section_label)
         text_layout.addStretch()
         text_layout.addLayout(
             source_layout

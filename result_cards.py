@@ -14,6 +14,8 @@ VALID_CARD_TYPES = {
     "social_post",
     "place",
     "person",
+    "provider",
+    "service",
 }
 
 VALID_MATCH_STATES = {
@@ -27,6 +29,7 @@ MAX_REQUIREMENTS = 12
 MAX_TITLE_LENGTH = 180
 MAX_SUMMARY_LENGTH = 600
 MAX_URL_LENGTH = 2048
+MAX_SECTIONS = 8
 
 
 def _clean_text(
@@ -188,6 +191,43 @@ def _clean_requirements(items):
     return cleaned
 
 
+def _clean_sections(items):
+    """Keep AI-selected content while bounding renderable section shapes."""
+    if not isinstance(items, list):
+        return []
+    allowed = {"facts", "pros_cons", "fit", "warning", "note"}
+    cleaned = []
+    for item in items[:MAX_SECTIONS]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "")).lower().strip()
+        if kind not in allowed:
+            continue
+        section = {"kind": kind}
+        if kind == "facts":
+            values = item.get("items", {})
+            if not isinstance(values, dict):
+                continue
+            section["items"] = {
+                _clean_text(str(key), 60): _clean_text(str(value), 180)
+                for key, value in list(values.items())[:10]
+                if _clean_text(str(key), 60) and _clean_text(str(value), 180)
+            }
+        elif kind == "pros_cons":
+            for field in ("pros", "cons"):
+                values = item.get(field, [])
+                section[field] = (
+                    [_clean_text(str(value), 180) for value in values[:5]
+                     if _clean_text(str(value), 180)]
+                    if isinstance(values, list) else []
+                )
+        else:
+            section["label"] = _clean_text(item.get("label"), 80)
+            section["text"] = _clean_text(item.get("text"), 300)
+        cleaned.append(section)
+    return cleaned
+
+
 def clean_card(card):
     """Validate one AI/tool-produced result card."""
 
@@ -252,6 +292,7 @@ def clean_card(card):
         "metadata": _clean_metadata(
             card.get("metadata")
         ),
+        "sections": _clean_sections(card.get("sections")),
         "requirements": (
             _clean_requirements(
                 card.get("requirements")
@@ -267,7 +308,9 @@ def clean_cards(cards):
         return []
 
     cleaned = []
-    seen_urls = set()
+    # A roundup can support several distinct recommendation candidates.  The
+    # same evidence URL is therefore valid when the candidate title differs.
+    seen_cards = set()
 
     for card in cards:
         safe_card = clean_card(card)
@@ -275,12 +318,15 @@ def clean_cards(cards):
         if safe_card is None:
             continue
 
-        url = safe_card["url"]
+        key = (
+            safe_card["url"],
+            safe_card["title"].casefold(),
+        )
 
-        if url in seen_urls:
+        if key in seen_cards:
             continue
 
-        seen_urls.add(url)
+        seen_cards.add(key)
         cleaned.append(safe_card)
 
         if len(cleaned) >= MAX_CARDS:
