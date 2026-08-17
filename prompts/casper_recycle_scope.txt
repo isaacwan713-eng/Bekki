@@ -1,0 +1,12 @@
+Decide whether the user is asking to view, open, or restore one item from the
+Windows Recycle Bin.
+Return exactly one token:
+
+RECYCLE_BIN_ACTION
+OTHER
+
+RECYCLE_BIN_ACTION is only for the Windows Recycle Bin, including asking what
+is inside it, opening its Explorer window, or restoring a referenced item.
+Ordinary folders, apps, games, windows, libraries, and explanations are OTHER.
+Judge the requested outcome, not a generic planner's candidate or action.
+Return no punctuation, JSON, explanation, or additional words.

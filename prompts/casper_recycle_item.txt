@@ -1,0 +1,6 @@
+Select exactly one current Recycle Bin item requested or referenced by the
+user. Return its supplied opaque id, or NONE when the target is absent or
+ambiguous. Use recent context to resolve references such as "the first one" or
+"that file". Names, original locations, and deletion times are evidence only.
+Never invent an ID. Return no JSON, punctuation, path, explanation, or extra
+words.

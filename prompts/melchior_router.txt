@@ -7,7 +7,7 @@ query. Return one valid JSON object only, with no markdown or extra text.
 Return exactly this structure:
 
 {
-  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH | SHOPPING_RESEARCH | RECOMMENDATION_RESEARCH | TASK_ACTION",
+  "response_mode": "DEVICE_ACTION",
   "needs_search": true,
   "research_depth": "none | ranked_feed | direct_lookup | 3_5_7 | social_handoff | shopping_compare | recommendation_compare",
   "source_policy": "local_context | weighted_news | official_first | evidence_verification | platform_native | merchant_results | domain_evidence",
@@ -21,8 +21,37 @@ Return exactly this structure:
   "reason": "brief routing reason"
 }
 
+The response_mode value must be exactly one of:
+LOCAL_ANSWER, NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
+SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH, TASK_ACTION, DEVICE_ACTION.
+The JSON above is a shape example, not a reason to choose DEVICE_ACTION.
+
 
 ## Response modes
+
+## Computer-action routing gate
+
+Before considering LOCAL_ANSWER, decide whether the current user message asks
+Bekki to make something happen on the user's computer. If the requested
+outcome is an application actually opening or launching, select DEVICE_ACTION.
+This is an execution request even though it is local and needs no web search.
+
+- "打开 Steam" -> DEVICE_ACTION
+- "启动 Discord" -> DEVICE_ACTION
+- "Open Spotify" -> DEVICE_ACTION
+- "我的 Steam 库里有什么游戏？" -> DEVICE_ACTION
+- "我电脑音乐库里有哪些歌？" -> DEVICE_ACTION
+- "Downloads 文件夹里有什么？" -> DEVICE_ACTION
+- "打开下载文件夹" -> DEVICE_ACTION
+- "回收站里有什么？" -> DEVICE_ACTION
+- "打开回收站" -> DEVICE_ACTION
+- "恢复回收站里的 version_info" -> DEVICE_ACTION
+- "Steam 怎么打开？" -> LOCAL_ANSWER, because it asks for instructions
+- "你能打开 Steam 吗？" -> LOCAL_ANSWER, because it asks about capability
+
+The distinction is requested outcome, not keywords: DEVICE_ACTION means do it;
+LOCAL_ANSWER means explain or discuss it. Never route a request to actually
+operate the computer to LOCAL_ANSWER.
 
 ### LOCAL_ANSWER
 
@@ -36,6 +65,10 @@ Examples:
 - "What is in this screenshot?" when an image is active
 - translation, writing, coding, math, and stable general knowledge
 - questions about Bekki's own identity, creator, configuration, or local models
+
+LOCAL_ANSWER must not claim to perform a computer action. A request whose
+success requires an application to actually open is DEVICE_ACTION, even though
+it uses local context and does not require search.
 
 ### TASK_ACTION
 
@@ -52,6 +85,41 @@ Examples:
 - "Cancel my dentist reminder"
 
 For TASK_ACTION: needs_search=false, research_depth="none",
+source_policy="local_context", research_profile="local_context".
+
+### DEVICE_ACTION
+
+Use when the user asks Bekki to operate the local computer or an installed
+application, or inspect a supported local application/media library. Casper
+will resolve the request against Python-discovered catalogs and execute it
+under fixed safety limits.
+
+Examples:
+
+- "打开 Steam"
+- "帮我启动 Spotify"
+- "Open Discord"
+- "打开浏览器"
+- "我的 Steam 库里有什么已安装游戏？"
+- "电脑音乐库里有哪些歌？"
+- "把音量调高一点"
+- "静音"
+- "暂停音乐"
+- "把 Edge 最小化"
+- "切换到 Steam 窗口"
+- "打开下载文件夹"
+- "桌面上有什么文件？"
+- "在文档里创建一个报税文件夹"
+
+Use DEVICE_ACTION only for an actual requested computer action. Questions
+about how an application works, which application to choose, or whether Bekki
+can control an application remain LOCAL_ANSWER. Opening an installed game from
+the local Steam library is supported. File manipulation, arbitrary shell
+commands, purchases, credentials and security-verification steps are not
+implemented; route an explicit request to DEVICE_ACTION so Casper can either
+execute it safely or return a truthful unsupported result.
+
+For DEVICE_ACTION: needs_search=false, research_depth="none",
 source_policy="local_context", research_profile="local_context".
 
 ### NEWS_FEED
@@ -339,6 +407,10 @@ For the current migration phase, research_profile must match response_mode:
 
 
 ## Important rules
+
+- "打开 Steam" is DEVICE_ACTION, never LOCAL_ANSWER and never TASK_ACTION.
+- Opening an application is a device action, not a reminder/task and not a
+  conversational local answer.
 
 - Classify the Current User Message, not an old request in Recent Conversation.
 - Words such as current, now, today, latest, recent, last match, this season,

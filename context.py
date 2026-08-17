@@ -17,6 +17,9 @@ DEFAULT_CONTEXT = {
     "current_goal": None,
     "last_user_intent": None,
     "open_references": {},
+    "last_interaction_at": None,
+    "last_user_message_at": None,
+    "last_assistant_message_at": None,
 }
 
 _active_session_id = None
@@ -63,7 +66,11 @@ def load_legacy_context():
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
-        return data if isinstance(data, dict) else DEFAULT_CONTEXT.copy()
+        return (
+            {**DEFAULT_CONTEXT, **data}
+            if isinstance(data, dict)
+            else DEFAULT_CONTEXT.copy()
+        )
     except Exception as error:
         print("[CONTEXT LEGACY LOAD ERROR]", error)
         return DEFAULT_CONTEXT.copy()
@@ -76,7 +83,11 @@ def load_context():
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
-        return data if isinstance(data, dict) else DEFAULT_CONTEXT.copy()
+        return (
+            {**DEFAULT_CONTEXT, **data}
+            if isinstance(data, dict)
+            else DEFAULT_CONTEXT.copy()
+        )
     except Exception as error:
         print("[CONTEXT LOAD ERROR]", error)
         return DEFAULT_CONTEXT.copy()
@@ -106,16 +117,24 @@ def delete_session_context(session_id):
         print("[CONTEXT DELETE ERROR]", error)
 
 
-def update_context(recent_conversation, current_user_message, latest_reply):
+def update_context(
+    recent_conversation,
+    current_user_message,
+    latest_reply,
+    temporal_context=None,
+):
     from tools import run_ai_prompt
 
     previous_context = load_context()
-    current_date = datetime.now().date().isoformat()
+    current_time = datetime.now().astimezone()
+    current_date = current_time.date().isoformat()
     input_text = (
         "Current date: " + current_date
         + "\n\nPrevious conversation state:\n"
         + json.dumps(previous_context, ensure_ascii=False, indent=2)
         + "\n\nRecent conversation:\n" + recent_conversation
+        + "\n\nExact conversation timing:\n"
+        + json.dumps(temporal_context or {}, ensure_ascii=False, indent=2)
         + "\n\nCurrent user message:\n" + current_user_message
         + "\n\nBekki's latest reply:\n" + latest_reply
     )
@@ -135,6 +154,12 @@ def update_context(recent_conversation, current_user_message, latest_reply):
         "current_goal": result.get("current_goal"),
         "last_user_intent": result.get("last_user_intent"),
         "open_references": result.get("open_references", {}),
+        "last_interaction_at": current_time.isoformat(timespec="seconds"),
+        "last_user_message_at": (
+            (temporal_context or {}).get("current_message_at")
+            or current_time.isoformat(timespec="seconds")
+        ),
+        "last_assistant_message_at": current_time.isoformat(timespec="seconds"),
     }
     save_context(new_context)
     print("\n===== CONTEXT STATE =====")

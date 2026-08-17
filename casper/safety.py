@@ -10,6 +10,7 @@ SUPPORTED_MODES = {
     "SHOPPING_RESEARCH",
     "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
+    "DEVICE_ACTION",
 }
 
 HUMAN_ONLY_EVENTS = {
@@ -17,6 +18,7 @@ HUMAN_ONLY_EVENTS = {
     "access_block": "Website security verification requires human control.",
     "payment": "Final payment requires human confirmation.",
     "permission_escalation": "Permission escalation requires human approval.",
+    "recycle_restore": "Restoring an item from the Recycle Bin requires user confirmation.",
     "credential_request": "Credentials must not be requested through Casper.",
 }
 

@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import result_cards
+import conversation_time
 import memory
 import tools
 import document
@@ -181,8 +182,15 @@ def get_ai_response(
     current_emotion_state=None,
 ):
     # Keep the prompt responsive as a conversation gets longer.
-    recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
-    conversation_text = "\n".join(recent_conversation)
+    active_session = history.get_active_session(history_data)
+    conversation_text = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
+    temporal_context = conversation_time.prompt_context(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
     temporary_context = memory.get_temporary_context(memory_data)
     long_term_context = memory.get_long_term_context(memory_data)
 
@@ -378,6 +386,10 @@ def get_ai_response(
         + "\n############################\n"
         + location.get_localization_context()
         + "\n\n############################"
+        + "\nConversation Time Context"
+        + "\n############################\n"
+        + temporal_context
+        + "\n\n############################"
         + "\nCurrent User Message"
         + "\n############################\n"
         + message
@@ -415,8 +427,12 @@ def get_ai_response(
 
     ai_output = tools.call_model(
         prompt,
-        num_ctx=16384,
-        num_predict=4096,
+        # Long-form Bekki response budget. On the user's 16 GB GPU this is the
+        # practical high setting; model routing remains on a compact model so
+        # it does not reserve this budget for short JSON decisions.
+        num_ctx=32768,
+        num_predict=8192,
+        think="low",
     )
 
     print("AI RAW OUTPUT:")
@@ -445,11 +461,20 @@ def get_ai_response(
     )
     print("[debug]")
 
-    recent_conversation = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
+    active_session = history.get_active_session(history_data)
+    recent_conversation = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
+    temporal_data = conversation_time.session_time_data(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
     context_manager.update_context(
         recent_conversation = recent_conversation,
         current_user_message = message,
-        latest_reply = reply
+        latest_reply = reply,
+        temporal_context = temporal_data,
     )
     print("[DEBUG] AFTER CONTEXT UPDATE")
     print("[DEBUG] RETURNING REPLY:", repr(reply))
@@ -577,8 +602,11 @@ def process_request(message, status_callback):
     melchior_plan = None
     balthasar_plan = None
     response_mode = "LOCAL_ANSWER"
-    recent_context = "\n".join(
-        conversation[-MAX_RECENT_MESSAGES:]
+    device_elevation_approved = False
+    device_action_approval = None
+    recent_context = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
     )
 
     if (
@@ -594,6 +622,29 @@ def process_request(message, status_callback):
                 "\nSystem: The user completed browser verification and asked "
                 "Casper to resume the original request."
             )
+
+    if (
+        pending
+        and pending.get("type") == "device_action_approval"
+        and tools.is_confirmation(message, pending, recent_context)
+    ):
+        original_request = str(pending.get("original_request", "")).strip()
+        memory.clear_pending_action()
+        if original_request:
+            message = original_request
+            if pending.get("event") == "permission_escalation":
+                device_elevation_approved = True
+                recent_context += (
+                    "\nSystem: The user explicitly approved retrying the device "
+                    "action with a Windows UAC prompt. The user must still approve "
+                    "the native UAC dialog personally."
+                )
+            else:
+                device_action_approval = pending.get("approval_payload")
+                recent_context += (
+                    "\nSystem: The user explicitly confirmed the pending bounded "
+                    "device action."
+                )
 
     # Balthasar observes the user before Melchior plans. It shapes alignment,
     # never the factual mode or Python safety boundary.
@@ -638,6 +689,10 @@ def process_request(message, status_callback):
             memory.clear_pending_action()
     else:
         melchior_plan = melchior.plan_request(message, recent_context)
+        if device_elevation_approved:
+            melchior_plan["device_elevation_approved"] = True
+        if isinstance(device_action_approval, dict):
+            melchior_plan["device_action_approval"] = device_action_approval
         response_mode = melchior_plan["response_mode"]
 
         user_alignment_context = {
@@ -686,15 +741,47 @@ def process_request(message, status_callback):
             approval = casper_result.get("pending_approval") or {}
             if approval.get("resume_after_user_confirmation"):
                 active_session = history.get_active_session(history_data)
+                handoff_type = approval.get(
+                    "handoff_type",
+                    "browser_handoff",
+                )
                 memory.save_pending_action(
                     {
-                        "type": "browser_handoff",
+                        "type": handoff_type,
                         "original_request": approval.get("original_request") or message,
                         "url": approval.get("url", ""),
                         "event": approval.get("event", "captcha"),
+                        "approval_payload": approval.get("approval_payload"),
                     },
                     session_id=active_session.get("id", ""),
                 )
+                if handoff_type == "device_action_approval":
+                    if approval.get("event") == "recycle_restore":
+                        payload = approval.get("approval_payload") or {}
+                        item_name = str(payload.get("name") or "该项目")
+                        location = str(payload.get("original_location") or "")
+                        where = "（原位置：" + location + "）" if location else ""
+                        return {
+                            "reply": (
+                                "准备从回收站恢复 " + item_name + where + "。\n\n"
+                                "如果确认恢复，请回复“继续”。"
+                            ),
+                            "response_mode": response_mode,
+                            "sources": [],
+                            "highlights": [],
+                            "cards": [],
+                        }
+                    return {
+                        "reply": (
+                            "启动这个程序需要管理员权限。为了安全，我还没有请求提权。\n\n"
+                            "如果要继续，请回复“继续”。随后 Windows 会显示原生 UAC "
+                            "确认窗口，需要你亲自点击“是”。"
+                        ),
+                        "response_mode": response_mode,
+                        "sources": [],
+                        "highlights": [],
+                        "cards": [],
+                    }
                 return {
                     "reply": (
                         "这个网站需要你亲自完成安全验证。\n\n"
@@ -760,15 +847,29 @@ def process_request(message, status_callback):
 
     status_callback(i18n.t("reply"))
 
-    reply_result = get_ai_response(
-        message,
-        search_result,
-        action_context,
-        image_context,
-        melchior_plan,
-        balthasar_plan,
-        emotion_state,
+    direct_reply = (
+        search_result.get("direct_reply")
+        if isinstance(search_result, dict)
+        else None
     )
+    if isinstance(direct_reply, str) and direct_reply.strip():
+        reply_result = {
+            "reply": direct_reply.strip(),
+            "highlights": [],
+            "cards": [],
+            "memory": None,
+            "pending_action": None,
+        }
+    else:
+        reply_result = get_ai_response(
+            message,
+            search_result,
+            action_context,
+            image_context,
+            melchior_plan,
+            balthasar_plan,
+            emotion_state,
+        )
 
     reply = reply_result.get(
         "reply",

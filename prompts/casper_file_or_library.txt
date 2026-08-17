@@ -1,0 +1,13 @@
+Classify only the scope requested by the user. Return exactly one token:
+
+FILE_ACTION
+LIST_LIBRARY
+RECYCLE_BIN_ACTION
+
+FILE_ACTION means ordinary files or folders such as Desktop, Documents,
+Downloads, Pictures, Videos, a named local file, or creating/opening/listing a
+folder. LIST_LIBRARY means a semantic collection such as installed Steam games
+or the local music library. A folder named Downloads is FILE_ACTION even if it
+may contain music. RECYCLE_BIN_ACTION means viewing/opening the Windows
+Recycle Bin or restoring one of its items. Judge the user's requested scope, not the generic planner's
+previous action. Return no punctuation, JSON, or explanation.

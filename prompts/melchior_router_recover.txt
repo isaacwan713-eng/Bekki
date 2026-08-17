@@ -4,7 +4,7 @@ one complete JSON object only. Do not answer the user and do not explain outside
 JSON.
 
 {
-  "response_mode": "LOCAL_ANSWER | NEWS_FEED | FACT_LOOKUP | CLAIM_CHECK | SOCIAL_RESEARCH | SHOPPING_RESEARCH | RECOMMENDATION_RESEARCH | TASK_ACTION",
+  "response_mode": "DEVICE_ACTION",
   "risk": "low | medium | high",
   "complexity": "low | medium | high",
   "reasoning_profile": "quick | standard | analytical | cautious",
@@ -14,8 +14,17 @@ JSON.
   "reason": "brief reason"
 }
 
+The response_mode value must be exactly one of:
+LOCAL_ANSWER, NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
+SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH, TASK_ACTION, DEVICE_ACTION.
+The JSON above is only a shape example.
+
 Rules:
 - Classify the current user message; use state only to resolve references.
+- A direct command whose requested outcome is that an installed application
+  actually opens or launches is DEVICE_ACTION. "打开 Steam" is DEVICE_ACTION,
+  never LOCAL_ANSWER or TASK_ACTION. Questions asking how to open it or whether
+  Bekki can open it are LOCAL_ANSWER.
 - A request to buy, order, price-check, stock-check or find a merchant page for
   a concrete product is SHOPPING_RESEARCH with recommendation_domain PRODUCT.
 - After recommendations, "buy the first one" or "我要买第一个 Bugaboo Fox 5"
@@ -24,5 +33,8 @@ Rules:
   choosing is RECOMMENDATION_RESEARCH with the corresponding domain.
 - Current single facts are FACT_LOOKUP; broad current digests are NEWS_FEED;
   verifying a claim is CLAIM_CHECK; explicit social search is SOCIAL_RESEARCH.
-- Reminders/tasks are TASK_ACTION. Stable conversation is LOCAL_ANSWER.
+- Reminders/tasks are TASK_ACTION. A direct request to open or launch a local
+  application is DEVICE_ACTION. Stable conversation is LOCAL_ANSWER.
+- Listing or opening a local user folder such as Downloads is DEVICE_ACTION.
+- Viewing, opening, or restoring one item from the Windows Recycle Bin is DEVICE_ACTION.
 - Output JSON only. Python will apply the deterministic mode invariants.

@@ -1,0 +1,7 @@
+Select the one user-folder root requested by the user from the supplied bounded
+catalog. Return exactly its opaque id, or NONE if the requested root is absent
+or ambiguous. Judge the current request and use recent context only to resolve
+a reference. If the user names one catalog folder directly, select the root
+with that same name; for example, Downloads means the Downloads root, never
+Desktop. Never invent an ID. Return no JSON, punctuation, path, explanation,
+or additional words.

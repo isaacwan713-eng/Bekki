@@ -1,0 +1,15 @@
+The earlier AI verdict GAME_OPENED was rejected because the bounded Windows
+evidence contains neither the expected game process nor the requested game
+window.
+
+Reclassify the observed state. Return exactly one token and nothing else:
+
+LAUNCHER_OPENED
+FAILED
+UNCERTAIN
+
+Use LAUNCHER_OPENED when the known launcher window is visible but the requested
+game is not evidenced. Use FAILED only with positive failure evidence and no
+relevant launcher state. Use UNCERTAIN when the evidence cannot distinguish
+those cases. GAME_OPENED is not available because its mandatory evidence is
+absent.

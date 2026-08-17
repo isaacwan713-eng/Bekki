@@ -3,6 +3,66 @@
 import json
 
 
+def _render_listed_folder(action_result):
+    """Render trusted structured folder evidence without generative rewriting."""
+    folder = str(action_result.get("folder") or "文件夹")
+    items = action_result.get("items")
+    if not isinstance(items, list):
+        items = []
+    if not items:
+        return folder + " 文件夹目前是空的。"
+    lines = [folder + " 文件夹里有 " + str(len(items)) + " 项："]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        kind = "文件夹" if item.get("kind") == "folder" else "文件"
+        lines.append("- " + name + "（" + kind + "）")
+    return "\n".join(lines)
+
+
+def _render_recycle_bin(action_result):
+    """Render trusted read-only Recycle Bin evidence exactly once."""
+    items = action_result.get("items")
+    if not isinstance(items, list):
+        items = []
+    if not items:
+        return "回收站目前是空的。"
+    lines = ["回收站里有 " + str(len(items)) + " 项："]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        details = []
+        location = str(item.get("original_location") or "").strip()
+        deleted = str(item.get("date_deleted") or "").strip()
+        if location:
+            details.append("原位置：" + location)
+        if deleted:
+            details.append("删除时间：" + deleted)
+        suffix = "（" + "；".join(details) + "）" if details else ""
+        lines.append("- " + name + suffix)
+    if action_result.get("truncated"):
+        lines.append("- 仅显示前 100 项")
+    return "\n".join(lines)
+
+
+def _render_window_control(action_result):
+    window = str(action_result.get("window") or "所选窗口")
+    control = str(action_result.get("control") or "")
+    verbs = {
+        "FOCUS_WINDOW": "已切换到",
+        "MINIMIZE_WINDOW": "已最小化",
+        "MAXIMIZE_WINDOW": "已最大化",
+        "RESTORE_WINDOW": "已还原",
+    }
+    return verbs.get(control, "已操作") + " " + window + "。"
+
+
 def execute_mode(
     message,
     melchior_plan,
@@ -34,6 +94,131 @@ def execute_mode(
             "clarifying question. Do not claim the task was saved unless "
             "success is true."
         )
+        return search_result, action_context
+
+    if mode == "DEVICE_ACTION":
+        from . import device_actions
+
+        status_callback("Casper 正在执行设备操作… 🧭")
+        action_result = device_actions.execute_user_request(
+            message,
+            recent_context,
+            elevation_approved=bool(
+                melchior_plan.get("device_elevation_approved", False)
+            ),
+            device_approval=melchior_plan.get("device_action_approval"),
+        )
+        print(
+            "[CASPER DEVICE RESULT]",
+            json.dumps(action_result, ensure_ascii=False),
+        )
+        action_context = (
+            "CASPER DEVICE ACTION RESULT\n"
+            "This is the authoritative result of the supervised local action.\n"
+            "Do not claim an application opened unless success is true.\n"
+            "For a requested game, success/completed must be true and action "
+            "must be game_opened before saying the game opened or wishing the "
+            "user fun. launcher_opened is incomplete even though the launcher "
+            "window is visible.\n"
+            "Use the AI post-launch verification status as the result. If action "
+            "is launcher_opened, state that only the launcher opened. If action "
+            "is uncertain, say the observed state is uncertain. Never claim the "
+            "game itself started without game_opened.\n"
+            "If needs_clarification is true, ask the supplied clarification "
+            "question concisely. For system_control_completed or "
+            "window_control_completed, state only the control actually "
+            "reported as completed. For file actions, describe only the "
+            "bounded folder/path operation reported by the result. Never say "
+            "a path was opened or a folder was created unless success and "
+            "completed are both true. For listed_folder, name the folder and "
+            "show the returned items (or state that the returned list is "
+            "empty). If the reported folder differs from the requested one, "
+            "state that mismatch; never turn a local device action into a web "
+            "search or suggest a search pending_action.\n\n"
+            + json.dumps(action_result, ensure_ascii=False, indent=2)
+        )
+        if (
+            action_result.get("success")
+            and action_result.get("completed")
+            and action_result.get("action") == "listed_folder"
+        ):
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": _render_listed_folder(action_result),
+            }
+        elif (
+            action_result.get("success")
+            and action_result.get("completed")
+            and action_result.get("action") == "listed_recycle_bin"
+        ):
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": _render_recycle_bin(action_result),
+            }
+        elif (
+            action_result.get("success")
+            and action_result.get("completed")
+            and action_result.get("action") == "opened_recycle_bin"
+        ):
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": "已打开回收站。",
+            }
+        elif (
+            action_result.get("success")
+            and action_result.get("completed")
+            and action_result.get("action") == "restored_recycle_item"
+        ):
+            name = str(action_result.get("name") or "该项目")
+            location = str(action_result.get("original_location") or "")
+            suffix = "，原位置：" + location if location else ""
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": "已恢复 " + name + suffix + "。",
+            }
+        elif (
+            action_result.get("success")
+            and action_result.get("completed")
+            and action_result.get("action") == "window_control_completed"
+        ):
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": _render_window_control(action_result),
+            }
+        if action_result.get("requires_approval"):
+            from .safety import reflex
+
+            approval_type = str(
+                action_result.get("approval_type") or "permission_escalation"
+            )
+            handoff = reflex(
+                approval_type,
+                action_result.get("application") or action_result.get("name", ""),
+            ) or {}
+            pending = handoff.get("pending_approval", {})
+            pending.update(
+                {
+                    "resume_after_user_confirmation": True,
+                    "original_request": message,
+                    "handoff_type": "device_action_approval",
+                    "approval_payload": {
+                        "action": action_result.get("action"),
+                        "candidate_id": action_result.get("candidate_id"),
+                        "name": action_result.get("name"),
+                        "original_location": action_result.get("original_location"),
+                    },
+                }
+            )
+            search_result = {
+                "status": "HUMAN_HANDOFF",
+                "results": [],
+                "pending_approval": pending,
+            }
         return search_result, action_context
 
     # Load the existing search/browser layer only for research modes.

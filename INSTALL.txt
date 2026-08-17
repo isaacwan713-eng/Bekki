@@ -1,0 +1,458 @@
+Bekki V2 - Casper Device Action Phase 13.0
+
+Copy every folder/file in this package into the root of your current
+AI-Assistant project and allow Windows to replace files with the same names.
+
+Changed files:
+- melchior.py
+- casper/adapters.py
+- casper/safety.py
+- prompts/melchior_router.txt
+- prompts/melchior_router_recover.txt
+
+New files:
+- casper/device_actions.py
+- prompts/casper_device_action.txt
+- tests/test_device_actions.py
+
+Validation:
+python -m py_compile melchior.py casper\core.py casper\adapters.py casper\safety.py casper\device_actions.py
+python -m unittest -v tests.test_device_actions
+python main.py
+
+Manual tests:
+- 打开 Steam
+- 打开 Discord
+- 打开一个不存在的应用
+- 打开 Steam 里的游戏
+
+Phase 2 also discovers installed Steam games from local app manifests. Test:
+- 打开 Football Manager 26
+
+Phase 3 adds bounded local-library queries. Test:
+- 我的 Steam 库里有什么已安装游戏？
+- 我电脑音乐库里有哪些歌？
+- 我的 Spotify 收藏里有什么歌？ (must report unsupported until connected)
+
+Phase 3.1 safely recovers an OPEN_APP selection when the local model truncates
+JSON after already returning a valid discovered candidate ID. Test:
+- Ask for the Steam library, then say 打开第二个
+
+Phase 4 resolves supported launcher shortcuts. It reports launcher_opened when
+only a launcher appears and opened only when the discovered game binary or
+requested game window is observed. Test:
+- 帮我打开原神
+
+Phase 5 adds AI post-launch verification from bounded process/window evidence.
+The final result is one of GAME_OPENED, APP_OPENED, LAUNCHER_OPENED, FAILED,
+or UNCERTAIN. New file:
+- prompts/casper_launch_verify.txt
+
+Phase 6 adds supervised Windows elevation. On WinError 740, Bekki pauses and
+asks for chat approval. Reply 继续 to request the native UAC dialog, then click
+Yes personally. Casper verifies the observed launch state afterward.
+
+Phase 6.1 fixes truncated pending-action confirmation. Confirmation remains an
+AI judgment; invalid output triggers one smaller AI retry and never a Python
+keyword decision. Added test file:
+- tests/test_confirmation.py
+
+Phase 7 adds a launcher-agnostic Launcher -> Game contract layer. Casper asks
+the installed launcher to start its game, then AI judges bounded post-launch
+process/window evidence. HoYoPlay/Genshin Impact is the first adapter and uses
+launcher.exe --game=hk4e_global, including when HoYoPlay is already running.
+The normal launcher route should not request elevation. Direct game-executable
+launching is only a bounded fallback and may still require chat approval/UAC.
+
+Phase 7 validation:
+python -m unittest -v tests.test_confirmation tests.test_device_actions
+
+Expected manual result for 帮我打开原神:
+- GAME_OPENED when GenshinImpact.exe or its game window is observed.
+- LAUNCHER_OPENED when only HoYoPlay is observed.
+- No success claim merely because the launcher was already open.
+
+Phase 8 adds supervised launcher interaction. If the first verification finds
+only a launcher, Casper reads a bounded Windows accessibility-control catalog.
+AI may select exactly one opaque control ID for a clear Play/Start action;
+Python invokes only that discovered control and then verifies the game again.
+No model-generated command, path, keyboard input, or screen coordinate runs.
+
+New file:
+- prompts/casper_launcher_control.txt
+
+Expected Phase 8 flow:
+1. Bring the installed launcher forward using its contract.
+2. If only the launcher is visible, AI selects its exposed Start/Play control.
+3. Python invokes that bounded control.
+4. AI confirms GAME_OPENED only when the target game process/window appears.
+
+Phase 8.1 fixes device-planner output truncation inside candidate_id. Python
+does not infer the intended application. It detects only the incomplete
+transport envelope, then asks AI again with a compact prompt that may return
+one exact opaque catalog ID or NONE. Unknown and invented IDs remain blocked.
+
+New file:
+- prompts/casper_device_action_retry.txt
+
+Phase 8.2 fixes truncation in AI post-launch verification. If the full JSON
+verdict is invalid, AI receives a compact retry and returns exactly one bounded
+status token. A recovered LAUNCHER_OPENED result continues into Phase 8's
+launcher-control discovery instead of stopping as UNCERTAIN.
+
+New file:
+- prompts/casper_launch_verify_retry.txt
+
+Phase 8.3 moves Casper's compact bounded retry decisions to
+llama3.2:latest: application-ID retry, five-state launch retry, and launcher
+control selection. These remain AI judgments, while avoiding long internal
+reasoning exhausting the output budget before the required token is emitted.
+
+Phase 9 adds bounded visual launcher interaction when a launcher exposes zero
+Windows accessibility controls. Casper captures only the already identified
+launcher window. Local Vision may return CLICK or NONE plus normalized
+window-relative coordinates. Python rejects out-of-window/title-bar points,
+clicks only inside that launcher window, and verifies the game process/window
+again. Vision is explicitly forbidden from selecting purchases, accounts,
+ads, settings, repair, destructive, ambiguous, or unreadable controls.
+
+Additional changed file:
+- vision.py
+
+Expected Phase 9 log when UI Automation exposes no controls:
+- launcher_interaction.method = vision
+- launcher_interaction.visual_label = visible Start/Play label
+- launcher_interaction.clicked = true
+- final action = game_opened only after target game evidence appears
+
+Phase 9.1 fixes visual clicks on 64-bit Windows by passing the discovered
+window handle as an explicit pointer-sized HWND to Win32 validation, focus,
+and bounds calls. It also retries an entirely empty device-planner transport
+response through the compact AI selector, which fixes short contextual replies
+such as 需要 after Bekki asks whether it should try the same game again.
+
+New diagnostics:
+- [CASPER VISUAL CLICK] clicked x y
+- [CASPER VISUAL CLICK] rejected invalid launcher HWND
+- [CASPER VISUAL CLICK] SetCursorPos failed x y
+- launcher_interaction.visual_point
+
+Phase 9.2 adds a Win32 SendInput absolute-coordinate fallback when
+SetCursorPos is unavailable. Coordinates are converted through the Windows
+virtual desktop metrics, including multi-monitor layouts, and remain bounded
+to the authorized launcher window. LAUNCHER_OPENED and UNCERTAIN are now
+incomplete results rather than successful game launches. The final reply is
+explicitly forbidden from saying the game opened or wishing the user fun until
+GAME_OPENED is verified.
+
+Phase 9.3 prevents false GAME_OPENED reports. Casper now preserves a complete
+AI-authored status field from otherwise truncated verifier JSON, so an emitted
+LAUNCHER_OPENED continues into visual clicking instead of being guessed again.
+As a mandatory execution invariant, GAME_OPENED is accepted only when the
+bounded snapshot contains the expected game process or requested game window.
+An unsupported AI success verdict becomes UNCERTAIN and can never produce a
+completed/successful game launch response.
+
+Phase 9.4 adds adaptive post-click verification. The initial launcher check
+remains short. After Casper invokes or visually clicks a launch control, it
+polls bounded Windows process/window evidence every three seconds for up to
+about 35 seconds. It stops early as soon as the exact expected game executable
+or requested game window appears, then asks AI for the final verdict. This
+avoids declaring FAILED during a normal game startup delay.
+
+Phase 9.5 runs the bounded launch-state classifier on llama3.2:latest from the
+first attempt. If AI returns GAME_OPENED without mandatory target process or
+window evidence, Python rejects only that unsupported success claim and asks
+AI to reclassify among LAUNCHER_OPENED, FAILED, and UNCERTAIN. A visible
+launcher can therefore continue into Phase 9 visual clicking instead of being
+stopped as UNCERTAIN.
+
+New file:
+- prompts/casper_launch_verify_no_game.txt
+
+Phase 10 fixes elevated launcher continuation. ShellExecuteW previously placed
+the launcher's argument string in the hwnd slot and passed no lpParameters, so
+accepting UAC opened HoYoPlay without the requested game contract. It now calls
+ShellExecuteW(None, "runas", launcher_path, "--game=hk4e_global", ...).
+UAC is still shown and must be approved by the user; after approval, the
+elevated launcher receives the native game request instead of stopping at its
+home window.
+
+Phase 11 removes the HoYoPlay/Genshin-specific launch contract. After AI picks
+an installed application, Casper resolves that shortcut locally and constructs
+a bounded catalog containing only the shortcut's real target, its registered
+arguments, nearby executable evidence, and visible window titles. A second AI
+decision selects opaque IDs from that catalog. Python validates the IDs and
+executes only the locally discovered values; it never invents or semantically
+chooses a launcher command. The same flow therefore applies to HoYoPlay,
+Steam, Epic, EA, Ubisoft, and future launchers without a per-game Python rule.
+
+New file:
+- prompts/casper_launch_strategy.txt
+
+Phase 11 validation:
+python -m unittest -v tests.test_confirmation tests.test_device_actions
+
+Expected safety behavior:
+- Shortcut arguments such as a game selector must come from the installed
+  .lnk metadata, never from the prompt or a Python game-name table.
+- AI may select only supplied strategy/executable/window IDs.
+- Invented IDs fall back to the original signed shortcut and cannot execute.
+
+Phase 11.1 fixes an empty launch-strategy response caused by the main local
+model spending its output budget on reasoning. Strategy selection now uses a
+compact llama3.2 decision and receives one compact retry if transport still
+fails. It can see whether each supplied strategy carries registered shortcut
+arguments, while Python continues to execute only the original local values.
+If a launcher appears only after launch, a second bounded AI selection maps
+one observed window ID to the launcher so accessibility or visual Play/Start
+interaction can continue without a HoYoPlay-specific title rule.
+
+Additional new files:
+- prompts/casper_launch_strategy_retry.txt
+- prompts/casper_launcher_window.txt
+
+Phase 12 begins general internal Windows control. Melchior routes explicit
+computer operations to DEVICE_ACTION; AI selects one bounded action and, for
+window operations, one opaque currently discovered window ID. Python provides
+and executes only this fixed catalog.
+
+Supported Phase 12 controls:
+- volume up/down/mute (one fixed step)
+- media play/pause, next, previous
+- brightness up/down (one fixed step when the monitor exposes Windows WMI)
+- focus, minimize, maximize, or restore one discovered visible window
+
+Not supported in this phase:
+- arbitrary keyboard text/shortcuts or mouse coordinates
+- exact numeric volume/brightness targets
+- closing windows, shutdown/restart/sleep, shell commands, or file changes
+
+Phase 12 validation:
+python -m unittest -v tests.test_confirmation tests.test_device_actions
+
+Manual tests:
+- 音量调高一点
+- 静音
+- 暂停音乐
+- 把 Edge 最小化
+- 切换到 Steam 窗口
+
+Phase 12.1 generalizes the compact device-planner retry. Previously the retry
+could return only an application ID, so a truncated window/system-control plan
+was misread as an application lookup. The compact AI can now return every
+bounded Phase 12 action as structured JSON. If the user asks to switch to a
+window that is not currently open, Bekki reports that fact and may ask whether
+to open the application; it does not request the full name or silently launch
+it. Truncated system and window actions are recovered only when their complete
+AI-authored action and valid opaque target ID are present.
+
+Phase 12.2 separates long-answer and control-plane token budgets:
+- Bekki final replies: num_ctx=32768, num_predict=8192, low reasoning
+- Melchior routing: llama3.2, num_ctx=8192, num_predict=512, no thinking
+- Casper device planning: llama3.2, num_ctx=8192, num_predict=512, no thinking
+
+This gives long conversations and synthesized answers more room without using
+gpt-oss reasoning tokens for short JSON device decisions. On a 16 GB GPU, the
+32K final context is intentionally the practical high setting; if sustained
+CPU offload or severe latency appears, restore main.py to 16384/4096 while
+keeping the llama3.2 control-plane changes.
+
+Phase 12.3 fixes schema-example echo from the compact device model. A response
+such as action="OPEN_APP | STEAM" is neither treated as a real action nor as a
+semantic unsupported verdict. Python detects only that the action is outside
+the fixed enum and asks AI for one compact structured retry. Execution occurs
+only when AI then returns exactly OPEN_APP plus a real discovered Steam ID.
+The main device prompt now demonstrates one valid action and separately lists
+the enum, reducing the chance that a small model copies a union expression.
+
+Phase 12.4 adds a focused AI window-selection pass. Generic device planning no
+longer has final authority over a window ID because its catalog also contains
+applications and games. For any requested window operation, a compact AI sees
+only currently visible window titles and must choose an exact matching opaque
+ID plus the correct bounded action. "Switch to" maps to FOCUS_WINDOW. If no
+Steam window is visible, it returns NONE and Casper stops instead of restoring
+Edge or silently opening Steam. Python validates the chosen ID against the
+same snapshot immediately before applying the fixed Win32 action.
+
+New file:
+- prompts/casper_window_action.txt
+
+Phase 12.5 enforces catalog resource types before execution. A small model may
+correctly select the Steam window ID but incorrectly label the action as
+OPEN_APP. Since kind=window can never be launched, Python treats this only as
+a schema type mismatch and hands the original request to Focused Window AI.
+That AI still decides FOCUS/MINIMIZE/MAXIMIZE/RESTORE and the exact window ID.
+A window resource can no longer reach _launch(), eliminating missing-path
+errors without adding keyword-based Python intent judgment.
+
+Phase 12.6 separates device intent family from target selection. Before a
+generic OPEN_APP plan can execute while visible windows exist, a compact AI
+classifies the requested outcome as OPEN_APPLICATION, WINDOW_CONTROL,
+SYSTEM_CONTROL, LIST_LIBRARY, or OTHER. A WINDOW_CONTROL result bypasses the
+application catalog entirely and enters Focused Window AI. Thus a request to
+switch to Steam cannot launch a different but structurally valid application
+such as Code.exe. Python validates the family token and opaque IDs but never
+derives intent from user keywords.
+
+New file:
+- prompts/casper_device_family.txt
+
+Phase 13.0 begins bounded file and folder actions. AI decides whether the
+request means listing, opening, or creating a folder and selects only opaque
+IDs from the supplied Desktop/Documents/Downloads/Music/Pictures/Videos
+catalog. Python does not infer file intent from keywords; it validates IDs,
+root containment, folder-name safety, and performs only the selected action.
+
+Supported Phase 13.0 actions:
+- list the immediate contents of one approved user folder
+- open one discovered approved user folder, file, or immediate child
+- create one direct child folder inside an approved user folder
+
+Not supported yet:
+- copy, move, rename, delete, recursive search, arbitrary paths, hidden/system
+  locations, shell commands, or editing file contents
+
+New files:
+- casper/file_actions.py
+- prompts/casper_file_action.txt
+- tests/test_file_actions.py
+
+Phase 13.0 validation:
+python -m py_compile casper\file_actions.py casper\device_actions.py
+python -m unittest -v tests.test_confirmation tests.test_device_actions tests.test_file_actions
+
+Manual tests:
+- 下载文件夹里有什么？
+- 打开下载文件夹
+- 在文档里创建一个报税文件夹
+
+Phase 13.1 fixes a scope collision between local libraries and user folders.
+Before LIST_LIBRARY executes, Focused Device Family AI now distinguishes an
+installed-game/music-library request from a normal file/folder request. Thus
+"下载文件夹里有什么？" enters FILE_ACTION and lists Downloads instead of
+silently substituting LOCAL_MUSIC. Python validates the family enum but does
+not infer the distinction from Chinese or English keywords.
+
+Phase 13.2 narrows that arbitration to a dedicated two-choice AI decision:
+FILE_ACTION or LIST_LIBRARY. The broad device-family classifier can no longer
+mislabel a Downloads request as WINDOW_CONTROL and allow the stale music plan
+to continue. Invalid AI output is retried once; if still invalid, Bekki asks
+which scope the user means instead of returning a false empty-folder result.
+
+New file:
+- prompts/casper_file_or_library.txt
+
+Phase 13.3 fixes invalid Melchior enum echo. If the main router copies the
+schema union into response_mode, Python detects only that the mode is outside
+the allowed enum and asks compact Melchior to judge again. A second invalid
+mode raises a routing failure instead of silently falling back to LOCAL_ANSWER
+and answering from stale conversation state. Router prompt examples now use
+one valid value and list the enum separately.
+
+Phase 13.4 adds Focused Root Selector AI. For LIST_FOLDER and CREATE_FOLDER,
+the broad file planner's proposed root is evidence only; a compact AI sees
+only the approved user-root names and opaque IDs and selects the requested
+root again. This prevents a Downloads request from returning Desktop items.
+The final-answer contract must display successful listed_folder items and may
+never convert a local file mismatch into a web-search pending action.
+
+New file:
+- prompts/casper_file_root.txt
+
+Phase 13.5 removes the broad planner's proposed root ID from Focused Root AI's
+input. The proposed ID was anchoring the compact model to the earlier wrong
+Desktop selection. Focused Root AI now makes an independent judgment from only
+the original user request, recent reference context, and approved root
+name-to-opaque-ID catalog. Python still performs no language/alias inference.
+
+Phase 13.6 prevents generative repetition in successful folder listings.
+Casper's already validated listed_folder result is rendered directly from its
+structured items, exactly once per returned item, instead of asking the long-
+form response model to regroup the same list. This renderer makes no semantic
+choice; AI still owns intent, action, and root selection. Other responses keep
+the normal Bekki generation path.
+
+New file:
+- tests/test_adapters.py
+
+Phase 14.0 adds read-only Windows Recycle Bin support. AI distinguishes the
+Recycle Bin from ordinary folders and media/game libraries, then selects
+LIST_RECYCLE_BIN or OPEN_RECYCLE_BIN. Python uses only fixed Windows Shell
+interfaces, caps listing output at 100 items, and directly renders each item
+once. Restore, delete, permanent delete, and empty remain unsupported.
+
+New files:
+- casper/recycle_bin.py
+- prompts/casper_recycle_bin.txt
+- tests/test_recycle_bin.py
+
+Manual tests:
+- 回收站里有什么？
+- 打开回收站
+- 清空回收站（must report unsupported）
+
+Phase 14.1 fixes opening the Recycle Bin when the broad planner emits OPEN_APP
+with an invented RecycleBin candidate. Before any window selection, a focused
+AI gate independently chooses RECYCLE_BIN_ACTION or OTHER. A recycle result
+enters the fixed Windows Shell adapter directly, so Bekki's own window cannot
+be focused as a substitute. Successful opening also uses a direct authoritative
+reply instead of generative reinterpretation.
+
+New file:
+- prompts/casper_recycle_scope.txt
+
+Phase 14.2 also applies the focused Recycle Bin gate when a malformed OPEN_APP
+plan selects a real window ID. Phase 14.1 covered only invented/missing IDs;
+the compact planner could instead select Bekki's valid window and bypass the
+gate. Window-typed OPEN_APP targets are now checked for RECYCLE_BIN_ACTION
+before Focused Window AI, while valid application targets avoid the extra call.
+
+Phase 15.0 adds supervised restore for one Recycle Bin item. AI selects one
+opaque current item ID; Casper displays its name and original location and
+pauses. Only an explicit confirmation resumes the original request with the
+approved ID. Python rediscovers the Recycle Bin, requires that exact item to
+still exist, and invokes only Windows Shell's fixed RESTORE verb. Internal
+Recycle Bin paths never reach the model or reply. Empty/permanent deletion
+remains unsupported.
+
+New file:
+- prompts/casper_recycle_item.txt
+
+Phase 15.1 fixes confirmation-turn reinterpretation. Once the user confirms a
+stored restore_recycle_item approval, Casper dispatches that opaque approval
+directly to the Recycle Bin executor before generic device planning. The
+generic model can no longer rewrite file restore as RESTORE_WINDOW. Successful
+window controls also use deterministic structured replies, preventing the
+final model from claiming a file was restored when evidence reports only a
+focused window.
+
+Phase 15.2 fixes the initial restore request when the generic planner confuses
+file restoration with RESTORE_WINDOW. Every bounded window-control plan now
+passes through the focused RECYCLE_BIN_ACTION/OTHER gate before window target
+selection. A genuine window request continues unchanged; a Recycle Bin item
+restore cannot focus VS Code, Edge, or Bekki as a substitute.
+
+Phase 15.3 moves the focused Recycle Bin gate before generic device planning.
+Previously a truncated generic JSON response could return early before any
+Recycle Bin routing ran. Every device request now gets one compact
+RECYCLE_BIN_ACTION/OTHER decision first; recycle requests enter their owning
+executor even when the generic planner would truncate, select LIST_LIBRARY,
+or choose an unrelated window. Confirmed approvals still bypass all planning.
+
+Phase 15.4 adds a focused restore-intent AI inside the Recycle Bin executor.
+Before its broader list/open/unsupported planner runs, AI chooses only
+RESTORE_ITEM or NOT_RESTORE. A restore request therefore enters opaque item
+selection and confirmation even when the broader recycle planner would have
+mistakenly returned LIST_RECYCLE_BIN. Invalid focused output asks for
+clarification rather than silently listing.
+
+New file:
+- prompts/casper_recycle_restore_intent.txt
+
+Phase 15.5 makes short, explicit device-approval replies deterministic. When
+a stored device_action_approval exists, exact replies such as 继续, 确认, 执行,
+yes, confirm, continue, and proceed confirm it without calling the generative
+confirmation model. This prevents token-limit truncation from turning a
+confirmation into a second restore request. The shortcut is unavailable for
+ordinary chat and non-device pending actions; ambiguous replies still use AI.

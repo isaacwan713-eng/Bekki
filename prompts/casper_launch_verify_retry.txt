@@ -1,0 +1,13 @@
+Classify the observed post-launch state from the supplied bounded Windows
+evidence. Return exactly one token and nothing else:
+
+GAME_OPENED
+APP_OPENED
+LAUNCHER_OPENED
+FAILED
+UNCERTAIN
+
+GAME_OPENED requires the requested game's executable/process/window.
+LAUNCHER_OPENED means its launcher is visible but the game is not evidenced.
+APP_OPENED is for a requested ordinary application. FAILED requires positive
+failure evidence. Use UNCERTAIN only when the evidence cannot distinguish them.

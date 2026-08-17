@@ -1,0 +1,13 @@
+Classify the user's requested outcome. Return exactly one token only:
+
+OPEN_APPLICATION - launch/start/open an installed application or game
+WINDOW_CONTROL - switch/focus/show/minimize/maximize/restore an existing window
+SYSTEM_CONTROL - volume, mute, brightness, or media playback control
+LIST_LIBRARY - list installed games or local music
+FILE_ACTION - list/open/create something in local files or user folders
+RECYCLE_BIN_ACTION - view/open the Windows Recycle Bin or restore one item
+OTHER - none of the above
+
+Judge the requested outcome, not the application name. "Switch to the Steam
+window" is WINDOW_CONTROL. "Open Steam" is OPEN_APPLICATION. Do not return
+punctuation, JSON, explanation, or any additional words.

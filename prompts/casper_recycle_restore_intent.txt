@@ -1,0 +1,11 @@
+Judge only whether the user's current requested outcome is restoring one item
+from the Windows Recycle Bin. Return exactly one token:
+
+RESTORE_ITEM
+NOT_RESTORE
+
+RESTORE_ITEM includes restoring, recovering, undeleting, or putting back one
+named or referenced deleted item. Merely viewing/listing the Recycle Bin,
+opening its window, deleting, emptying, asking a question, or doing anything
+else is NOT_RESTORE. Use recent context only to resolve references; prioritize
+the current request. Return no punctuation, JSON, explanation, or extra words.

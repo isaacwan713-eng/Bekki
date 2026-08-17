@@ -342,3 +342,89 @@ Current user question:
             indent=2,
         )
     )
+
+
+def locate_launcher_start_control(file_path, launcher_name, game_name):
+    """Use local Vision to locate one safe game-start control in a launcher."""
+    validation = validate_image(file_path)
+    if not validation.get("success"):
+        return {"action": "NONE", "reason": validation.get("error", "")}
+
+    image_base64 = base64.b64encode(
+        _get_model_image_bytes(file_path)
+    ).decode("utf-8")
+    prompt = """
+You are Casper's visual launcher-control locator.
+
+The attached image contains only one already-authorized game launcher window.
+Locate the single visible button that starts, launches, resumes, or
+updates-and-starts the requested game.
+
+Return valid JSON only:
+{
+  "action": "CLICK | NONE",
+  "x": 0,
+  "y": 0,
+  "label": "visible control label",
+  "confidence": 0.0,
+  "reason": "brief visual reason"
+}
+
+x and y are normalized coordinates from 0 to 1000 inside this image: left=0,
+right=1000, top=0, bottom=1000. Select CLICK only for an unambiguous Play,
+Start Game, Launch, Resume, or equivalent localized control for the requested
+game. Return NONE for purchasing, account/login, ads, news, settings, repair,
+download-only, destructive, ambiguous, or unreadable controls. Never infer a
+button outside the visible image.
+
+Launcher: """ + str(launcher_name)[:100] + """
+Requested game: """ + str(game_name)[:120]
+    payload = {
+        "model": VISION_MODEL,
+        "prompt": prompt,
+        "images": [image_base64],
+        "format": "json",
+        "stream": False,
+        "keep_alive": "0s",
+        "options": {
+            "temperature": 0,
+            "num_ctx": 2048,
+            "num_predict": 180,
+        },
+    }
+    try:
+        response = requests.post(OLLAMA_URL, json=payload, timeout=180)
+        if not response.ok:
+            return {"action": "NONE", "reason": "Vision model rejected image."}
+        result = json.loads(response.json().get("response", "").strip())
+    except (requests.RequestException, ValueError, json.JSONDecodeError):
+        return {"action": "NONE", "reason": "Vision control output was invalid."}
+    if not isinstance(result, dict):
+        return {"action": "NONE", "reason": "Vision control output was invalid."}
+    action = str(result.get("action", "")).upper().strip()
+    try:
+        x_value = float(result.get("x", -1))
+        y_value = float(result.get("y", -1))
+        confidence = float(result.get("confidence", 0))
+    except (TypeError, ValueError):
+        action, x_value, y_value, confidence = "NONE", -1, -1, 0
+    if (
+        action != "CLICK"
+        or not 0 <= x_value <= 1000
+        or not 0 <= y_value <= 1000
+        or confidence < 0.65
+    ):
+        return {
+            "action": "NONE",
+            "label": str(result.get("label", ""))[:120],
+            "confidence": max(0.0, min(confidence, 1.0)),
+            "reason": str(result.get("reason", ""))[:240],
+        }
+    return {
+        "action": "CLICK",
+        "x": x_value,
+        "y": y_value,
+        "label": str(result.get("label", ""))[:120],
+        "confidence": min(confidence, 1.0),
+        "reason": str(result.get("reason", ""))[:240],
+    }

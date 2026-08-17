@@ -1,0 +1,15 @@
+Choose the requested read-only Windows Recycle Bin action. Return exactly one
+token:
+
+LIST_RECYCLE_BIN
+OPEN_RECYCLE_BIN
+RESTORE_RECYCLE_ITEM
+UNSUPPORTED
+CLARIFY
+
+LIST_RECYCLE_BIN means show what is currently in the Recycle Bin.
+OPEN_RECYCLE_BIN means open its Windows Explorer window.
+RESTORE_RECYCLE_ITEM means restore one item named or referenced by the user.
+Delete, permanently delete, empty, move, rename, and all other changes are
+UNSUPPORTED in this phase. Use CLARIFY if the requested outcome is unclear.
+Return no punctuation, JSON, explanation, or additional words.

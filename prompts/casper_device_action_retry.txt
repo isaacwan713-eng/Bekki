@@ -1,0 +1,18 @@
+The previous device-action response was cut off. Decide again using only the
+current request, recent context, and bounded catalog. Return one compact JSON
+object only:
+
+{"action":"ACTION","candidate_id":null,"library_type":null,"clarification":null,"reason":"brief"}
+
+Allowed ACTION values:
+OPEN_APP, LIST_LIBRARY, VOLUME_UP, VOLUME_DOWN, VOLUME_MUTE,
+MEDIA_PLAY_PAUSE, MEDIA_NEXT, MEDIA_PREVIOUS, BRIGHTNESS_UP,
+BRIGHTNESS_DOWN, FOCUS_WINDOW, MINIMIZE_WINDOW, MAXIMIZE_WINDOW,
+RESTORE_WINDOW, UNSUPPORTED, CLARIFY.
+
+For OPEN_APP or a window action, candidate_id must be one exact supplied ID.
+Window actions require kind=window. Opening requests require an application or
+game, never a window. For LIST_LIBRARY use STEAM_GAMES or LOCAL_MUSIC. Fixed
+system controls use null IDs. If the requested window is not present, use
+CLARIFY and explain that no matching open window was found; do not silently
+open the application. Never invent an ID, path, command, argument, or action.

@@ -550,24 +550,62 @@ def should_search(
 
 def is_confirmation(message, pending_action=None, recent_context=""):
     """Classify only the current reply against one explicit pending action."""
+    pending = pending_action if isinstance(pending_action, dict) else None
+    # Device approvals are rendered with an explicit instruction to reply
+    # "继续". Handle a small exact allowlist locally so a tiny confirmation
+    # does not depend on a generative model finishing before its token limit.
+    # This shortcut is intentionally unavailable without a stored approval.
+    if pending and pending.get("type") == "device_action_approval":
+        normalized = re.sub(r"[\s，。！？、,.!?]+", "", str(message)).lower()
+        if normalized in {
+            "继续",
+            "继续吧",
+            "确认",
+            "确认执行",
+            "执行",
+            "同意",
+            "可以",
+            "是",
+            "yes",
+            "confirm",
+            "continue",
+            "proceed",
+        }:
+            print("CONFIRM: 'CONFIRM' [EXPLICIT DEVICE APPROVAL]")
+            return True
+    input_data = {
+        "current_user_message": str(message),
+        "pending_action": pending,
+        "recent_conversation": str(recent_context)[-2000:],
+    }
     decision = run_ai_prompt(
         "prompts/confirm.txt",
-        json.dumps(
-            {
-                "current_user_message": str(message),
-                "pending_action": (
-                    pending_action if isinstance(pending_action, dict) else None
-                ),
-                "recent_conversation": str(recent_context)[-2000:],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(input_data, ensure_ascii=False, indent=2),
         expect_json=False,
         num_ctx=2048,
-        num_predict=16,
+        num_predict=24,
+        think=False,
     )
     decision = str(decision).strip().upper()
+    if decision not in {"CONFIRM", "NOT_CONFIRM"}:
+        # A second AI judgment uses only the essential fields. Python detects
+        # transport failure but does not infer confirmation from user wording.
+        decision = run_ai_prompt(
+            "prompts/confirm.txt",
+            json.dumps(
+                {
+                    "current_user_message": str(message),
+                    "pending_action": input_data["pending_action"],
+                    "recent_conversation": "",
+                },
+                ensure_ascii=False,
+            ),
+            expect_json=False,
+            num_ctx=1024,
+            num_predict=24,
+            think=False,
+        )
+        decision = str(decision).strip().upper()
     print("CONFIRM:", repr(decision))
     return decision == "CONFIRM"
 

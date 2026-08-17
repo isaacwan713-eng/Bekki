@@ -24,6 +24,7 @@ VALID_MODES = {
     "SHOPPING_RESEARCH",
     "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
+    "DEVICE_ACTION",
 }
 
 VALID_SOCIAL_PLATFORMS = {
@@ -110,6 +111,12 @@ MODE_INVARIANTS = {
         "source_policy": "local_context",
         "research_profile": "local_context",
     },
+    "DEVICE_ACTION": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },
 }
 
 DEFAULT_PLAN = {
@@ -155,6 +162,12 @@ def _normalize_choice(value, valid_values, fallback):
     if normalized not in valid_values:
         return fallback
     return normalized
+
+
+def _raw_plan_has_valid_mode(plan):
+    if not isinstance(plan, dict):
+        return False
+    return str(plan.get("response_mode", "")).upper().strip() in VALID_MODES
 
 
 def _normalize_plan(plan):
@@ -259,14 +272,15 @@ def plan_request(user_message, conversation_context=""):
         input_text,
         expect_json=True,
         num_ctx=8192,
-        num_predict=2048,
+        num_predict=512,
         think=False,
+        model_name="llama3.2:latest",
     )
 
     # A local model can still occasionally truncate structured output.  Ask
     # Melchior to make the routing judgment again; Python only detects the
     # format failure and never substitutes a semantic route here.
-    if not isinstance(raw_plan, dict):
+    if not _raw_plan_has_valid_mode(raw_plan):
         recovery_input = json.dumps(
             {
                 "current_date": datetime.now().date().isoformat(),
@@ -287,9 +301,9 @@ def plan_request(user_message, conversation_context=""):
             model_name="llama3.2:latest",
         )
 
-    if not isinstance(raw_plan, dict):
+    if not _raw_plan_has_valid_mode(raw_plan):
         raise RuntimeError(
-            "Melchior could not produce a complete routing plan."
+            "Melchior could not produce a valid routing mode after retry."
         )
 
     plan = _normalize_plan(raw_plan)
