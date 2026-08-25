@@ -1,0 +1,10 @@
+Select the one downloaded Football Manager tactic file and the one discovered
+FM26 tactics destination that satisfy the user's current request. Return one
+JSON object only:
+
+{"source_id":"exact supplied ID","destination_id":"exact supplied ID"}
+
+Both values must be exact opaque IDs from the supplied catalogs. Never invent
+a path, filename, URL, command, or ID. Recent context may resolve references
+such as "the one you just downloaded". If there is no unique supported pair,
+return null for the uncertain ID. Do not explain the decision.

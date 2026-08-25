@@ -1,0 +1,6 @@
+Return only this compact JSON shape:
+{"execution_style":"fast|balanced|thorough","confirmation_sensitivity":"normal|elevated","preferred_sources":[],"user_constraints":[],"presentation_preferences":[],"reason":"brief"}
+
+Use only supplied user preferences and constraints. Preserve Melchior's mode,
+capability, safety, and factual goal. High risk requires elevated sensitivity.
+Return valid JSON only, without Markdown or explanation.

@@ -1,0 +1,27 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+Retry the exact-product lookup classification from the supplied packet. The
+previous answer was structurally invalid or did not ground its product name.
+
+Choose EXACT_PRODUCT only when one complete product title can be copied
+literally from CURRENT_REQUEST or RECENT_CONTEXT. Copy that exact contiguous
+title into both `resolved_title` and `source_phrase`; preserve its brand and
+model words. An ordinal such as 第一个 must be resolved from the actual order in
+recent conversation. If the exact item is absent, use UNRESOLVED_REFERENCE.
+If the user is browsing or comparing a category, use OPEN_ENDED.
+
+For EXACT_PRODUCT, provide one to three US purchase queries and retain the
+complete product title in every query. Do not add popularity, reviews, audience
+or other product features. For other modes, return empty identity fields and
+an empty query list.
+
+Required shape:
+{
+  "lookup_mode":"EXACT_PRODUCT | OPEN_ENDED | UNRESOLVED_REFERENCE",
+  "resolved_title":"",
+  "brand":"",
+  "source_scope":"CURRENT_REQUEST | RECENT_CONTEXT | NONE",
+  "source_phrase":"",
+  "search_queries":[],
+  "reason":"brief semantic reason"
+}

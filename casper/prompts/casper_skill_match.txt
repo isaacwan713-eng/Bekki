@@ -1,0 +1,12 @@
+Decide whether one verified Bekki skill can be reused for the current device
+operation. Compare the meaning and required outcome, not exact wording.
+
+Return exactly one JSON object:
+{"decision":"USE|NONE","skill_id":"exact supplied ID or empty","reason":"brief"}
+
+Use a skill only when its capability, target application, content kind,
+platform and version constraints are compatible with the current request.
+Team names, desired mods, tactic names and other per-run preferences are
+parameters and need not be identical. Do not use a skill merely because a few
+words overlap. Choose only an exact supplied verified skill ID. If uncertain,
+return NONE. Return no prose or Markdown.

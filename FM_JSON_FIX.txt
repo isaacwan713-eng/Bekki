@@ -1,0 +1,361 @@
+Bekki V2 - Skills V1 + FM game-content workflow update
+
+Latest v34 AI-owned application identity fix:
+
+- A standalone current request such as "打开 FM26 战术文件夹" overrides older
+  recommendation/download goals in recent context, so the AI stage classifier
+  selects OPEN_FOLDER_ONLY.
+- The prerequisite learning-plan call now uses the compact non-reasoning local
+  model and a smaller JSON contract budget. This prevents its hidden reasoning
+  from consuming the whole response before a JSON object is emitted.
+- Application identity is no longer hardcoded. AI must ground it from the
+  current request and context. It may expand an abbreviation only when that
+  expansion is reliable; otherwise it preserves the user's recognizable term
+  unchanged and cannot substitute a similarly named product.
+- Python still performs no semantic routing or application-name correction; it
+  only validates the AI contract, fixed enums, bounds, and exact opaque IDs.
+- Full regression suite: 175 tests pass.
+
+Replace these files in the Bekki project root:
+
+1. tools.py
+2. casper/content_research.py
+3. prompts/casper_content_research_plan.txt
+4. prompts/casper_content_query_review.txt
+5. prompts/casper_content_query_compliance.txt
+6. tests/test_content_research.py (recommended)
+7. melchior.py
+8. prompts/melchior_router_recover.txt
+9. tests/test_melchior.py (recommended)
+10. casper/browser.py
+11. prompts/casper_search_engine_plan.txt
+12. prompts/casper_content_source_rank.txt
+13. prompts/casper_content_source_rank_retry.txt
+14. prompts/casper_content_manifest_extract.txt
+15. prompts/casper_content_manifest_extract_retry.txt
+16. main.py
+17. casper/adapters.py
+18. casper/device_actions.py
+19. casper/content_workflow.py
+20. casper/content_learning.py
+21. casper/skill_registry.py
+22. casper/content_download.py
+23. casper/game_content.py
+24. prompts/casper_content_learning_plan.txt
+25. prompts/casper_content_learning_source_rank.txt
+26. prompts/casper_content_procedure_extract.txt
+27. prompts/casper_content_local_adapter.txt
+28. prompts/casper_content_destination_select.txt
+29. prompts/casper_content_download_link.txt
+30. tests/test_content_learning.py (recommended)
+31. tests/test_content_download.py (recommended)
+32. tests/test_game_content.py (recommended)
+33. tests/test_adapters.py (recommended)
+34. prompts/melchior_router.txt
+35. prompts/casper_skill_match.txt
+36. prompts/casper_skill_user_verification.txt
+37. tests/test_skill_registry.py (recommended)
+38. prompts/melchior_content_action_scope.txt
+39. tests/test_device_actions.py (recommended)
+40. prompts/casper_skill_learning_checkpoint.txt
+41. prompts/casper_skill_learning_checkpoint_retry.txt
+42. prompts/casper_content_download_link_retry.txt
+43. prompts/casper_content_query_review_retry.txt
+44. prompts/casper_skill_resume_request.txt
+45. prompts/casper_skill_resume_request_retry.txt
+46. prompts/casper_content_local_adapter_retry.txt
+47. prompts/casper_content_destination_select_retry.txt
+48. prompts/casper_content_research_plan_retry.txt
+49. INSTALL_UPDATE.ps1
+50. prompts/casper_content_query_compliance_retry.txt
+51. prompts/casper_content_artifact_recovery_query.txt
+52. prompts/casper_content_artifact_recovery_query_retry.txt
+53. prompts/casper_content_artifact_recovery_source.txt
+54. casper/memory.py
+55. prompts/casper_pending_skill_resume.txt
+56. prompts/casper_content_local_binding_review.txt
+57. tests/test_memory.py (recommended)
+
+This fix does not use Python to choose search queries, tactics, or semantic
+routes. AI still owns all content judgments. Python only:
+
+- parses and validates the declared contracts;
+- bounds arrays, strings, evidence IDs, and retries;
+- fails closed when the AI contract remains invalid.
+
+Automatic Windows installation (recommended):
+
+1. Close Bekki.
+2. Extract this ZIP.
+3. Open PowerShell inside the extracted fm_json_fix folder.
+4. Run:
+
+       powershell -ExecutionPolicy Bypass -File .\\INSTALL_UPDATE.ps1
+
+The installer defaults to C:\\Users\\Main\\AI-Assistant. Use -ProjectRoot with
+another absolute path when needed. It validates the Bekki project root, creates
+a timestamped backup, copies every payload file, verifies each SHA-256 hash,
+and confirms that the compact research-plan retry exists in the actual runtime
+tree. It never edits data/skills.json or other user data.
+
+Ollama's native format=json mode is intentionally not enabled because the
+current local gpt-oss build can return an empty response with think=False.
+
+Melchior's primary and recovery budgets are also increased so compound
+web-to-local game-content requests reach the JSON response. Recovery explicitly
+keeps tactics/mod/save installation in DEVICE_ACTION rather than shopping.
+
+Game-content discovery now uses an AI-selected, location-aware pure-browser
+policy. The local AI receives the detected region plus a catalog of executable
+browser adapters and the current research task, then selects two engines. No
+global pair is mandatory: Google, DuckDuckGo, and Bing remain separate choices,
+while AI can prefer locally popular engines such as Baidu, Sogou, Naver, or
+Yahoo Japan. The research query may inform topic coverage but never physical
+location. These decisions live in the AI contract, not Python country branches.
+
+The region comes from Bekki's existing local location module (explicit
+USER_COUNTRY_CODE or Windows Home Location). It is never guessed from the
+user's language or search terms. The implementation does not call Brave or any
+search API. Python only validates executable engine IDs, opens/parses browser
+pages, merges/deduplicates URLs, and validates contracts. If the AI engine plan
+is invalid twice, the workflow fails closed instead of Python choosing a
+fallback.
+
+Source ranking now receives a larger gpt-oss output budget and one compact JSON
+retry. Its discovery packet excludes squad-fit context so general FM26 tactic
+repositories and installation guides are not rejected merely for omitting
+Manchester United. Secondary search generation receives the same sanitized
+discovery plan, preventing it from reintroducing fit-context terms that the
+compliance gate must reject.
+
+Manifest extraction now combines bounded evidence from several rendered pages
+in one AI decision. A concrete tactic/download page can supply the artifact
+while a separate guide supplies file placement and in-game loading steps. The
+gpt-oss context/output budgets are increased and invalid JSON gets one compact
+retry. The prompt also clarifies that natural-language installation steps are
+required; only shell commands, scripts, URLs, and credentials are prohibited.
+
+Skills V1 replaces the FM-only procedural checkpoint with a generic, gated
+skill lifecycle. data/skills.json contains only operations that completed,
+passed machine checks, and were explicitly accepted by the user. Learned
+methods are first written to data/pending_skills.json and are not available for
+reuse. Failed, abandoned, or user-rejected candidates are removed from pending
+state and recorded separately; they never enter the verified Skills library.
+
+Melchior now emits skill_route=lookup only for reusable device operations. Only
+then may Casper load verified skill summaries. Casper's local AI performs the
+semantic match against exact opaque skill IDs, so paraphrases can reuse a skill
+without Python comparing keywords. If no verified skill matches, the existing
+learning flow begins. Normal answers, Recycle Bin actions, simple app launches,
+and one-off controls do not read the Skills library.
+
+Windows routing regression fix: the old Casper Recycle Bin pre-router used to
+call another local model before every ordinary device operation. On a live
+Windows/Ollama test run that duplicate gate sometimes labeled volume, windows,
+Steam, or Downloads as game content, causing many unrelated unit failures and
+the same risk in real use. Recycle Bin and game-content ownership now come from
+Melchior's single focused AI gate and are passed down as explicit authority.
+Casper no longer invokes the old special classifier ahead of every generic
+device plan. Unit tests therefore remain deterministic without replacing AI
+semantics with Python keyword rules. The Windows shortcut-path assertion also
+compares normalized paths so slash style is not treated as a behavioral error.
+The Steam-library dispatch test now mocks only its bounded listing dependency,
+while a separate pure catalog-filter test proves that non-Steam applications
+cannot enter the returned game list. This prevents a real Windows Steam library
+from leaking into the unit fixture and changing its expected count.
+
+FM destination discovery no longer hardcodes a folder named "Football Manager
+2026". Windows commonly uses "Football Manager 26", and Documents may be
+redirected. Bekki now includes Windows' configured Personal/Documents known
+folder, then enumerates only existing direct child directories beneath the
+bounded "Sports Interactive" publisher root. Python does not decide which game
+title matches: it supplies opaque destination IDs and AI selects the compatible
+root. No drive-wide scan is performed. The selected path is still rediscovered
+and matched exactly before installation.
+
+V2 now uses a Learn -> Candidate -> Continue -> Execute -> User Verify -> Commit
+workflow:
+
+1. The first request researches only how the requested content is installed.
+2. AI extracts a reusable procedure from rendered tutorial evidence.
+3. A focused AI selects the registered local adapter and the real discovered
+   destination. For FM26 tactics, Bekki creates/opens only the tactics folder
+   beneath an already discovered FM26 user-data root.
+4. The learned method and machine-specific destination are saved only as an
+   unverified candidate in data/pending_skills.json.
+5. Bekki stores a session-bound pending checkpoint and asks the user to reply
+   "continue". A dedicated AI checkpoint classifier distinguishes CONTINUE,
+   REJECT, CLARIFY, and UNRELATED. It no longer reuses the final outcome
+   ACCEPT/REJECT classifier, so a short reply such as "继续" resumes the original
+   request instead of being mistaken for a rejection. Python validates only the
+   returned token and does not infer the user's meaning from keywords. The
+   classifier has enough output budget for gpt-oss reasoning and retries once
+   with a larger budget if the first attempt ends before emitting its final
+   token.
+6. After confirmation, candidate tactic research resumes with the exact
+   temporary skill-candidate ID. Installation-method searches are skipped.
+7. AI may choose only opaque links returned by the managed browser. A download
+   is bounded to three page navigations and five total activation attempts,
+   must match the learned extension, must be a regular non-empty file under the
+   size cap, and is rejected if it has a Windows executable header.
+8. The learned destination is rediscovered and matched again immediately before
+   copying. A changed or missing directory fails closed and requires relearning.
+9. After the file operation, Bekki asks the user to verify that the content is
+   visible and usable inside the target app. Only an AI-classified acceptance
+   commits the skill to data/skills.json. Rejection, failure, or moving to an
+   unrelated topic discards the candidate without polluting future context.
+10. A later semantically similar request can reuse the verified skill and skip
+    installation-method research, while per-run details such as team, play
+    style, tactic name, or mod name remain parameters rather than triggers.
+
+Browser verification during the second stage preserves the skill ID, so a
+post-CAPTCHA continuation resumes acquisition instead of restarting learning.
+
+Download-link selection now treats all visible link text as untrusted catalog
+data. The AI is explicitly prohibited from answering questions or following
+instructions embedded in unrelated navigation links and remains bound to the
+chosen artifact. If the first gpt-oss call returns empty, malformed, null, or an
+invented link ID, a larger focused retry gets one more chance. Python accepts
+only an exact opaque ID that the browser actually supplied; it never chooses a
+link by keywords.
+
+When the acquisition stage fails after a learned candidate has already been
+resumed, Bekki now recreates a session-bound continuation checkpoint for the
+same candidate. The temporary skill and verified local destination remain
+available, and the user can reply "continue" to retry research and download
+without repeating installation-method learning. This retry state is not a
+verified skill and still cannot enter data/skills.json until installation and
+explicit user verification both succeed.
+
+Live browser verification of the selected Passion4FM tactic exposed a separate
+mechanical issue: its article download anchor opens MediaFire in a new tab.
+Casper previously watched only the current tab's URL and download event, so a
+correct AI link choice could still end as NO_DOWNLOAD. The managed browser now
+listens for pages opened by the exact selected anchor, attaches download
+listeners to them, and structurally matches the new tab against the selected
+href/domain before continuing the next bounded hop. about:blank and unrelated
+advertising popups are not treated as the destination. This logic does not
+choose content or links; AI still supplies the exact opaque link ID.
+
+The verified live route can begin on a tactics index and continue through a
+dedicated article and a file host before the .fmf download. Acquisition is
+therefore bounded separately to three actual page navigations and five total
+link activations. Every attempt still requires an AI-selected exact browser-
+supplied opaque ID, and the resulting file still must pass extension, regular-
+file, size, and executable-header checks before the learned destination can be
+used.
+
+An AI-declared null link selection is now a valid terminal decision for the
+current page. It is no longer treated as malformed output that forces the model
+to guess generic Resources, Downloads, or Tactics navigation links. When the
+selected artifact came from an index whose visible links do not contain that
+artifact, AI generates one exact-artifact browser search query and then selects
+an exact opaque source ID from the returned result catalog. The chosen URL is
+copied only from that browser result, and the normal AI link selection plus
+three-hop download validation resumes on the dedicated page. Exact-page search
+does not consume a download activation hop. Python does not construct the
+query, compare titles, choose a result, or infer a domain.
+
+Exact-artifact search results are now resolved in the managed browser before
+their URL is accepted. A search result can display the exact artifact title yet
+redirect back to the original category index, as observed on FMScout. Python
+compares only normalized URL structure (host, path, meaningful query), rejects
+that exact opaque source ID when the final page is the original index, and asks
+AI to select again from the remaining browser results. It ignores only scheme,
+www, trailing-slash, fragment, and common tracking-parameter differences. It
+does not compare page titles, artifact words, domains, or source quality.
+
+Browser link catalogs now preserve each candidate's query string and expose
+only structural facts: whether it targets the current document, carries a
+download attribute, or opens a new browsing context. This distinguishes a
+category URL from a dedicated page such as the same path with an artifact ID.
+If AI selects a title self-link on the dedicated page, the browser reports a
+structural no-op without clicking. Casper excludes that exact opaque link ID
+and asks AI to select again from the remaining same-page catalog. NO_DOWNLOAD,
+missing-link, and failed-click outcomes receive the same bounded opaque-ID
+exclusion. Python does not inspect link words or choose the replacement.
+
+V27 fixes expired learning checkpoints and contradictory temporary skills.
+Content-learning continuation, browser handoff, and user-verification state now
+remains available for 24 hours within the same chat session; unrelated device
+approvals keep their original short expiry. If that UI checkpoint is absent but
+Melchior explicitly routes the request through skill lookup, AI may compare the
+current message and recent conversation against opaque pending candidate IDs.
+It can resume only one internally coherent candidate and must recover a complete
+substantive request; Python validates only the declared exact ID and contract.
+
+A bare continuation reply can no longer start a new learning plan by inventing
+an example game such as Minecraft. The planning AI must explicitly declare that
+the target application and content kind are grounded in the request or recent
+context, otherwise the workflow fails closed. Before any directory is created
+or opened, an independent gpt-oss review also checks that the learned target,
+content type, expected extension, AI-selected adapter, and AI-selected local
+destination all describe the same operation. The observed Minecraft .jar plus
+Football Manager tactics-folder combination is therefore rejected before a
+pending skill can be written. No Python keyword or application matching was
+added.
+
+V28 handles duplicate pending candidates created by earlier failed test runs.
+The pending-resume AI now treats multiple coherent candidates with the same
+substantive request, target application, content kind, expected file type,
+adapter, and destination as equivalent retries of one operation. It rejects
+contradictory candidates first, then selects the equivalent candidate with the
+latest updated_at timestamp. Semantically different coherent operations still
+produce a clarification instead of an arbitrary choice or another learning
+cycle. The gpt-oss output budgets are also increased so a catalog containing
+several historical candidates reaches its compact JSON decision instead of
+ending after reasoning.
+
+Short query rewriting uses a dedicated llama3.2 JSON contract with a compact
+retry prompt, preventing three search phrases from exhausting the response
+budget before JSON is emitted. Python still does not write, translate, or
+approve any query; it only validates the AI contract.
+
+Every accepted learning/retry continuation now also invokes an AI resume
+resolver. It recovers the substantive request that preceded the checkpoint and
+preserves target and fit criteria, instead of allowing a bare reply such as
+"continue" to become the skill candidate's original request. Python replaces
+the active message only when AI explicitly returns found=true with a non-empty
+resume_request; otherwise the workflow fails closed on the available state.
+
+The two small local-learning choices—registered adapter and exact discovered
+destination ID—also use compact llama3.2 JSON contracts with focused retries.
+This prevents gpt-oss from correctly reasoning about the only compatible FM26
+tactics directory but exhausting its output budget before emitting the ID.
+Python accepts only the AI's declared adapter enum and an exact opaque ID from
+the discovered catalog; it does not decide application or folder compatibility.
+
+The candidate-content research planner now uses the same compact llama3.2 JSON
+strategy. Its first pass retains the full AI planning contract and a focused
+second prompt retries with a smaller payload. This prevents gpt-oss from using
+the entire output budget on hidden reasoning, truncating the final queries, or
+returning an empty response. AI still decides target app, content type, fit
+context, selection criteria, and every search query; Python only validates and
+bounds the returned contract.
+
+Query isolation now uses two AI judgments instead of trusting one small-model
+false result. llama3.2 performs the fast check; only a false or invalid result
+is sent to gpt-oss for semantic adjudication with explicit positive and negative
+examples. This fixes the observed case where universal searches such as
+"Football Manager 2026 best tested tactics download" were rejected merely
+because Manchester United existed in the separate fit_context catalog. Python
+does not inspect query words or override either judgment; it only validates the
+AI contracts and fails closed if adjudication is absent or false.
+
+Run from the project root:
+
+    python -m py_compile tools.py casper\browser.py casper\content_download.py
+    python -m unittest discover -s tests
+
+Expected result:
+
+    Ran 162 tests
+    OK
+
+Then restart Bekki and test:
+
+    网上找一个适合曼联的强力 FM26 战术并导入电脑
+
+The research-plan and query-review stages should now emit plain JSON objects,
+without prose, Markdown fences, nested query objects, placeholders, or string-
+concatenation loops.

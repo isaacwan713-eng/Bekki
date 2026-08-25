@@ -1,0 +1,26 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+The initial recommendation pass produced too few verified candidates. Create
+one or two new independent-editorial discovery queries that can find different
+candidates while preserving the original topic, explicit criteria, audience,
+region, and requested/AI-decided count.
+
+Do not repeat rejected or already verified product titles. Do not weaken an
+explicit condition. Do not search merchants, price, stock, checkout, sellers,
+or purchase pages. When the audience is GENERAL_UNSPECIFIED, avoid silently
+narrowing the query to babies, toddlers, children, or another niche. Treat it
+as general/adult everyday use and explicitly broaden away from the niche that
+caused rejection. Use the rejected reasons to fix the query, not to relax the
+conditions.
+
+Do not add a material, capacity, insulation level, use case, beverage type,
+brand, price range, popularity requirement, or other product feature unless it
+already appears in the plan's explicit `criteria`. The AI may improve the
+market-language category wording and audience wording; that is localization,
+not permission to invent requirements.
+
+Required shape:
+{
+  "search_queries":["new independent review or comparison query"],
+  "reason":"brief recovery reason"
+}

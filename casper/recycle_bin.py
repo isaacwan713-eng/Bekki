@@ -22,20 +22,35 @@ def _item_id(item):
 def _plan(message, recent_context):
     import tools
 
-    return tools.run_ai_prompt(
-        "prompts/casper_recycle_bin.txt",
-        (
-            "RECENT_CONTEXT:\n"
-            + str(recent_context)[-500:]
-            + "\nCURRENT_REQUEST:\n"
-            + str(message)[:500]
-        ),
-        expect_json=False,
-        num_ctx=1024,
-        num_predict=24,
-        think=False,
-        model_name="llama3.2:latest",
+    prompt_input = (
+        "CURRENT_REQUEST (authoritative):\n"
+        + str(message)[:500]
+        + "\nRECENT_CONTEXT (reference resolution only):\n"
+        + str(recent_context)[-800:]
     )
+    valid = {
+        "LIST_RECYCLE_BIN",
+        "OPEN_RECYCLE_BIN",
+        "RESTORE_RECYCLE_ITEM",
+        "UNSUPPORTED",
+        "CLARIFY",
+    }
+    for _attempt in range(2):
+        raw = tools.run_ai_prompt(
+            "prompts/casper_recycle_bin.txt",
+            prompt_input,
+            expect_json=False,
+            num_ctx=2048,
+            # gpt-oss may reason before emitting the one-token contract.
+            num_predict=256,
+            think=False,
+            model_name="gemma3:12b",
+        )
+        value = str(raw or "").strip().upper()
+        if value in valid:
+            return value
+        prompt_input += "\nINVALID_PREVIOUS_OUTPUT:\n" + value[:80]
+    return ""
 
 
 def _classify_restore_intent(message, recent_context):
@@ -61,7 +76,8 @@ def _classify_restore_intent(message, recent_context):
                 think=False,
                 model_name="llama3.2:latest",
             )
-        except (ImportError, ModuleNotFoundError):
+        except Exception as error:
+            print("[RECYCLE RESTORE INTENT FALLBACK]", repr(error))
             return None
         value = str(raw or "").strip().upper()
         if value in {"RESTORE_ITEM", "NOT_RESTORE"}:
@@ -189,7 +205,10 @@ def _restore_item(item):
         "$i=@($f.Items()|Where-Object{$_.Path -eq $env:BEKKI_RECYCLE_ITEM_PATH}"
         "|Select-Object -First 1);"
         "if($i.Count -ne 1){exit 4};"
-        "$i[0].InvokeVerb('RESTORE')"
+        # `undelete` is the Windows Shell canonical verb for restoring a
+        # Recycle Bin item. `RESTORE` is only display text on some systems;
+        # InvokeVerb silently ignores it while still returning exit code 0.
+        "$i[0].InvokeVerb('undelete')"
     )
     environment = os.environ.copy()
     environment["BEKKI_RECYCLE_ITEM_PATH"] = shell_path

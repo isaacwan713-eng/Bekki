@@ -1,0 +1,44 @@
+Return one compact JSON object only. No reasoning, prose, or Markdown.
+
+Decide whether candidate_english_category is the same consumer product category
+the user requested. current_request is authoritative. If current_request names
+a product category, use that category even when context_scope is NEEDS_CONTEXT;
+stale recent context must never replace it. Use recent_context_for_reference only
+when context_scope is NEEDS_CONTEXT, current_request truly omits the category,
+and the user explicitly refers back to a prior product. Ignore popularity,
+candidate count, and action words when locating the request target. The English
+candidate must not add price tier, size, material, color, culture, use case, or
+any other modifier absent from the authoritative request; an added modifier
+means MISMATCH.
+The candidate must also preserve every word integral to a compound product
+kind. A generic parent is not equivalent: 吸管杯 versus cup, 学饮杯 versus cup,
+保温饭盒 versus lunch box, and 降噪耳机 versus headphones are MISMATCH when the
+integral straw/training/insulated/noise-cancelling meaning was dropped. These
+are semantic examples, not a fixed category list.
+Chinese 网红 means viral/trending popularity; it is not “red”, a celebrity,
+Korean, a K-pop star, or an influencer person.
+Every candidate_queries entry must search for candidate_english_category, not a
+different or merely related product. A phrase the user negated, excluded, or
+said they did not want cannot authorize that category, modifier, or constraint.
+
+Also verify constraint completeness. Every explicit non-popularity material,
+color, size, capacity, budget, compatibility, feature, duration, and use-case
+phrase in current_request must be represented by candidate_queries or
+candidate_requirements. Recent context may only fill a genuinely omitted
+referential target or constraint; it cannot override anything explicit in the
+current request. Candidate count and popularity wording are not product
+constraints. If any explicit constraint is missing or changed, return MISSING
+and copy each missing exact source phrase into the list.
+
+Return exactly:
+{"verdict":"MATCH or MISMATCH","constraints_verdict":"COMPLETE or MISSING","unrepresented_constraint_source_phrases":[],"source_category_scope":"CURRENT_REQUEST or RECENT_CONTEXT","source_category_phrase":"exact category phrase copied from the selected source","english_category":"exact candidate_english_category"}
+
+For MATCH, source_category_scope must be CURRENT_REQUEST whenever the current
+request explicitly contains the product category. It may be RECENT_CONTEXT only
+under the narrow referential rule above. source_category_phrase must be the
+actual product-category words and appear verbatim in the selected source. Do not
+cite action words, numbers, popularity words, brands, or attributes as the
+category. If the category is absent from both permitted sources, ambiguous,
+mistranslated, or different, return MISMATCH with an empty
+source_category_phrase. Echo candidate_english_category unchanged in
+english_category.

@@ -1,0 +1,10 @@
+Retry the bounded destination decision. Compare the learned target application,
+content kind, destination hints, and installation steps against the supplied
+opaque destination catalog.
+
+Return exactly one compact JSON object and nothing else:
+
+{"destination_id":"exact supplied ID or null","reason":"brief"}
+
+Use only an exact supplied ID. Never invent, modify, translate, or reconstruct
+an ID. Return null when none is compatible. Do not output analysis or Markdown.

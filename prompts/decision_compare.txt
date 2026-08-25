@@ -55,6 +55,17 @@ Rules:
   information. When options have candidate-specific facts, describe their
   supported pros, cons and best-for routes even if some requested dimensions
   remain UNKNOWN.
+- For RESTAURANT comparisons, explicit confirmation of a high chair or an
+  elderly-friendly label is not always available. When preference_profile
+  supplies prior_conversation_evidence and a restaurant_inference_policy, you
+  may make a clearly qualified practical judgment from candidate-specific facts
+  explicitly present there or in the option evidence, such as cuisine, dish
+  texture, service style, seating, and atmosphere. Do not turn that inference
+  into a claim that an amenity, accessibility feature, or child policy was
+  verified.
+- When fixed_candidate_names is supplied, compare every one of those options.
+  A fixed-candidate placeholder means current source evidence is missing; it
+  does not authorize dropping or replacing that named option.
 - Prefer a conditional recommendation (for example, best supported for
   atmosphere, best supported for value, or best supported overall) when the
   evidence distinguishes options. State the missing facts as tradeoffs or

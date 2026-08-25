@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -173,10 +174,126 @@ class FileActionTests(unittest.TestCase):
                 file_actions, "discover_user_roots", return_value=[root]
             ), patch.object(
                 file_actions, "discover_entries", return_value=[]
+            ), patch.object(
+                file_actions,
+                "discover_search_roots",
+                return_value=[self._root(folder)],
             ), patch.object(file_actions, "_plan", return_value=plan):
                 result = file_actions.execute("打开文件", "")
         self.assertFalse(result["success"])
         self.assertTrue(result["needs_clarification"])
+
+    def test_exact_recursive_search_returns_only_observed_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            nested = os.path.join(folder, "Projects", "Bekki")
+            os.makedirs(nested)
+            expected_path = os.path.join(nested, "test.txt")
+            Path(expected_path).write_text("real", encoding="utf-8")
+            Path(os.path.join(nested, "test.txt.bak")).write_text(
+                "not exact", encoding="utf-8"
+            )
+            plan = {
+                "action": "SEARCH_FILES",
+                "query": "test.txt",
+                "match_mode": "EXACT_NAME",
+                "target_kind": "FILE",
+            }
+            with patch.object(
+                file_actions,
+                "discover_user_roots",
+                return_value=[self._root(folder)],
+            ), patch.object(
+                file_actions, "discover_entries", return_value=[]
+            ), patch.object(
+                file_actions,
+                "discover_search_roots",
+                return_value=[self._root(folder)],
+            ), patch.object(file_actions, "_plan", return_value=plan):
+                result = file_actions.execute(
+                    "帮我在电脑里查找名为 test.txt 的文件", ""
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action"], "searched_files")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["matches"][0]["path"], expected_path)
+        self.assertNotIn("test.txt.bak", str(result["matches"]))
+
+    def test_search_rejects_paths_and_globs_before_filesystem_walk(self):
+        plan = {
+            "action": "SEARCH_FILES",
+            "query": "../test*.txt",
+            "match_mode": "EXACT_NAME",
+            "target_kind": "FILE",
+        }
+        with patch.object(
+            file_actions,
+            "discover_user_roots",
+            return_value=[self._root("C:/Users/Test/Desktop")],
+        ), patch.object(
+            file_actions, "discover_entries", return_value=[]
+        ), patch.object(
+            file_actions,
+            "discover_search_roots",
+            return_value=[self._root("C:/Users/Test")],
+        ), patch.object(
+            file_actions, "_plan", return_value=plan
+        ), patch.object(
+            file_actions, "search_user_files"
+        ) as search:
+            result = file_actions.execute("查找 ../test*.txt", "")
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["needs_clarification"])
+        search.assert_not_called()
+
+    def test_reliable_gate_constrains_named_file_request_to_search(self):
+        calls = []
+        outputs = [
+            "SEARCH_FILES",
+            {
+                "action": "SEARCH_FILES",
+                "root_id": None,
+                "candidate_id": None,
+                "folder_name": None,
+                "query": "bekki_search_test.txt",
+                "match_mode": "EXACT_NAME",
+                "target_kind": "FILE",
+                "reason": "Locate one exact filename.",
+            },
+        ]
+
+        def run_ai_prompt(*args, **kwargs):
+            calls.append((args, kwargs))
+            return outputs.pop(0)
+
+        fake_tools = types.SimpleNamespace(
+            run_ai_prompt=run_ai_prompt,
+            unload_model=lambda *_args, **_kwargs: None,
+        )
+        with patch.dict(sys.modules, {"tools": fake_tools}):
+            plan = file_actions._plan(
+                "帮我在电脑里查找名为 bekki_search_test.txt 的文件",
+                "",
+                [],
+                [],
+            )
+
+        self.assertEqual(plan["action"], "SEARCH_FILES")
+        self.assertEqual(calls[0][1]["model_name"], "gemma3:12b")
+        self.assertEqual(calls[1][1]["model_name"], "gemma3:4b")
+        action_enum = calls[1][1]["json_schema"]["properties"]["action"]["enum"]
+        self.assertEqual(action_enum, ["SEARCH_FILES"])
+
+    def test_file_prompt_has_no_list_folder_shape_anchor(self):
+        prompt_path = (
+            Path(file_actions.__file__).resolve().parents[1]
+            / "prompts"
+            / "casper_file_action.txt"
+        )
+        prompt = prompt_path.read_text(encoding="utf-8")
+        self.assertNotIn('{"action":"LIST_FOLDER"', prompt)
+        self.assertIn("is SEARCH_FILES", prompt)
 
 
 if __name__ == "__main__":

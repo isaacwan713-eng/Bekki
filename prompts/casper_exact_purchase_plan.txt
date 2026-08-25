@@ -1,0 +1,45 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+Decide whether this shopping turn is an exact-product purchase lookup or an
+open-ended shopping request. You, not Python, own this semantic decision.
+
+EXACT_PRODUCT means the user wants to find where one already-identified item
+can be bought. The item may be named in the current request or referenced from
+recent conversation, such as "the first one", "that model", or "第一个".
+OPEN_ENDED means the user is still asking to browse, compare, or choose among a
+category or feature set. UNRESOLVED_REFERENCE means the request clearly points
+backward but the exact item cannot be identified reliably from the supplied
+recent conversation.
+
+Rules:
+- For EXACT_PRODUCT, preserve the complete product identity: brand, model or
+  line name, and differentiating words. Never reduce "Simple Modern Classic
+  Tumbler" to "tumbler" or merely "Simple Modern".
+- Resolve ordinals from the actual order in recent conversation. Do not guess
+  an item that is absent.
+- `source_scope` is CURRENT_REQUEST when the exact identity is stated now and
+  RECENT_CONTEXT when it is resolved from prior conversation.
+- `source_phrase` must be one literal, contiguous copy of the exact product
+  name from that source. It must not be a paraphrase or a whole instruction.
+- `resolved_title` should copy the same exact product name. Preserve brand and
+  model spelling. Do not translate a model name.
+- For EXACT_PRODUCT, write one to three natural US purchase searches. Every
+  query must retain the complete exact product title. Good additions include
+  buy, official, retailer, or where to buy. Do not add popularity, reviews,
+  audience, size, color, material, or another feature unless it is part of the
+  exact product name.
+- The detected runtime profile supplies country, units, and Google/Bing. Do not
+  reconsider the location or search engines.
+- For OPEN_ENDED and UNRESOLVED_REFERENCE, leave title, brand, source phrase,
+  and search queries empty.
+
+Required shape:
+{
+  "lookup_mode":"EXACT_PRODUCT | OPEN_ENDED | UNRESOLVED_REFERENCE",
+  "resolved_title":"Simple Modern Classic Tumbler",
+  "brand":"Simple Modern",
+  "source_scope":"CURRENT_REQUEST | RECENT_CONTEXT | NONE",
+  "source_phrase":"Simple Modern Classic Tumbler",
+  "search_queries":["\"Simple Modern Classic Tumbler\" buy United States"],
+  "reason":"brief semantic reason"
+}

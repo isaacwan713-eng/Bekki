@@ -27,6 +27,17 @@ Rules:
   pages, category pages, roundups and unrelated articles even if they contain
   many valid candidate names.
 - The title must be the exact candidate name, never an article or guide title.
+  Preserve the source's original language, spelling, punctuation, and
+  capitalization. Never translate, transliterate, localize, shorten, or invent
+  a Chinese/English candidate name.
+- When plan.candidate_scope is FIXED, accept only a candidate represented in
+  plan.allowed_candidate_names and set title to that allowed name exactly.
+  Return is_real_candidate=false for every other business, even if the page
+  recommends it.
+- In FIXED scope, visible_fixed_candidate_names is an authoritative literal
+  grounding list computed from the rendered page. Return is_real_candidate=false
+  when it is empty. The returned title must also occur in that list. Never use
+  an allowed name merely because it appears in the plan or user request.
 - Copy each plan requirement and judge it only from visible evidence.
 - UNKNOWN is not MATCH. Never invent price, hours, insurance, credentials,
   availability, ratings, specialties, menu items or location.

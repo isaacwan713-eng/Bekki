@@ -1,0 +1,29 @@
+Check whether current-turn game-content search queries keep personal fit
+context out of universal artifact discovery. Return exactly one JSON object:
+{"compliant":true} or {"compliant":false}.
+
+The fields supplied for CURRENT_REQUEST are the only authority. Judge only
+those fields and actual query strings; never import an application, entity, or
+intent from prior conversation or from the examples below. The mere presence
+of a fit_context catalog in the input is not leakage. A query leaks context
+only when the query itself names, translates, aliases, abbreviates, or clearly
+refers to a catalog item while fit_context_is_content_identity is false.
+
+Return false if a query omits the current target application/version or content
+kind, or contains a team, character, roster, hardware, save, or play-style item
+from fit_context while identity is false. Allow fit-context terms only when
+fit_context_is_content_identity is explicitly true; never infer that exception
+from another field. Equivalent spellings of the supplied application title
+are valid. Generic discovery terms such as download, tested, community,
+performance, strong, best, evidence, and universal are not fit-context leakage.
+
+The examples are illustrations, not current task data:
+- Cities: Skylines II traffic-management mod; fit_context ["very large save"];
+  identity false. "Cities Skylines II tested traffic management mod download"
+  is compliant; adding "very large save" is not.
+- Minecraft Java Edition player skin; fit_context ["Creeper-themed design"];
+  identity true. "Minecraft Java Edition Creeper themed player skin download"
+  is compliant because the current-turn plan explicitly marks it as identity.
+
+Do not rewrite queries or add keys. No prose or Markdown. Exact output shape:
+{"compliant":true}

@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 DATA_FOLDER = "data"
@@ -7,25 +8,111 @@ TEMPORARY_FILE = os.path.join(DATA_FOLDER, "temporary.json")
 TASK_FILE = os.path.join(DATA_FOLDER, "task.json")
 PROFILE_FILE = os.path.join(DATA_FOLDER, "profile.json")
 PENDING_FILE = os.path.join(DATA_FOLDER, "pending.json")
+DEFAULT_PENDING_TTL_MINUTES = 15
+CONTENT_PENDING_TTL_MINUTES = 24 * 60
+CONTENT_PENDING_TYPES = {
+    "content_learning_continue",
+    "content_browser_handoff",
+    "skill_user_verification",
+}
+
+
+def _pending_ttl_minutes(action_type):
+    return (
+        CONTENT_PENDING_TTL_MINUTES
+        if str(action_type or "") in CONTENT_PENDING_TYPES
+        else DEFAULT_PENDING_TTL_MINUTES
+    )
+
+
+def _fsync_directory(directory):
+    """Best-effort directory sync on platforms that expose O_DIRECTORY."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    descriptor = None
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _write_json_temporary(directory, file_name, data):
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix="." + file_name + ".",
+        suffix=".tmp",
+        dir=directory,
+        text=True,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=4)
+            file.flush()
+            os.fsync(file.fileno())
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
+    return temporary_path
 
 
 def create_json_file(file_path, default_data):
     if not os.path.exists(file_path):
-        with open(file_path, "w", encoding="utf-8") as file:
-            json.dump(default_data, file, ensure_ascii=False, indent=4)
+        save_json_file(file_path, default_data)
 
 
 def load_json_file(file_path, default_data=None):
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default_data
+    for candidate in (file_path, file_path + ".bak"):
+        try:
+            with open(candidate, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            continue
+    return default_data
 
 
 def save_json_file(file_path, data):
-    with open(file_path, "w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=4)
+    absolute_path = os.path.abspath(file_path)
+    directory = os.path.dirname(absolute_path) or os.path.abspath(".")
+    file_name = os.path.basename(absolute_path)
+    backup_path = absolute_path + ".bak"
+    os.makedirs(directory, exist_ok=True)
+
+    primary_temporary = _write_json_temporary(directory, file_name, data)
+    backup_temporary = None
+    try:
+        # Preserve only a readable prior generation. A corrupt primary must not
+        # replace the last known-good backup.
+        try:
+            with open(absolute_path, "r", encoding="utf-8") as file:
+                previous_data = json.load(file)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            previous_data = None
+
+        if previous_data is not None:
+            backup_temporary = _write_json_temporary(
+                directory,
+                file_name + ".bak",
+                previous_data,
+            )
+            os.replace(backup_temporary, backup_path)
+            backup_temporary = None
+
+        os.replace(primary_temporary, absolute_path)
+        primary_temporary = None
+        _fsync_directory(directory)
+    finally:
+        for temporary_path in (primary_temporary, backup_temporary):
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
 
 
 def initialize_memory():
@@ -381,9 +468,12 @@ def save_pending_action(action, session_id=None):
 
     pending = dict(action)
     now = datetime.now(timezone.utc)
+    ttl_minutes = _pending_ttl_minutes(pending.get("type"))
     pending["session_id"] = str(session_id or "")
     pending["created_at"] = now.isoformat()
-    pending["expires_at"] = (now + timedelta(minutes=15)).isoformat()
+    pending["expires_at"] = (
+        now + timedelta(minutes=ttl_minutes)
+    ).isoformat()
     save_json_file(PENDING_FILE, pending)
 
 

@@ -1,0 +1,12 @@
+Rewrite the supplied game-content discovery request into one compact JSON
+object. Return only 1-3 executable search strings:
+
+{"queries":["complete search phrase","complete search phrase"]}
+
+Each string must include the full target game/version, content kind, and
+download objective. Use the language of the game's main creator community and
+include tested performance or reputable download evidence. Installation-method
+research is already complete. Exclude team, squad, character, hardware, and
+play-style fit context unless fit_context_is_content_identity is explicitly
+true. Do not output analysis, notes, Markdown, nested objects, placeholders,
+domains, URLs, or invented claims.

@@ -1,0 +1,7 @@
+Retry the exact-artifact page search query. Return only one compact JSON object:
+
+{"query":"one complete executable search query"}
+
+Preserve the supplied artifact's distinctive name, target game/version, and
+content kind. Seek its dedicated article or download page. Do not invent a URL,
+domain, filename, result, or completed action. Do not output prose or Markdown.

@@ -1,0 +1,25 @@
+Return one compact JSON object only. No reasoning, prose, or Markdown.
+
+Extract and translate the complete consumer-product category requested by the
+user. This is a narrow category-recovery step, not a recommendation or shopping
+decision. Preserve the semantic head and every word that is integral to the
+kind of product. Do not reduce a compound category to a generic parent: 吸管杯
+is "straw cup", 学饮杯 is "training cup" or "sippy cup", 保温饭盒 is
+"insulated lunch box", and 降噪耳机 is "noise-cancelling headphones". These
+are translation examples, not a fixed product list.
+
+current_request is authoritative whenever it explicitly names the category.
+Use RECENT_CONTEXT only when context_scope is NEEDS_CONTEXT, the current request
+truly omits the category, and it explicitly refers back. Copy
+source_category_phrase exactly from that selected source. Do not use action
+words, candidate count, popularity wording, a brand, or a generic fragment as
+the source category.
+
+Return explicit size, capacity, material, color, compatibility, budget,
+feature, duration, and use-case phrases separately under constraints. Copy each
+source_phrase exactly and translate it into a short English search requirement.
+Do not repeat words already integral to english_category as a constraint. Do not
+add any category or constraint the permitted source does not state.
+
+Required shape:
+{"source_category_scope":"CURRENT_REQUEST or RECENT_CONTEXT","source_category_phrase":"exact source category","english_category":"complete English category","constraints":[{"source_phrase":"exact source constraint","english_requirement":"English search requirement"}]}

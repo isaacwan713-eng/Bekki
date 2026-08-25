@@ -1,6 +1,7 @@
 """AI-led recommendation research executed through Casper's browser body."""
 
 import json
+import unicodedata
 from datetime import datetime
 
 import decision_comparison
@@ -51,8 +52,86 @@ def _bounded_count(value, fallback=3):
     return max(1, min(count, 5))
 
 
+def _numeric_rank(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _allowed_candidate_names(plan):
+    if not isinstance(plan, dict):
+        return []
+    if str(plan.get("candidate_scope") or "OPEN").upper().strip() != "FIXED":
+        return []
+    return _short_strings(plan.get("allowed_candidate_names"), 5, 180)
+
+
+def _fixed_candidate_name(title, plan):
+    """Return the exact AI-grounded fixed-scope name or reject the candidate."""
+    key = str(title or "").casefold().strip()
+    if not key:
+        return None
+    for name in _allowed_candidate_names(plan):
+        if name.casefold() == key:
+            return name
+    return None
+
+
+def _candidate_match_key(value):
+    """Normalize display punctuation only; returned names remain untouched."""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return "".join(
+        character for character in normalized
+        if not unicodedata.category(character).startswith(("P", "Z"))
+    )
+
+
+def _visible_fixed_candidate_names(plan, page):
+    """Return fixed names visibly present, ignoring display punctuation."""
+    content = _candidate_match_key((page or {}).get("content") or "")
+    return [
+        name for name in _allowed_candidate_names(plan)
+        if _candidate_match_key(name) in content
+    ]
+
+
+def _fixed_query_set(plan, queries):
+    """Keep fixed-scope queries tied to every AI-selected prior candidate."""
+    names = _allowed_candidate_names(plan)
+    if not names:
+        return queries
+    remaining = list(queries)
+    selected = []
+    for name in names:
+        match = next(
+            (
+                query for query in remaining
+                if name.casefold() in str(query).casefold()
+            ),
+            None,
+        )
+        if match is not None:
+            selected.append(match)
+            remaining.remove(match)
+            continue
+        suffix = " ".join(
+            value for value in (
+                str(plan.get("location") or "").strip(),
+                " ".join(plan.get("requirements", [])[:2]),
+            )
+            if value
+        )
+        selected.append(('"' + name + '" ' + suffix).strip())
+    return selected[:4]
+
+
 def _review_queries(user_request, domain, plan, queries):
     """Let a second AI review query quality before Casper executes it."""
+    if _allowed_candidate_names(plan):
+        # Reliable planning AI already selected a closed prior-candidate set.
+        # A generic query reviewer must not reopen that semantic decision.
+        return _fixed_query_set(plan, queries)
     raw = _ai(
         "prompts/recommendation_query_review.txt",
         {
@@ -63,6 +142,8 @@ def _review_queries(user_request, domain, plan, queries):
             "requirements": plan.get("requirements", []),
             "comparison_criteria": plan.get("comparison_criteria", []),
             "preferred_sources": plan.get("preferred_sources", []),
+            "candidate_scope": plan.get("candidate_scope", "OPEN"),
+            "allowed_candidate_names": plan.get("allowed_candidate_names", []),
             "proposed_queries": queries,
         },
         700,
@@ -108,6 +189,22 @@ def _plan(user_request, domain, calibration, recent_context):
             )
     if not queries:
         return None
+    candidate_scope = str(raw.get("candidate_scope") or "OPEN").upper().strip()
+    if candidate_scope not in {"OPEN", "FIXED"}:
+        candidate_scope = "OPEN"
+    allowed_candidate_names = _short_strings(
+        raw.get("allowed_candidate_names"), 5, 180
+    )
+    grounding_text = (str(user_request) + "\n" + str(recent_context)).casefold()
+    if candidate_scope == "FIXED":
+        allowed_candidate_names = [
+            name for name in allowed_candidate_names
+            if name.casefold() in grounding_text
+        ]
+        if not allowed_candidate_names:
+            candidate_scope = "OPEN"
+    if candidate_scope == "OPEN":
+        allowed_candidate_names = []
     plan = {
         "queries": queries,
         "requirements": requirements,
@@ -124,7 +221,15 @@ def _plan(user_request, domain, calibration, recent_context):
         "target_option_count": _bounded_count(
             raw.get("target_option_count", 3)
         ),
+        "candidate_scope": candidate_scope,
+        "allowed_candidate_names": allowed_candidate_names,
     }
+    if allowed_candidate_names:
+        plan["target_option_count"] = len(allowed_candidate_names)
+        print(
+            "[CASPER FIXED CANDIDATES]",
+            json.dumps(allowed_candidate_names, ensure_ascii=False),
+        )
     plan["queries"] = _review_queries(
         user_request,
         domain,
@@ -181,6 +286,9 @@ def _rank_sources(user_request, domain, plan, candidates):
 
 
 def _extract_one(user_request, domain, plan, candidate, page):
+    visible_fixed_names = _visible_fixed_candidate_names(plan, page)
+    if _allowed_candidate_names(plan) and not visible_fixed_names:
+        return None
     raw = _ai(
         "prompts/recommendation_extract.txt",
         {
@@ -196,6 +304,7 @@ def _extract_one(user_request, domain, plan, candidate, page):
             },
             "rendered_page": str(page.get("content", ""))[:18000],
             "page_image_url": page.get("image_url", ""),
+            "visible_fixed_candidate_names": visible_fixed_names,
         },
         1300,
     )
@@ -204,6 +313,10 @@ def _extract_one(user_request, domain, plan, candidate, page):
     title = str(raw.get("title", "")).strip()[:180]
     if not title:
         return None
+    if _allowed_candidate_names(plan):
+        title = _fixed_candidate_name(title, plan)
+        if title is None or title not in visible_fixed_names:
+            return None
     card_type = {
         "PRODUCT": "article",
         "RESTAURANT": "place",
@@ -228,7 +341,7 @@ def _extract_one(user_request, domain, plan, candidate, page):
     }
 
 
-def _route_page(user_request, domain, candidate, page):
+def _route_page(user_request, domain, candidate, page, plan=None):
     """Ask AI whether a rendered page is a candidate, a guide, or irrelevant."""
     raw = _ai(
         "prompts/recommendation_page_route.txt",
@@ -252,15 +365,28 @@ def _route_page(user_request, domain, candidate, page):
     if role not in {"SINGLE_CANDIDATE", "DISCOVERY_GUIDE", "OTHER"}:
         role = "OTHER"
     names = _short_strings(raw.get("candidate_names"), 8, 140)
+    visible_fixed_names = _visible_fixed_candidate_names(plan, page)
+    if _allowed_candidate_names(plan):
+        # The routing AI may misread an unrelated search result. A fixed-scope
+        # page is useful only when the rendered page literally contains at
+        # least one of the AI-selected prior candidate names.
+        if not visible_fixed_names:
+            role = "OTHER"
+        elif role == "DISCOVERY_GUIDE":
+            names = visible_fixed_names
     return {
         "page_role": role,
         "candidate_names": names if role == "DISCOVERY_GUIDE" else [],
+        "visible_fixed_candidate_names": visible_fixed_names,
         "reason": str(raw.get("reason", "")).strip()[:300],
     }
 
 
 def _extract_guide_candidates(user_request, domain, plan, candidate, page):
     """Let AI preserve useful entities embedded in a guide or directory."""
+    visible_fixed_names = _visible_fixed_candidate_names(plan, page)
+    if _allowed_candidate_names(plan) and not visible_fixed_names:
+        return []
     raw = _ai(
         "prompts/recommendation_guide_extract.txt",
         {
@@ -276,6 +402,7 @@ def _extract_guide_candidates(user_request, domain, plan, candidate, page):
             },
             "target_option_count": plan.get("target_option_count", 3),
             "rendered_page": str(page.get("content", ""))[:20000],
+            "visible_fixed_candidate_names": visible_fixed_names,
         },
         2400,
     )
@@ -296,6 +423,10 @@ def _extract_guide_candidates(user_request, domain, plan, candidate, page):
         summary = str(item.get("summary", "")).strip()[:600]
         if not title or not summary:
             continue
+        if _allowed_candidate_names(plan):
+            title = _fixed_candidate_name(title, plan)
+            if title is None or title not in visible_fixed_names:
+                continue
         output.append(
             {
                 "option_id": "",
@@ -335,6 +466,8 @@ def _retry_queries(user_request, domain, plan, extracted, guide_names):
             ],
             "guide_names_seen": guide_names[:12],
             "needed_option_count": plan.get("target_option_count", 3),
+            "candidate_scope": plan.get("candidate_scope", "OPEN"),
+            "allowed_candidate_names": plan.get("allowed_candidate_names", []),
         },
         700,
     )
@@ -362,12 +495,38 @@ def _select_distinct_candidates(user_request, domain, plan, options):
     """Let AI edit the evidence set into distinct, relevant recommendations."""
     if not options:
         return []
+    fixed_names = _allowed_candidate_names(plan)
+    if fixed_names:
+        # MAGI's reliable AI has already made the semantic decision that this
+        # is a closed comparison. Keep the best bounded evidence record for
+        # every name instead of allowing a later generic editor to drop one.
+        selected = []
+        for name in fixed_names:
+            matches = [
+                item for item in options
+                if _fixed_candidate_name(item.get("title"), plan) == name
+            ]
+            if not matches:
+                continue
+            selected.append(
+                max(
+                    matches,
+                    key=lambda item: (
+                        _numeric_rank(item.get("evidence_completeness", 0)),
+                        _numeric_rank(item.get("source_score", 0)),
+                        len(str(item.get("summary") or "")),
+                    ),
+                )
+            )
+        return selected
     payload = {
             "domain": domain,
             "user_request": user_request,
             "target_option_count": plan.get("target_option_count", 3),
             "requirements": plan.get("requirements", []),
             "comparison_criteria": plan.get("comparison_criteria", []),
+            "candidate_scope": plan.get("candidate_scope", "OPEN"),
+            "allowed_candidate_names": plan.get("allowed_candidate_names", []),
             "candidates": [
                 {
                     "index": index,
@@ -409,6 +568,57 @@ def _select_distinct_candidates(user_request, domain, plan, options):
         if len(selected) >= plan.get("target_option_count", 3):
             break
     return selected
+
+
+def _missing_fixed_candidate(name, domain, plan):
+    """Represent a named comparison candidate without inventing evidence."""
+    card_type = {
+        "PRODUCT": "article",
+        "RESTAURANT": "place",
+        "LOCAL_SERVICE": "service",
+        "HEALTHCARE_PROVIDER": "provider",
+    }[domain]
+    requirements = [
+        {
+            "requirement": requirement,
+            "status": "UNKNOWN",
+            "evidence": "No candidate-specific source was verified in this follow-up.",
+        }
+        for requirement in plan.get("requirements", [])
+    ]
+    return {
+        "option_id": "",
+        "title": name,
+        "summary": (
+            "This candidate remains in the requested comparison, but this "
+            "follow-up did not recover a candidate-specific source."
+        ),
+        "domain": "",
+        "url": "",
+        "source_title": "",
+        "image_url": "",
+        "card_type": card_type,
+        "metadata": {},
+        "requirements": requirements,
+        "sections": [],
+        "source_score": 0,
+        "evidence_completeness": 0,
+        "unknowns": _short_strings(plan.get("requirements"), 6, 180),
+        "evidence_scope": "FIXED_CANDIDATE_PLACEHOLDER",
+    }
+
+
+def _complete_fixed_candidates(plan, domain, options):
+    """Keep all AI-selected fixed candidates present in comparison order."""
+    names = _allowed_candidate_names(plan)
+    if not names:
+        return options
+    selected = _select_distinct_candidates("", domain, plan, options)
+    by_name = {item.get("title"): item for item in selected}
+    return [
+        by_name.get(name) or _missing_fixed_candidate(name, domain, plan)
+        for name in names
+    ]
 
 
 def research_controller(
@@ -481,7 +691,7 @@ def research_controller(
             continue
         if not page.get("success"):
             continue
-        route = _route_page(user_request, domain, candidate, page)
+        route = _route_page(user_request, domain, candidate, page, plan)
         print(
             "[CASPER RECOMMENDATION PAGE]",
             route["page_role"],
@@ -490,6 +700,10 @@ def research_controller(
         )
         if route["page_role"] == "DISCOVERY_GUIDE":
             for name in route["candidate_names"]:
+                if _allowed_candidate_names(plan):
+                    name = _fixed_candidate_name(name, plan)
+                    if name is None:
+                        continue
                 key = name.casefold()
                 if key not in seen_titles:
                     seen_titles.add(key)
@@ -529,7 +743,7 @@ def research_controller(
                 page = browser.read_url(url)
                 if not page.get("success"):
                     continue
-                route = _route_page(user_request, domain, candidate, page)
+                route = _route_page(user_request, domain, candidate, page, plan)
                 if route["page_role"] != "SINGLE_CANDIDATE":
                     continue
                 option = _extract_one(user_request, domain, plan, candidate, page)
@@ -605,7 +819,7 @@ def research_controller(
                 continue
             if not page.get("success"):
                 continue
-            route = _route_page(user_request, domain, candidate, page)
+            route = _route_page(user_request, domain, candidate, page, plan)
             print(
                 "[CASPER RECOMMENDATION RETRY]",
                 route["page_role"],
@@ -636,17 +850,29 @@ def research_controller(
 
     # A candidate explicitly marked MISMATCH by the evidence AI is not a
     # recommendation card. UNKNOWN remains visible and clearly qualified.
+    if _allowed_candidate_names(plan):
+        extracted = [
+            item for item in extracted
+            if _fixed_candidate_name(item.get("title"), plan) is not None
+        ]
+    final_pool = (
+        extracted
+        if _allowed_candidate_names(plan)
+        else [item for item in extracted if _meets_requirements(item)]
+    )
     extracted = _select_distinct_candidates(
         user_request,
         domain,
         plan,
-        [item for item in extracted if _meets_requirements(item)],
+        final_pool,
     )
+    extracted = _complete_fixed_candidates(plan, domain, extracted)
     for index, item in enumerate(extracted, start=1):
         item["option_id"] = "candidate_" + str(index)
 
-    cards = result_cards.clean_cards(
-        [
+    cards = []
+    for item in extracted:
+        card = result_cards.clean_card(
             {
                 "type": item["card_type"],
                 "title": item["title"],
@@ -662,17 +888,26 @@ def research_controller(
                     if item["image_url"] else None
                 ),
                 "metadata": {
-                    **(item["metadata"] if isinstance(item["metadata"], dict) else {}),
+                    **(
+                        item["metadata"]
+                        if isinstance(item["metadata"], dict) else {}
+                    ),
                     "captured_at": datetime.now().astimezone().isoformat(),
                 },
                 "requirements": item["requirements"],
                 "sections": item["sections"],
             }
-            for item in extracted
-        ]
-    )[:5]
+        )
+        if card:
+            cards.append(card)
+        if len(cards) >= 5:
+            break
 
-    if not cards and blocked_handoff is not None:
+    if (
+        not cards
+        and blocked_handoff is not None
+        and not _allowed_candidate_names(plan)
+    ):
         return {
             "status": "HUMAN_HANDOFF",
             "pending_approval": blocked_handoff,
@@ -681,20 +916,24 @@ def research_controller(
         }
 
     options = []
-    for index, (card, evidence) in enumerate(zip(cards, extracted), start=1):
+    for index, evidence in enumerate(extracted, start=1):
         options.append(
             {
                 "option_id": "option_" + str(index),
-                "title": card["title"],
-                "summary": card["summary"],
-                "domain": card["domain"],
+                "title": evidence["title"],
+                "summary": evidence["summary"],
+                "domain": evidence["domain"],
                 "source_score": evidence["source_score"],
-                "metadata": card["metadata"],
-                "requirements": card["requirements"],
-                "sections": card.get("sections", []),
+                "metadata": evidence["metadata"],
+                "requirements": evidence["requirements"],
+                "sections": evidence.get("sections", []),
                 "unknowns": evidence["unknowns"],
             }
         )
+    prior_context = (
+        str(recent_context)[-3500:]
+        if _allowed_candidate_names(plan) else ""
+    )
     comparison = decision_comparison.compare_options(
         options,
         plan["requirements"],
@@ -709,15 +948,29 @@ def research_controller(
             "calibration": calibration,
             "domain": domain,
             "criteria": plan["comparison_criteria"],
+            "fixed_candidate_names": _allowed_candidate_names(plan),
+            "prior_conversation_evidence": prior_context,
+            "restaurant_inference_policy": (
+                "A low-confidence practical choice may be inferred from "
+                "explicitly supported cuisine, dish texture, service style, "
+                "seating, and atmosphere. Keep unverified amenities UNKNOWN."
+                if domain == "RESTAURANT" else ""
+            ),
         },
     )
     context = (
         "melchior response mode: RECOMMENDATION_RESEARCH\n"
         "Recommendation domain: " + domain + "\n"
         "Give the direct verdict first, then explain distinct routes. "
-        "Use only verified cards and comparison evidence. Links belong to cards.\n\n"
+        "Use verified cards, validated comparison, and the supplied prior-turn "
+        "evidence. Links belong to cards.\n\n"
         "Plan:\n" + json.dumps(plan, ensure_ascii=False, indent=2)
         + "\n\nCards:\n" + json.dumps(cards, ensure_ascii=False, indent=2)
+        + (
+            "\n\nPrior conversation evidence for this fixed follow-up:\n"
+            + prior_context
+            if prior_context else ""
+        )
         + "\n\n" + decision_comparison.prompt_context(
             comparison,
             {item["option_id"]: item["title"] for item in options},

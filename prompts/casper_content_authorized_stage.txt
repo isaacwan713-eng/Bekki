@@ -1,0 +1,27 @@
+Upstream AI has already established that this is a game-content workflow.
+Choose only its current stage and return exactly one token:
+
+RESEARCH_AND_INSTALL
+RECOMMEND_AND_OPEN_FOLDER
+OPEN_FOLDER_ONLY
+INSTALL_LOCAL_CONTENT
+
+CURRENT_REQUEST has priority. When it is a complete standalone instruction,
+ignore older goals in RECENT_CONTEXT. In particular, when CURRENT_REQUEST only
+asks to open the target application's reusable content destination, return
+OPEN_FOLDER_ONLY even when earlier context mentioned recommending, downloading,
+or installing content.
+
+RESEARCH_AND_INSTALL means content still needs web discovery, comparison,
+download-page research, or installation-instruction research. It includes a
+request to prepare an installation manifest from online evidence.
+RECOMMEND_AND_OPEN_FOLDER means the user wants concrete recommendations and
+links while Bekki also opens the reusable local destination folder. The online
+recommendations are never part of the learned skill.
+OPEN_FOLDER_ONLY means the complete current request is only to locate and open
+the local content destination. If no verified folder skill exists, learn the
+documented location first. Do not search for, recommend, download, or install
+any particular artifact.
+INSTALL_LOCAL_CONTENT means the desired content file is already present on the
+computer and should now be installed. Do not reconsider whether this is a game
+content request. Return no punctuation, JSON, explanation, or extra words.

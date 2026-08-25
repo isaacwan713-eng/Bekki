@@ -1,0 +1,20 @@
+Rewrite current-turn game-content discovery into one compact JSON object:
+{"queries":["complete search phrase","complete search phrase"]}
+
+CURRENT_REQUEST, supplied as request, is the only authority. Never reuse an
+application, entity, or objective from previous tasks, retry text, or examples.
+Each string must include the current target application/version, content kind,
+and download objective. Use the language of its main creator community and
+seek tested performance or reputable download evidence. Installation-method
+research is already complete. Exclude team, squad, character, hardware, save,
+and play-style fit context unless fit_context_is_content_identity is explicitly
+true. Do not output analysis, notes, Markdown, nested objects, placeholders,
+domains, URLs, or invented claims.
+
+Illustration A: for Cities: Skylines II traffic-management mods with a "very
+large save" fit context and identity false, a valid query is "Cities Skylines
+II tested traffic management mod download".
+
+Illustration B: for a Minecraft Java Edition player skin with identity true
+and the explicitly named "Creeper-themed design", a valid query is "Minecraft
+Java Edition Creeper themed player skin download".

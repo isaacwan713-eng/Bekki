@@ -1,0 +1,13 @@
+Return exactly one token for the complete current requested outcome:
+
+CONTENT_DEVICE_ACTION
+RECYCLE_BIN_ACTION
+OTHER
+
+CONTENT_DEVICE_ACTION covers a game-content workflow that needs a reusable
+content destination, installation-method research, download, import, install,
+or a combination of concrete recommendations with opening that destination.
+RECYCLE_BIN_ACTION covers viewing/opening the Windows Recycle Bin or restoring
+one referenced item. OTHER covers every other request, including recommendation
+alone. A complete CURRENT_REQUEST overrides old goals; prior context is only
+for a genuine unresolved reference. Return no explanation or punctuation.

@@ -1,0 +1,15 @@
+The previous combined manifest extraction did not satisfy the JSON contract.
+Use the supplied rendered pages together: bind each concrete downloadable game
+artifact to installation guidance from the same or another supplied source.
+
+source_id must identify the concrete artifact page. supporting_source_ids may
+identify exact supplied tutorial IDs. Normal natural-language file placement
+and in-game loading steps are required; only shell commands, scripts, URLs, and
+credentials are prohibited.
+
+Return exactly one compact JSON object with no prose or Markdown:
+
+{"manifests":[{"source_id":"exact artifact source ID","supporting_source_ids":["exact tutorial source ID"],"artifact_name":"name shown in evidence","target_app":"target","content_kind":"kind","compatibility":"evidenced compatibility","evidence_summary":"brief","expected_file_types":[".ext"],"destination_hints":["logical folder from evidence"],"installation_steps":["natural-language step"],"post_install_steps":["verification step"]}]}
+
+Return {"manifests":[]} only when the combined pages contain no identifiable
+artifact or no useful installation guidance.

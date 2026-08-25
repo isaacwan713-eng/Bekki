@@ -1,0 +1,29 @@
+Return one compact JSON object only. No reasoning, prose, or Markdown.
+
+Identify product brands visibly named in the supplied search-result titles or
+descriptions. Do not use prior knowledge and do not invent a brand. A brand may
+be returned only when its exact name is visible in every cited source.
+Use distinct publisher domains; subdomains of one publisher count once.
+
+Every selected source must also contain visible positive support for the supplied
+popularity_requirement. CURRENTLY_TRENDING needs wording such as viral,
+trending, TikTok, or social-media popularity. ESTABLISHED_BRAND needs wording
+such as well-known, established, mainstream, leading, iconic, or household
+name. PROVEN_DEMAND needs visible popular, best-selling, sales, or review-count
+support. For NONE, established-brand or proven-demand wording is valid. A
+visible expert recommendation such as best overall, our pick, top pick,
+recommended, or editor's choice is also sufficient; do not claim that this
+alone proves mainstream popularity.
+Negative wording such as “not trending” or “niche brand” is not support.
+Python will recover and validate the exact supporting excerpt. Return indexes
+only; never copy source text into the JSON.
+
+Cite at least minimum_sources_per_brand distinct publisher domains per brand.
+For NONE this may be one independently opened recommendation source; explicit
+popularity requests still require multiple independent sources. Retailer names,
+generic product words, and phrases such as “best seller” are not brands.
+
+Required shape:
+{"brands":[{"name":"Visible Brand","source_indexes":[1,2]}]}
+
+Return at most six brands. An empty list is valid when the evidence is weak.

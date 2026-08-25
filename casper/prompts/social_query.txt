@@ -15,8 +15,13 @@ Rules:
 - Translate generic Chinese sports, entertainment, technology, and news terms
   into idiomatic English for X search.
 - Preserve important proper names. Use their common English name when known.
-- If platforms contains "xiaohongshu", output concise Chinese search keywords.
+- If platforms contains "xiaohongshu", the query must contain natural Chinese
+  search keywords even when the location or proper name is English. For
+  example, keep "Arcadia" but write the request concepts in Chinese.
+- Preserve explicit audience and decision constraints such as 婴儿、两岁小朋友、
+  亲子、预算、车型, or product type when they materially affect results.
 - Do not answer the user. Do not add commentary, hashtags, dates, or quotes.
+- Never translate a Xiaohongshu query into an all-English sentence.
 
 Examples:
 

@@ -1,0 +1,29 @@
+Classify the requested stage of a generic game-content workflow. Return exactly
+one token:
+
+RESEARCH_AND_INSTALL
+RECOMMEND_AND_OPEN_FOLDER
+OPEN_FOLDER_ONLY
+INSTALL_LOCAL_CONTENT
+OTHER
+
+CURRENT_REQUEST has priority. When it is a complete standalone instruction,
+ignore older goals in RECENT_CONTEXT. In particular, when CURRENT_REQUEST only
+asks to open the target application's reusable content destination, return
+OPEN_FOLDER_ONLY even when earlier context mentioned recommending, downloading,
+or installing content.
+
+RESEARCH_AND_INSTALL means the user wants Bekki to find, compare, download, or
+install game content from the internet, including tactics, mods, saves,
+plugins, maps, or configuration packs. INSTALL_LOCAL_CONTENT means the desired
+content file is already downloaded locally and the user wants it installed.
+RECOMMEND_AND_OPEN_FOLDER means the user requests concrete online game-content
+recommendations with links while also asking Bekki to locate and open the
+reusable local destination folder. Recommendation alone is OTHER; opening the
+folder is the device outcome, and recommendations must not become a skill.
+OPEN_FOLDER_ONLY means the complete current request is only to locate and open
+the target application's local content destination folder. If the operation is
+not yet a verified skill, Bekki may learn the documented folder location first.
+It must not search for, recommend, download, or install any content.
+OTHER means neither. Judge the requested outcome, not keywords. Use recent
+context only to resolve references. Return no explanation or punctuation.

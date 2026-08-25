@@ -5,11 +5,14 @@ should be handled. It does not execute searches, read documents, or generate
 the final user-facing reply.
 """
 
+import copy
 import json
+import re
 from datetime import datetime
 
 import context as context_manager
 import document
+import magi
 import memory
 import tools
 import vision
@@ -22,7 +25,9 @@ VALID_MODES = {
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
     "SHOPPING_RESEARCH",
+    "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
+    "DEVICE_ACTION",
 }
 
 VALID_SOCIAL_PLATFORMS = {
@@ -36,6 +41,15 @@ VALID_RISKS = {
     "medium",
     "high",
 }
+
+
+def _runtime_profile_context():
+    try:
+        import location
+
+        return location.get_localization_context()
+    except (ImportError, AttributeError, OSError, TypeError, ValueError):
+        return "Runtime localization profile unavailable."
 
 VALID_COMPLEXITIES = {
     "low",
@@ -57,6 +71,91 @@ VALID_RESEARCH_PROFILES = {
     "evidence_verification",
     "platform_native",
     "shopping_match",
+    "recommendation_match",
+}
+
+VALID_SKILL_ROUTES = {"none", "lookup"}
+VALID_DEVICE_SCOPES = {
+    "FILE_ACTION",
+    "APPLICATION_ACTION",
+    "WINDOW_ACTION",
+    "SYSTEM_ACTION",
+    "LIBRARY_ACTION",
+    "RECYCLE_BIN_ACTION",
+    "OTHER",
+}
+VALID_INTERACTION_MODES = {"TASK", "COMPANION"}
+VALID_CONTEXT_PROFILES = {
+    "MINIMAL",
+    "CONVERSATION",
+    "MEMORY",
+    "COMPANION",
+    "DOCUMENT",
+    "IMAGE",
+}
+
+_ROUTER_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "response_mode": {
+            "type": "string",
+            "enum": sorted(VALID_MODES),
+        },
+        "needs_search": {"type": "boolean"},
+        "research_depth": {"type": "string"},
+        "source_policy": {"type": "string"},
+        "risk": {"type": "string", "enum": sorted(VALID_RISKS)},
+        "complexity": {
+            "type": "string",
+            "enum": sorted(VALID_COMPLEXITIES),
+        },
+        "reasoning_profile": {
+            "type": "string",
+            "enum": sorted(VALID_REASONING_PROFILES),
+        },
+        "research_profile": {"type": "string"},
+        "claim_to_verify": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+        },
+        "social_platforms": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "recommendation_domain": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+        },
+        "skill_route": {
+            "type": "string",
+            "enum": sorted(VALID_SKILL_ROUTES),
+        },
+        "device_scope": {
+            "anyOf": [
+                {"type": "string", "enum": sorted(VALID_DEVICE_SCOPES)},
+                {"type": "null"},
+            ]
+        },
+        "interaction_mode": {
+            "type": "string",
+            "enum": sorted(VALID_INTERACTION_MODES),
+        },
+        "context_profile": {
+            "type": "string",
+            "enum": sorted(VALID_CONTEXT_PROFILES),
+        },
+        "reason": {"type": "string"},
+    },
+    "required": [
+        "response_mode",
+        "risk",
+        "complexity",
+        "reasoning_profile",
+        "skill_route",
+        "device_scope",
+        "interaction_mode",
+        "context_profile",
+        "reason",
+    ],
+    "additionalProperties": False,
 }
 
 MODE_INVARIANTS = {
@@ -96,7 +195,19 @@ MODE_INVARIANTS = {
         "source_policy": "merchant_results",
         "research_profile": "shopping_match",
     },
+    "RECOMMENDATION_RESEARCH": {
+        "needs_search": True,
+        "research_depth": "recommendation_compare",
+        "source_policy": "domain_evidence",
+        "research_profile": "recommendation_match",
+    },
     "TASK_ACTION": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },
+    "DEVICE_ACTION": {
         "needs_search": False,
         "research_depth": "none",
         "source_policy": "local_context",
@@ -115,6 +226,11 @@ DEFAULT_PLAN = {
     "research_profile": "local_context",
     "claim_to_verify": None,
     "social_platforms": [],
+    "recommendation_domain": None,
+    "skill_route": "none",
+    "interaction_mode": "TASK",
+    "context_profile": "MINIMAL",
+    "needs_balthasar": False,
     "reason": "Fallback route: answer from local context when possible.",
 }
 
@@ -146,6 +262,145 @@ def _normalize_choice(value, valid_values, fallback):
     if normalized not in valid_values:
         return fallback
     return normalized
+
+
+def _raw_plan_has_valid_mode(plan):
+    if not isinstance(plan, dict):
+        return False
+    return str(plan.get("response_mode", "")).upper().strip() in VALID_MODES
+
+
+def _repair_raw_plan_format_aliases(plan):
+    """Repair a known schema-label echo without making a new semantic choice."""
+    if not isinstance(plan, dict):
+        return plan
+    repaired = dict(plan)
+    if str(repaired.get("response_mode") or "").upper().strip() == "COMPANION":
+        repaired["response_mode"] = "LOCAL_ANSWER"
+        repaired["interaction_mode"] = "COMPANION"
+        repaired["context_profile"] = "COMPANION"
+    return repaired
+
+
+def _builtin_device_scope(user_message):
+    """Return the deterministic scope of a built-in Windows device surface.
+
+    This helper only runs after the main router has already selected
+    DEVICE_ACTION.  Recycle Bin is an operating-system primitive with a
+    dedicated bounded executor, so it must never be widened into a web/content
+    learning workflow by a second semantic model.
+    """
+    normalized = re.sub(r"\s+", " ", str(user_message or "")).casefold().strip()
+    if "回收站" in normalized or "recycle bin" in normalized:
+        return "RECYCLE_BIN_ACTION"
+    return ""
+
+
+def _is_direct_application_launch(user_message):
+    """Recognize only a simple app launch, not a reusable content workflow."""
+    text = re.sub(r"\s+", " ", str(user_message or "")).strip()
+    matches = bool(
+        re.match(
+            r"^(?:(?:请|麻烦)\s*)?(?:帮我\s*)?(?:打开|启动|运行)\s*\S.+$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        or re.match(
+            r"^(?:please\s+)?(?:open|launch|start|run)\s+\S.+$",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    if not matches:
+        return False
+    content_markers = (
+        "文件夹", "目录", "回收站", "战术", "模组", "插件", "地图", "存档",
+        "folder", "directory", "recycle bin", "tactic", "mod", "plugin",
+        "map", "save", "shader",
+    )
+    lowered = text.casefold()
+    return not any(marker in lowered for marker in content_markers)
+
+
+def _is_explicit_steam_game_launch(user_message):
+    """Recognize a bounded request to launch one named game through Steam."""
+    text = re.sub(r"\s+", " ", str(user_message or "")).strip()
+    patterns = (
+        r"^(?:请|麻烦)?\s*(?:帮我)?\s*(?:打开|启动|运行)\s*steam\s*(?:里|中的|上)?\s*(?:的)?\s*(?:游戏)?\s*\S.+$",
+        r"^(?:请|麻烦)?\s*(?:帮我)?\s*用\s*steam\s*(?:打开|启动|运行)\s*\S.+$",
+        r"^(?:请|麻烦)?\s*(?:帮我)?\s*在\s*steam\s*(?:里|中|上)?\s*(?:打开|启动|运行)\s*\S.+$",
+        r"^(?:please\s+)?(?:open|launch|start|run)\s+\S.+\s+(?:in|with|through)\s+steam$",
+    )
+    return any(re.match(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _is_steam_library_list_request(user_message):
+    """Recognize an explicit request to list locally installed Steam games."""
+    text = re.sub(r"\s+", " ", str(user_message or "")).strip()
+    patterns = (
+        r"^(?:请|麻烦)?\s*(?:帮我)?\s*(?:看看|看一下|查看|列出|显示)\s*(?:我的)?\s*steam\s*(?:游戏)?库\s*(?:里|中)?\s*(?:有|装了|安装了)?\s*(?:什么|哪些)?\s*(?:游戏)?\s*[？?。.!！]?$",
+        r"^(?:请|麻烦)?\s*(?:帮我)?\s*(?:看看|看一下|查看|列出|显示)\s*steam\s*(?:里|中|上)?\s*(?:有|装了|安装了)\s*(?:什么|哪些)\s*(?:游戏)?\s*[？?。.!！]?$",
+        r"^(?:我的)?\s*steam\s*(?:游戏)?库\s*(?:里|中)?\s*(?:有|装了|安装了)\s*(?:什么|哪些)\s*(?:游戏)?\s*[？?。.!！]?$",
+        r"^(?:please\s+)?(?:show|list|display)\s+(?:me\s+)?(?:my\s+)?installed\s+steam\s+games\s*[.!]?$",
+        r"^(?:what(?:'s| is)\s+in\s+my\s+steam\s+library|which\s+steam\s+games\s+are\s+installed)\s*[?!.]?$",
+    )
+    return any(re.match(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _classify_content_device_scope(
+    user_message,
+    conversation_context,
+    router_skill_route="none",
+):
+    """Focused AI gate that may narrow, but never widen, the main route."""
+    builtin_scope = _builtin_device_scope(user_message)
+    if builtin_scope:
+        return builtin_scope
+
+    # The authoritative router owns whether reusable Skills may be consulted.
+    # A compact secondary model is useful for narrowing a validated lookup,
+    # but a single false positive must not turn an ordinary local action into
+    # browser research or content installation.
+    if str(router_skill_route or "none").lower().strip() != "lookup":
+        return "OTHER"
+
+    prompt_input = (
+        "CURRENT_REQUEST (authoritative):\n"
+        + str(user_message)[:800]
+        + "\nRECENT_CONTEXT (reference resolution only):\n"
+        + str(conversation_context)[-1200:]
+    )
+    attempts = (
+        (
+            "prompts/melchior_content_action_scope.txt",
+            "llama3.2:latest",
+            320,
+            2048,
+        ),
+        (
+            "prompts/melchior_content_action_scope_retry.txt",
+            "gemma3:12b",
+            1000,
+            4096,
+        ),
+    )
+    for prompt_path, model_name, output_budget, context_budget in attempts:
+        raw = tools.run_ai_prompt(
+            prompt_path,
+            prompt_input,
+            expect_json=False,
+            num_ctx=context_budget,
+            num_predict=output_budget,
+            think=False,
+            model_name=model_name,
+        )
+        value = str(raw or "").strip().upper()
+        if value in {
+            "CONTENT_DEVICE_ACTION", "RECYCLE_BIN_ACTION", "OTHER"
+        }:
+            return value
+        prompt_input += "\nINVALID_PREVIOUS_OUTPUT:\n" + value[:80]
+    return ""
 
 
 def _normalize_plan(plan):
@@ -199,6 +454,16 @@ def _normalize_plan(plan):
         dict.fromkeys(normalized["social_platforms"])
     )
 
+    domain = str(normalized.get("recommendation_domain", "")).upper().strip()
+    valid_domains = {
+        "PRODUCT", "RESTAURANT", "LOCAL_SERVICE", "HEALTHCARE_PROVIDER",
+    }
+    if response_mode == "SHOPPING_RESEARCH":
+        domain = "PRODUCT"
+    elif response_mode != "RECOMMENDATION_RESEARCH" or domain not in valid_domains:
+        domain = None
+    normalized["recommendation_domain"] = domain
+
     if not isinstance(normalized.get("claim_to_verify"), str):
         normalized["claim_to_verify"] = None
     elif not normalized["claim_to_verify"].strip():
@@ -209,40 +474,505 @@ def _normalize_plan(plan):
         ].strip()[:500]
 
     normalized["reason"] = str(normalized.get("reason", ""))[:280]
+    skill_route = str(normalized.get("skill_route") or "none").lower().strip()
+    if response_mode != "DEVICE_ACTION" or skill_route not in VALID_SKILL_ROUTES:
+        skill_route = "none"
+    normalized["skill_route"] = skill_route
+    device_scope = str(
+        normalized.get("device_scope") or ""
+    ).upper().strip()
+    if (
+        response_mode != "DEVICE_ACTION"
+        or device_scope not in VALID_DEVICE_SCOPES
+    ):
+        device_scope = None
+    normalized["device_scope"] = device_scope
+
+    interaction_mode = str(
+        normalized.get("interaction_mode") or "TASK"
+    ).upper().strip()
+    context_profile = str(
+        normalized.get("context_profile") or "MINIMAL"
+    ).upper().strip()
+    if interaction_mode not in VALID_INTERACTION_MODES:
+        interaction_mode = "TASK"
+    if context_profile not in VALID_CONTEXT_PROFILES:
+        context_profile = "MINIMAL"
+
+    # Emotional alignment is useful only for an actual companion reply.  A
+    # recommendation, lookup, action, or routine question must not load a
+    # second persona model merely because the wording happens to be warm.
+    if response_mode != "LOCAL_ANSWER":
+        interaction_mode = "TASK"
+        if context_profile == "COMPANION":
+            context_profile = "MINIMAL"
+    if interaction_mode == "COMPANION":
+        context_profile = "COMPANION"
+    elif context_profile == "COMPANION":
+        context_profile = "MINIMAL"
+    normalized["interaction_mode"] = interaction_mode
+    normalized["context_profile"] = context_profile
+    normalized["needs_balthasar"] = interaction_mode == "COMPANION"
     return normalized
 
 
-def plan_request(user_message, conversation_context=""):
+MAGI_LANE_MODES = {
+    "SEARCH": {
+        "NEWS_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH",
+        "SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH",
+    },
+    "LOCAL": {"LOCAL_ANSWER"},
+    "COMMAND": {"TASK_ACTION", "DEVICE_ACTION"},
+}
+
+
+def _valid_magi_route(magi_route):
+    if not isinstance(magi_route, dict):
+        return None
+    lane = str(magi_route.get("lane") or "").upper().strip()
+    if lane not in MAGI_LANE_MODES:
+        return None
+    try:
+        confidence = float(magi_route.get("confidence"))
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= confidence <= 1:
+        return None
+    return lane, confidence
+
+
+def _plan_matches_magi(plan, magi_route):
+    route = _valid_magi_route(magi_route)
+    if route is None:
+        return magi_route is None
+    lane, _confidence = route
+    return str(plan.get("response_mode") or "").upper().strip() in MAGI_LANE_MODES[lane]
+
+
+def _annotate_magi(plan, magi_route):
+    route = _valid_magi_route(magi_route)
+    if route is None:
+        if magi_route is not None:
+            raise RuntimeError("MAGI supplied an invalid route contract.")
+        return plan
+    lane, confidence = route
+    plan["magi_lane"] = lane
+    plan["magi_confidence"] = confidence
+    return plan
+
+
+def _authoritative_social_plan(magi_route):
+    """Use only MAGI AI's closed social-search judgment."""
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "SEARCH":
+        return None
+    if str(
+        magi_route.get("social_scope") or ""
+    ).upper().strip() != "SOCIAL_RESEARCH":
+        return None
+    raw_platforms = magi_route.get("social_platforms")
+    if not isinstance(raw_platforms, list):
+        raise RuntimeError("MAGI supplied an invalid social platform contract.")
+    platforms = []
+    for platform in raw_platforms:
+        value = str(platform or "").lower().strip()
+        if value not in VALID_SOCIAL_PLATFORMS:
+            raise RuntimeError(
+                "MAGI supplied an unsupported social platform."
+            )
+        if value not in platforms:
+            platforms.append(value)
+    if not platforms:
+        raise RuntimeError("MAGI selected social research without a platform.")
+    return _normalize_plan(
+        {
+            "response_mode": "SOCIAL_RESEARCH",
+            "risk": "low",
+            "complexity": "medium",
+            "reasoning_profile": "analytical",
+            "social_platforms": platforms,
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": (
+                "Reliable MAGI selected explicit named social-platform "
+                "research."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_social_plan(magi_route):
+    plan = _authoritative_social_plan(magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print(
+        "[MELCHIOR SOCIAL ROUTE]",
+        json.dumps(plan.get("social_platforms", []), ensure_ascii=False),
+    )
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
+    return plan
+
+
+def _authoritative_recommendation_plan(magi_route):
+    """Honor reliable MAGI's closed recommendation type without compact drift."""
+
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "SEARCH":
+        return None
+    if str(
+        magi_route.get("search_scope") or ""
+    ).upper().strip() != "RECOMMENDATION_RESEARCH":
+        return None
+    domain = str(
+        magi_route.get("recommendation_domain") or ""
+    ).upper().strip()
+    if domain not in {
+        "PRODUCT", "RESTAURANT", "LOCAL_SERVICE", "HEALTHCARE_PROVIDER",
+    }:
+        raise RuntimeError(
+            "MAGI selected recommendation research without a valid domain."
+        )
+    return _normalize_plan(
+        {
+            "response_mode": "RECOMMENDATION_RESEARCH",
+            "risk": "medium",
+            "complexity": "medium",
+            "reasoning_profile": "analytical",
+            "recommendation_domain": domain,
+            "social_platforms": [],
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": (
+                "Reliable MAGI selected open-ended real-world recommendation "
+                "research in the " + domain + " domain."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_recommendation_plan(magi_route):
+    plan = _authoritative_recommendation_plan(magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print(
+        "[MELCHIOR RECOMMENDATION ROUTE]",
+        plan.get("recommendation_domain"),
+    )
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
+    return plan
+
+
+def _router_schema_for_magi(magi_route):
+    """Restrict audited replanning to the lane selected by AI MAGI."""
+    schema = copy.deepcopy(_ROUTER_PLAN_SCHEMA)
+    route = _valid_magi_route(magi_route)
+    if route is not None:
+        lane, _confidence = route
+        schema["properties"]["response_mode"]["enum"] = sorted(
+            MAGI_LANE_MODES[lane]
+        )
+    return schema
+
+
+def _independent_router_schema():
+    """Allow Melchior's first judgment to challenge MAGI across all modes."""
+    return copy.deepcopy(_ROUTER_PLAN_SCHEMA)
+
+
+def _compact_router_input(
+    user_message,
+    conversation_context,
+    magi_route,
+    state,
+    memory_data,
+):
+    return json.dumps(
+        {
+            "current_date": datetime.now().date().isoformat(),
+            "runtime_localization_defaults": _runtime_profile_context(),
+            "current_user_message": str(user_message or "")[:1600],
+            "initial_magi_ai_route_for_independent_review": magi_route,
+            "allowed_response_modes": sorted(VALID_MODES),
+            "recent_conversation_for_reference_only": str(
+                conversation_context or ""
+            )[-1600:],
+            "conversation_state_available": bool(state),
+            "long_term_memory_available": bool(
+                memory.get_long_term_context(memory_data).strip()
+            ),
+            "active_document": bool(document.has_document()),
+            "active_image": bool(vision.has_image()),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def plan_request(user_message, conversation_context="", magi_route=None):
     """Return a normalized V2 routing plan for one user message."""
 
     memory_data = memory.initialize_memory()
     state = context_manager.load_context()
 
-    input_text = (
-        "Current date:\n"
-        + datetime.now().date().isoformat()
-        + "\n\nCurrent conversation state:\n"
-        + json.dumps(state, ensure_ascii=False, indent=2)
-        + "\n\nCurrent long-term memory:\n"
-        + memory.get_long_term_context(memory_data)
-        + "\n\nCurrent document:\n"
-        + _document_context()
-        + "\n\nCurrent image:\n"
-        + _image_context()
-        + "\n\nRecent conversation:\n"
-        + conversation_context
-        + "\n\nCurrent user message:\n"
-        + user_message
-    )
+    social_plan = _finish_authoritative_social_plan(magi_route)
+    if social_plan is not None:
+        return social_plan
+    recommendation_plan = _finish_authoritative_recommendation_plan(magi_route)
+    if recommendation_plan is not None:
+        return recommendation_plan
 
-    raw_plan = tools.run_ai_prompt(
-        "prompts/melchior_router.txt",
-        input_text,
-        expect_json=True,
-        num_ctx=4096,
-        num_predict=420,
+    input_text = _compact_router_input(
+        user_message,
+        conversation_context,
+        magi_route,
+        state,
+        memory_data,
     )
+    # Melchior must be able to disagree with the first MAGI judgment.  Lane
+    # restriction is applied only after the reliable 12B MAGI audit below.
+    router_schema = _independent_router_schema()
+
+    small_model_unloaded = False
+    try:
+        raw_plan = tools.run_ai_prompt(
+            "prompts/melchior_router.txt",
+            input_text,
+            expect_json=True,
+            num_ctx=4096,
+            num_predict=1200,
+            think=False,
+            model_name="gemma3:4b",
+            json_schema=router_schema,
+        )
+    except Exception as error:
+        # Routine routing belongs on the small model.  If that runner fails,
+        # unload the model that actually failed before one bounded 12B retry.
+        print("[MELCHIOR ROUTER MODEL ERROR]", repr(error))
+        raw_plan = None
+        try:
+            tools.unload_model("gemma3:4b")
+            small_model_unloaded = True
+        except Exception as unload_error:
+            print(
+                "[MELCHIOR ROUTER RECOVERY UNLOAD SKIPPED]",
+                repr(unload_error),
+            )
+
+    raw_plan = _repair_raw_plan_format_aliases(raw_plan)
+
+    # A local model can still occasionally truncate structured output.  Ask
+    # Melchior to make the routing judgment again; Python only detects the
+    # format failure and never substitutes a semantic route here.
+    if not _raw_plan_has_valid_mode(raw_plan):
+        if not small_model_unloaded:
+            try:
+                tools.unload_model("gemma3:4b")
+                small_model_unloaded = True
+            except Exception as unload_error:
+                print(
+                    "[MELCHIOR ROUTER RECOVERY UNLOAD SKIPPED]",
+                    repr(unload_error),
+                )
+        recovery_input = json.dumps(
+            {
+                "current_date": datetime.now().date().isoformat(),
+                "runtime_localization_defaults": _runtime_profile_context(),
+                "current_conversation_state": state,
+                "recent_conversation": conversation_context[-5000:],
+                "current_user_message": user_message,
+                "initial_magi_ai_route_for_independent_review": magi_route,
+                "allowed_response_modes": sorted(VALID_MODES),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        try:
+            raw_plan = tools.run_ai_prompt(
+                "prompts/melchior_router_recover.txt",
+                recovery_input,
+                expect_json=True,
+                num_ctx=4096,
+                num_predict=1800,
+                think=False,
+                model_name="gemma3:12b",
+                json_schema=router_schema,
+            )
+            raw_plan = _repair_raw_plan_format_aliases(raw_plan)
+        except Exception as error:
+            print("[MELCHIOR ROUTER RECOVERY ERROR]", repr(error))
+            raise RuntimeError(
+                "Melchior routing model was unavailable after one recovery retry."
+            ) from error
+
+    if not _raw_plan_has_valid_mode(raw_plan):
+        raise RuntimeError(
+            "Melchior could not produce a valid routing mode after retry."
+        )
 
     plan = _normalize_plan(raw_plan)
+    if not _plan_matches_magi(plan, magi_route):
+        print(
+            "[MELCHIOR CROSSED MAGI LANE]",
+            str(plan.get("response_mode")),
+            "lane=" + str((magi_route or {}).get("lane")),
+        )
+        # A disagreement can mean the detailed planner is wrong, but it can
+        # also mean MAGI's first judgment was wrong. Return the request to the
+        # reliable 12B MAGI auditor instead of blindly forcing the old lane.
+        magi_route = magi.audit_route(
+            user_message,
+            previous_route=magi_route,
+            downstream_mode=plan.get("response_mode"),
+            downstream_reason=plan.get("reason", ""),
+            recent_context=conversation_context,
+        )
+        social_plan = _finish_authoritative_social_plan(magi_route)
+        if social_plan is not None:
+            return social_plan
+        recommendation_plan = _finish_authoritative_recommendation_plan(
+            magi_route
+        )
+        if recommendation_plan is not None:
+            return recommendation_plan
+        router_schema = _router_schema_for_magi(magi_route)
+        lane_recovery_input = json.dumps(
+            {
+                "audited_authoritative_magi_ai_route": magi_route,
+                "current_date": datetime.now().date().isoformat(),
+                "current_user_message": user_message,
+                "recent_conversation_for_reference_only": conversation_context[-1600:],
+                "previous_cross_lane_mode": plan.get("response_mode"),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        try:
+            lane_plan = tools.run_ai_prompt(
+                "prompts/melchior_lane_recover.txt",
+                lane_recovery_input,
+                expect_json=True,
+                num_ctx=3072,
+                num_predict=900,
+                think=False,
+                model_name="gemma3:4b",
+                json_schema=router_schema,
+            )
+            lane_plan = _repair_raw_plan_format_aliases(lane_plan)
+        except Exception as error:
+            raise RuntimeError(
+                "Melchior disagreed with MAGI and audited AI replanning failed."
+            ) from error
+        if not _raw_plan_has_valid_mode(lane_plan):
+            raise RuntimeError(
+                "Melchior AI returned an invalid audited-lane route."
+            )
+        plan = _normalize_plan(lane_plan)
+        if not _plan_matches_magi(plan, magi_route):
+            raise RuntimeError(
+                "Melchior AI crossed the audited MAGI lane; request stopped safely."
+            )
+    plan = _annotate_magi(plan, magi_route)
+    # A syntactically explicit open/launch command is an execution boundary,
+    # not an open-ended semantic routing choice.  The model may describe it as
+    # casual conversation, but it must never turn a requested local action into
+    # a fabricated LOCAL_ANSWER confirmation.
+    if magi_route is None and (
+        _builtin_device_scope(user_message)
+        or _is_explicit_steam_game_launch(user_message)
+        or _is_direct_application_launch(user_message)
+    ):
+        plan.update(
+            {
+                "response_mode": "DEVICE_ACTION",
+                "needs_search": False,
+                "research_depth": "none",
+                "source_policy": "local_context",
+                "risk": "low",
+                "complexity": "low",
+                "reasoning_profile": "quick",
+                "research_profile": "local_context",
+                "skill_route": "none",
+                "interaction_mode": "TASK",
+                "context_profile": "MINIMAL",
+                "needs_balthasar": False,
+            }
+        )
+    if magi_route is None and _is_steam_library_list_request(user_message):
+        plan.update(
+            {
+                "response_mode": "DEVICE_ACTION",
+                "needs_search": False,
+                "research_depth": "none",
+                "source_policy": "local_context",
+                "risk": "low",
+                "complexity": "low",
+                "reasoning_profile": "quick",
+                "research_profile": "local_context",
+                "skill_route": "none",
+                "interaction_mode": "TASK",
+                "context_profile": "MINIMAL",
+                "needs_balthasar": False,
+                "steam_library_list_selected": True,
+                "reason": (
+                    "The user requested a read-only list of locally installed "
+                    "Steam games."
+                ),
+            }
+        )
+    if plan["response_mode"] == "DEVICE_ACTION":
+        if plan.get("steam_library_list_selected"):
+            content_scope = "OTHER"
+            print("[MELCHIOR CONTENT GATE] STEAM_LIBRARY_LIST")
+        elif _is_explicit_steam_game_launch(user_message):
+            plan["skill_route"] = "none"
+            plan["steam_game_launch_selected"] = True
+            content_scope = "OTHER"
+            plan["reason"] = (
+                "The user requested one locally installed Steam game launch."
+            )
+            print("[MELCHIOR CONTENT GATE] STEAM_GAME_LAUNCH")
+        elif _is_direct_application_launch(user_message):
+            plan["skill_route"] = "none"
+            content_scope = "OTHER"
+            plan["reason"] = (
+                "The user requested a bounded installed-application launch."
+            )
+            print("[MELCHIOR CONTENT GATE] SIMPLE_APP_LAUNCH")
+        else:
+            content_scope = _classify_content_device_scope(
+                user_message,
+                conversation_context,
+                plan.get("skill_route", "none"),
+            )
+        if content_scope == "CONTENT_DEVICE_ACTION":
+            plan["risk"] = "medium"
+            plan["complexity"] = "high"
+            plan["reasoning_profile"] = "analytical"
+            plan["content_workflow_selected"] = True
+            plan["skill_route"] = "lookup"
+            plan["reason"] = (
+                "Focused AI selected a skill-eligible web-to-local content workflow."
+            )
+            print("[MELCHIOR CONTENT GATE] CONTENT_DEVICE_ACTION")
+        elif content_scope == "RECYCLE_BIN_ACTION":
+            plan["risk"] = "low"
+            plan["complexity"] = "low"
+            plan["reasoning_profile"] = "quick"
+            plan["recycle_workflow_selected"] = True
+            plan["skill_route"] = "none"
+            plan["reason"] = (
+                "Focused AI selected the bounded Windows Recycle Bin workflow."
+            )
+            print("[MELCHIOR CONTENT GATE] RECYCLE_BIN_ACTION")
+        elif content_scope == "":
+            raise RuntimeError(
+                "Melchior content-action gate returned invalid output twice."
+            )
     print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan

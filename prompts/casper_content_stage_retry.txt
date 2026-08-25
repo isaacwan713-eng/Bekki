@@ -1,0 +1,14 @@
+Return exactly one token for the current requested outcome:
+
+RESEARCH_AND_INSTALL
+RECOMMEND_AND_OPEN_FOLDER
+OPEN_FOLDER_ONLY
+INSTALL_LOCAL_CONTENT
+OTHER
+
+The complete CURRENT_REQUEST overrides old goals. Use RECENT_CONTEXT only for
+a genuine unresolved reference. Online discovery/download/install is
+RESEARCH_AND_INSTALL. Concrete recommendations plus opening the reusable local
+destination is RECOMMEND_AND_OPEN_FOLDER. Opening only that destination is
+OPEN_FOLDER_ONLY. Installing a file already present locally is
+INSTALL_LOCAL_CONTENT. Everything else is OTHER. Return no explanation.

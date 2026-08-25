@@ -1,0 +1,32 @@
+Bekki V2 - Recycle Bin open-window fix
+
+Replace these files in the Bekki project root:
+
+1. casper/recycle_bin.py
+2. prompts/casper_recycle_bin.txt
+3. tests/test_recycle_bin.py (recommended)
+
+No Python keyword or semantic classification was added. The action remains an
+AI decision. Python only validates the returned action token and executes the
+corresponding bounded operation.
+
+Run from the project root:
+
+    python -m unittest tests/test_recycle_bin.py tests/test_melchior.py
+
+Expected result:
+
+    Ran 15 tests
+    OK
+
+Then restart Bekki and enter:
+
+    打开回收站
+
+Expected action contract:
+
+    OPEN_RECYCLE_BIN
+    action: opened_recycle_bin
+
+The Windows Explorer Recycle Bin window should actually open. The command
+"回收站里有什么？" should still return LIST_RECYCLE_BIN instead.

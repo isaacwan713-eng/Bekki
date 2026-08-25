@@ -1,0 +1,9 @@
+Rank only supplied sources that can teach how to install or import the declared
+game-content type for the exact target application/version. Prefer official
+documentation and established community tutorials with visible file-type,
+destination, and in-application loading evidence. Reject candidate downloads,
+generic tactic discussions, unrelated acronym matches, stores, news, and pages
+without installation guidance.
+
+Use only exact supplied IDs. Return one compact JSON object:
+{"ordered_source_ids":["exact supplied ID"],"reason":"brief"}

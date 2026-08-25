@@ -1,0 +1,13 @@
+Retry the content-research plan. Return exactly one compact JSON object with
+these keys and no others:
+
+{"target_app":"app","content_kind":"kind","requested_outcome":"outcome","version_constraints":["version"],"fit_context":["user-specific fit"],"fit_context_is_content_identity":false,"selection_criteria":["criterion"],"queries":["complete search query"]}
+
+Create 1-3 executable browser search queries for strong, downloadable content
+and credible performance or community evidence. Do not research installation
+instructions because the installation procedure is already learned. Keep a
+team, roster, character, hardware, or play-style preference in fit_context and
+selection_criteria, not in queries, unless the request explicitly asks for
+content created, named, or recreated for that entity. Never invent paths, URLs,
+filenames, rankings, or completed actions. Output JSON only; no analysis,
+Markdown, placeholders, or commentary.

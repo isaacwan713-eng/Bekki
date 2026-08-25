@@ -1,0 +1,19 @@
+Return only one compact JSON object with these exact fields. Choose exactly one
+plain value for every categorical field. Never copy a list of options, a pipe
+character, or schema placeholder into a value.
+
+Valid choices:
+- user_emotion: neutral, happy, sad, frustrated, anxious, excited, angry,
+  tired, confused, unwell
+- tone: playful, warm, calm, serious
+- support_style: direct, encouraging, comforting, grounding, celebrating
+- bekki_mood: cheerful, playful, gentle, curious, calm, concerned, excited,
+  serious
+
+Example shape (replace values when the message supports it):
+{"user_emotion":"neutral","intensity":0.0,"tone":"warm","support_style":"direct","bekki_mood":"curious","valence_delta":0.0,"energy_delta":0.0,"closeness_delta":0.0,"reason":"routine conversation"}
+
+Classify the current user message, not old conversation. For a routine neutral
+message keep the supplied current Bekki mood exactly and use zero deltas. Keep
+all deltas small and bounded. Do not diagnose, invent emotion, or explain.
+Return valid JSON only, without Markdown or trailing prose.

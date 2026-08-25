@@ -1,0 +1,18 @@
+Recover the substantive device/content request that Bekki must resume after a
+learning or retry checkpoint. The current reply may only mean "continue" and
+must not replace the earlier task.
+
+Use pending_action and recent_context to identify the most recent explicit user
+request that caused this checkpoint, preserving important fit criteria such as
+the target team, requested mod, application, product, or desired outcome.
+
+Return exactly one compact JSON object:
+
+{"found":true,"resume_request":"complete original user request","reason":"brief"}
+
+If no earlier substantive request is actually present, return:
+
+{"found":false,"resume_request":null,"reason":"brief"}
+
+Do not output a bare continuation/confirmation reply as resume_request. Judge
+the meaning in any language. Return no prose or Markdown.

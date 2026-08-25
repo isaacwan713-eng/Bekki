@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import result_cards
+import conversation_time
 import memory
 import tools
 import document
@@ -181,8 +182,15 @@ def get_ai_response(
     current_emotion_state=None,
 ):
     # Keep the prompt responsive as a conversation gets longer.
-    recent_conversation = conversation[-MAX_RECENT_MESSAGES:]
-    conversation_text = "\n".join(recent_conversation)
+    active_session = history.get_active_session(history_data)
+    conversation_text = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
+    temporal_context = conversation_time.prompt_context(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
     temporary_context = memory.get_temporary_context(memory_data)
     long_term_context = memory.get_long_term_context(memory_data)
 
@@ -237,35 +245,66 @@ def get_ai_response(
             "Do not use prior conversation as evidence.\n"
             "Do not invent social posts, dates, authors, or engagement.\n"
             "Do not use items outside the requested time window.\n"
+            "When grounded social recommendation cards are supplied, briefly "
+            "introduce each displayed card and refer to its visible image.\n"
+            "Never claim a restaurant name or child suitability when the card "
+            "marks it as unknown.\n"
             "If there are no usable items, say the page had no readable "
             "social results.\n"
         )
 
     if (
         melchior_plan
-        and melchior_plan.get("response_mode") == "SHOPPING_RESEARCH"
+        and melchior_plan.get("response_mode") in {
+            "SHOPPING_RESEARCH",
+            "RECOMMENDATION_RESEARCH",
+        }
     ):
         melchior_instruction += (
-            "\n\nMELCHIOR SHOPPING_RESEARCH RULE:\n"
-            "Products are displayed separately as structured cards.\n"
-            "Do not repeat each product description in the reply; every product "
-            "already has its own image-and-text card. Give only a concise final "
-            "comparison and recommendation based on all supplied cards.\n"
+            "\n\nMELCHIOR RECOMMENDATION_RESEARCH RULE:\n"
+            "Candidates are displayed separately as structured cards.\n"
+            "If zero cards are supplied, do not invent or recommend a candidate.\n"
+            "Do not repeat each card description. Give a concise direct verdict, "
+            "the main routes/options, and the validated trade-offs.\n"
+            "When one or more verified candidate cards exist, never answer only "
+            "that evidence is insufficient. Introduce the strongest candidates "
+            "and explain their supported pros, cons, and best-for differences. "
+            "UNKNOWN fields are caveats, not a reason to hide valid candidates.\n"
+            "When three or more cards exist, name and compare at least three. "
+            "If no single overall winner is justified, give conditional routes "
+            "such as best-supported for atmosphere, value, convenience, or the "
+            "user's occasion. Do not ask permission to repeat research that "
+            "Casper has already completed.\n"
             "Never paste, repeat, or format a raw URL in the reply.\n"
-            "Do not describe a shopping search page as a product.\n"
+            "Do not describe a search/category page as a real candidate.\n"
             "Treat UNKNOWN requirements as unverified, not matched.\n"
-            "For shopping, prioritize budget fit, proven sales/popularity, "
+            "For SHOPPING_RESEARCH PRODUCT only, prioritize budget fit, proven sales/popularity, "
             "brand reliability, then feature fit. Never call UNKNOWN popularity "
             "popular, and never recommend a visibly low-demand product.\n"
-            "Respect the supplied shopping preference profile: quality-first "
+            "For SHOPPING_RESEARCH PRODUCT only, respect the supplied shopping preference profile: quality-first "
             "users may prefer a reliable premium option; value-first users "
             "should prefer trusted value brands over unknown cheapest brands.\n"
-            "State how many product cards were found. When three or more cards "
+            "For RECOMMENDATION_RESEARCH PRODUCT, base the verdict on supplied "
+            "professional review, comparison, testing, roundup and official-spec "
+            "evidence. Do not imply that review-source cards are current purchase "
+            "pages, and do not invent price, stock or availability.\n"
+            "State how many cards were found. When three or more cards "
             "exist, compare at least the strongest three instead of describing "
             "only the first card. Summarize each option's main pro and con, "
             "then give the validated recommendation and its key trade-off. "
             "Keep the comparison compact.\n"
-            "Tell the user to use the explicit View product button when needed.\n"
+            "For PRODUCT, a request such as 'find/show me three products' or "
+            "'帮我找三个商品' means three different recommendation candidates, "
+            "not a three-pack or an intention to purchase three units. Never "
+            "mention a bundle, buying three, ordering three, or the absence of "
+            "a three-piece set unless the user explicitly requested 三件套、三只装、"
+            "三个同款, a multipack, or a purchase quantity.\n"
+            "When units were localized for search, lead with the user's original "
+            "unit and show the local equivalent second. For example, say "
+            "'500 ml（约 16.9 US fl oz）', not only '17 oz'. Clearly label nearby "
+            "commercial sizes as alternatives rather than exact matches.\n"
+            "When useful, refer to the card's action button without claiming a "
+            "review-source card is a merchant purchase page.\n"
         )
 
     if balthasar_plan:
@@ -351,6 +390,10 @@ def get_ai_response(
         + "\n############################\n"
         + location.get_localization_context()
         + "\n\n############################"
+        + "\nConversation Time Context"
+        + "\n############################\n"
+        + temporal_context
+        + "\n\n############################"
         + "\nCurrent User Message"
         + "\n############################\n"
         + message
@@ -388,8 +431,12 @@ def get_ai_response(
 
     ai_output = tools.call_model(
         prompt,
-        num_ctx=16384,
-        num_predict=4096,
+        # Long-form Bekki response budget. On the user's 16 GB GPU this is the
+        # practical high setting; model routing remains on a compact model so
+        # it does not reserve this budget for short JSON decisions.
+        num_ctx=32768,
+        num_predict=8192,
+        think="low",
     )
 
     print("AI RAW OUTPUT:")
@@ -418,11 +465,20 @@ def get_ai_response(
     )
     print("[debug]")
 
-    recent_conversation = "\n".join(conversation[-MAX_RECENT_MESSAGES:])
+    active_session = history.get_active_session(history_data)
+    recent_conversation = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
+    temporal_data = conversation_time.session_time_data(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
+    )
     context_manager.update_context(
         recent_conversation = recent_conversation,
         current_user_message = message,
-        latest_reply = reply
+        latest_reply = reply,
+        temporal_context = temporal_data,
     )
     print("[DEBUG] AFTER CONTEXT UPDATE")
     print("[DEBUG] RETURNING REPLY:", repr(reply))
@@ -550,9 +606,209 @@ def process_request(message, status_callback):
     melchior_plan = None
     balthasar_plan = None
     response_mode = "LOCAL_ANSWER"
-    recent_context = "\n".join(
-        conversation[-MAX_RECENT_MESSAGES:]
+    device_elevation_approved = False
+    device_action_approval = None
+    content_resume_skill_id = ""
+    learning_checkpoint_verdict = ""
+    recent_context = conversation_time.recent_conversation(
+        active_session,
+        limit=MAX_RECENT_MESSAGES,
     )
+
+    if pending and pending.get("type") == "skill_user_verification":
+        from casper import skill_registry
+
+        verdict = skill_registry.classify_user_verification(
+            message, pending, recent_context
+        )
+        payload = pending.get("approval_payload") or {}
+        candidate_id = str(
+            payload.get("skill_candidate_id") or ""
+        ).strip()
+        if verdict == "ACCEPT":
+            skill = skill_registry.commit_verified(candidate_id, message)
+            memory.clear_pending_action()
+            if skill:
+                return {
+                    "reply": (
+                        "确认成功。这个操作现在已经存入 Bekki Skills，"
+                        "以后遇到相同或相似的请求，我会直接复用这项技能。"
+                    ),
+                    "response_mode": "DEVICE_ACTION",
+                    "sources": [],
+                    "highlights": [],
+                    "cards": [],
+                }
+            return {
+                "reply": (
+                    "我收到了成功确认，但临时技能缺少完整的机器验证记录，"
+                    "所以没有写入 Skills。"
+                ),
+                "response_mode": "DEVICE_ACTION",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+        if verdict == "REJECT":
+            skill_registry.discard_pending(
+                candidate_id,
+                "The user rejected the completed operation result.",
+                user_rejected=True,
+            )
+            memory.clear_pending_action()
+            return {
+                "reply": (
+                    "明白，这次结果不正确。我已经丢弃临时技能，"
+                    "没有把它存入 Skills；下次会重新学习和定位。"
+                ),
+                "response_mode": "DEVICE_ACTION",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+        if verdict == "UNRELATED":
+            skill_registry.discard_pending(
+                candidate_id,
+                "The user moved to another topic before verifying the result.",
+                user_rejected=False,
+            )
+            memory.clear_pending_action()
+            pending = None
+        else:
+            return {
+                "reply": (
+                    "我还不能确认这次操作是否正确。请告诉我目标应用里是否已经"
+                    "看到并能正常使用刚才安装的内容；你可以回答“成功了”或“没有，错了”。"
+                ),
+                "response_mode": "DEVICE_ACTION",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+
+    if pending and pending.get("type") == "content_learning_continue":
+        from casper import skill_registry
+
+        learning_checkpoint_verdict = skill_registry.classify_learning_checkpoint(
+            message, pending, recent_context
+        )
+        if learning_checkpoint_verdict == "REJECT":
+            payload = pending.get("approval_payload") or {}
+            candidate_id = str(
+                payload.get("skill_candidate_id") or ""
+            ).strip()
+            skill_registry.discard_pending(
+                candidate_id,
+                "The user rejected the learned method or candidate destination.",
+                user_rejected=True,
+            )
+            memory.clear_pending_action()
+            return {
+                "reply": (
+                    "明白，刚才学习的方法或目录不正确。我已经丢弃这项临时候选，"
+                    "没有写入 Skills。你再次要求时，我会重新学习。"
+                ),
+                "response_mode": "DEVICE_ACTION",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+        if learning_checkpoint_verdict == "UNRELATED":
+            payload = pending.get("approval_payload") or {}
+            candidate_id = str(
+                payload.get("skill_candidate_id") or ""
+            ).strip()
+            skill_registry.discard_pending(
+                candidate_id,
+                "The user moved to another topic before continuing the candidate.",
+                user_rejected=False,
+            )
+            memory.clear_pending_action()
+            pending = None
+        elif learning_checkpoint_verdict == "CLARIFY":
+            return {
+                "reply": (
+                    "我还不能确定你是否要继续刚才的内容安装流程。"
+                    "如果要继续搜索、下载并安装，请回复“继续”；"
+                    "如果刚才的方法或目录不对，请直接告诉我。"
+                ),
+                "response_mode": "DEVICE_ACTION",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+
+    if (
+        pending
+        and pending.get("type") in {
+            "browser_handoff",
+            "content_browser_handoff",
+        }
+        and tools.is_confirmation(message, pending, recent_context)
+    ):
+        original_request = str(pending.get("original_request", "")).strip()
+        if pending.get("type") == "content_browser_handoff":
+            payload = pending.get("approval_payload") or {}
+            content_resume_skill_id = str(
+                payload.get("skill_id") or ""
+            ).strip()
+        memory.clear_pending_action()
+        if original_request:
+            message = original_request
+            recent_context += (
+                "\nSystem: The user completed browser verification and asked "
+                "Casper to resume the original request."
+            )
+
+    if (
+        pending
+        and pending.get("type") == "content_learning_continue"
+        and learning_checkpoint_verdict == "CONTINUE"
+    ):
+        original_request = str(pending.get("original_request", "")).strip()
+        resolved_request = skill_registry.resolve_resume_request(
+            message, pending, recent_context
+        )
+        if resolved_request:
+            original_request = resolved_request
+        payload = pending.get("approval_payload") or {}
+        content_resume_skill_id = str(
+            payload.get("skill_candidate_id") or ""
+        ).strip()
+        memory.clear_pending_action()
+        if original_request and content_resume_skill_id:
+            message = original_request
+            recent_context += (
+                "\nSystem: The user confirmed continuation after Bekki learned "
+                "an installation method and opened a candidate destination. "
+                "The method is not a verified skill yet. Resume the original "
+                "request using temporary skill candidate ID "
+                + content_resume_skill_id
+                + "."
+            )
+
+    if (
+        pending
+        and pending.get("type") == "device_action_approval"
+        and tools.is_confirmation(message, pending, recent_context)
+    ):
+        original_request = str(pending.get("original_request", "")).strip()
+        memory.clear_pending_action()
+        if original_request:
+            message = original_request
+            if pending.get("event") == "permission_escalation":
+                device_elevation_approved = True
+                recent_context += (
+                    "\nSystem: The user explicitly approved retrying the device "
+                    "action with a Windows UAC prompt. The user must still approve "
+                    "the native UAC dialog personally."
+                )
+            else:
+                device_action_approval = pending.get("approval_payload")
+                recent_context += (
+                    "\nSystem: The user explicitly confirmed the pending bounded "
+                    "device action."
+                )
 
     # Balthasar observes the user before Melchior plans. It shapes alignment,
     # never the factual mode or Python safety boundary.
@@ -597,6 +853,27 @@ def process_request(message, status_callback):
             memory.clear_pending_action()
     else:
         melchior_plan = melchior.plan_request(message, recent_context)
+        if content_resume_skill_id:
+            melchior_plan.update(
+                {
+                    "response_mode": "DEVICE_ACTION",
+                    "needs_search": False,
+                    "research_depth": "none",
+                    "source_policy": "local_context",
+                    "research_profile": "local_context",
+                    "risk": "medium",
+                    "complexity": "high",
+                    "reasoning_profile": "analytical",
+                    "content_workflow_selected": True,
+                    "content_resume_skill_id": content_resume_skill_id,
+                    "skill_route": "lookup",
+                    "reason": "Resuming an AI-learned temporary or verified skill after user confirmation.",
+                }
+            )
+        if device_elevation_approved:
+            melchior_plan["device_elevation_approved"] = True
+        if isinstance(device_action_approval, dict):
+            melchior_plan["device_action_approval"] = device_action_approval
         response_mode = melchior_plan["response_mode"]
 
         user_alignment_context = {
@@ -641,6 +918,115 @@ def process_request(message, status_callback):
                 )
                 + "\nExplain the failure without claiming the action succeeded."
             )
+        if casper_result.get("status") == "human_handoff":
+            approval = casper_result.get("pending_approval") or {}
+            if approval.get("resume_after_user_confirmation"):
+                active_session = history.get_active_session(history_data)
+                handoff_type = approval.get(
+                    "handoff_type",
+                    "browser_handoff",
+                )
+                memory.save_pending_action(
+                    {
+                        "type": handoff_type,
+                        "original_request": approval.get("original_request") or message,
+                        "url": approval.get("url", ""),
+                        "event": approval.get("event", "captcha"),
+                        "approval_payload": approval.get("approval_payload"),
+                    },
+                    session_id=active_session.get("id", ""),
+                )
+                if handoff_type == "device_action_approval":
+                    if approval.get("event") == "recycle_restore":
+                        payload = approval.get("approval_payload") or {}
+                        item_name = str(payload.get("name") or "该项目")
+                        location = str(payload.get("original_location") or "")
+                        where = "（原位置：" + location + "）" if location else ""
+                        return {
+                            "reply": (
+                                "准备从回收站恢复 " + item_name + where + "。\n\n"
+                                "如果确认恢复，请回复“继续”。"
+                            ),
+                            "response_mode": response_mode,
+                            "sources": [],
+                            "highlights": [],
+                            "cards": [],
+                        }
+                    return {
+                        "reply": (
+                            "启动这个程序需要管理员权限。为了安全，我还没有请求提权。\n\n"
+                            "如果要继续，请回复“继续”。随后 Windows 会显示原生 UAC "
+                            "确认窗口，需要你亲自点击“是”。"
+                        ),
+                        "response_mode": response_mode,
+                        "sources": [],
+                        "highlights": [],
+                        "cards": [],
+                    }
+                if handoff_type == "content_learning_continue":
+                    payload = approval.get("approval_payload") or {}
+                    target = str(payload.get("target_app") or "目标应用")
+                    destination = str(
+                        payload.get("destination_name") or "本地内容目录"
+                    )
+                    if approval.get("event") == "content_installation_retry":
+                        clarification = str(
+                            payload.get("clarification")
+                            or "这次没有完成内容获取。"
+                        )
+                        return {
+                            "reply": (
+                                clarification
+                                + "\n\n临时技能和候选目录仍然保留。"
+                                "如果要使用同一方法重新搜索、下载并安装，"
+                                "请回复“继续”。"
+                            ),
+                            "response_mode": response_mode,
+                            "sources": [],
+                            "highlights": [],
+                            "cards": [],
+                        }
+                    return {
+                        "reply": (
+                            "初步准备已完成。我已经学习了 " + target
+                            + " 的内容安装方法，并打开了这台电脑上候选的 "
+                            + destination
+                            + "。目前它只是一项临时技能，尚未写入正式 Skills。\n\n"
+                            "需要我继续寻找合适的内容并下载、安装吗？"
+                            "如果需要，请回复“继续”。"
+                        ),
+                        "response_mode": response_mode,
+                        "sources": [],
+                        "highlights": [],
+                        "cards": [],
+                    }
+                if handoff_type == "skill_user_verification":
+                    payload = approval.get("approval_payload") or {}
+                    target = str(payload.get("target_app") or "目标应用")
+                    name = str(payload.get("name") or "刚才安装的内容")
+                    return {
+                        "reply": (
+                            "文件操作已经完成，但我还不会把这个方法存入 Skills。\n\n"
+                            "请在 " + target + " 中确认是否能看到并正常使用 "
+                            + name + "。如果正确，请回复“成功了”；"
+                            "如果不对，请直接说“错了”或告诉我哪里不对。"
+                        ),
+                        "response_mode": response_mode,
+                        "sources": [],
+                        "highlights": [],
+                        "cards": [],
+                    }
+                return {
+                    "reply": (
+                        "这个网站需要你亲自完成安全验证。\n\n"
+                        "我已经打开 Casper 浏览器。验证完成后回到这里说“继续”，"
+                        "我会复用同一个浏览器会话完成刚才的请求。"
+                    ),
+                    "response_mode": response_mode,
+                    "sources": [],
+                    "highlights": [],
+                    "cards": [],
+                }
 
     # Vision remains independent from web-search mode.
     if vision.has_image():
@@ -695,23 +1081,37 @@ def process_request(message, status_callback):
 
     status_callback(i18n.t("reply"))
 
-    reply_result = get_ai_response(
-        message,
-        search_result,
-        action_context,
-        image_context,
-        melchior_plan,
-        balthasar_plan,
-        emotion_state,
+    direct_reply = (
+        search_result.get("direct_reply")
+        if isinstance(search_result, dict)
+        else None
     )
+    if isinstance(direct_reply, str) and direct_reply.strip():
+        reply_result = {
+            "reply": direct_reply.strip(),
+            "highlights": [],
+            "cards": [],
+            "memory": None,
+            "pending_action": None,
+        }
+    else:
+        reply_result = get_ai_response(
+            message,
+            search_result,
+            action_context,
+            image_context,
+            melchior_plan,
+            balthasar_plan,
+            emotion_state,
+        )
 
     reply = reply_result.get(
         "reply",
         "",
     )
-    if response_mode == "SHOPPING_RESEARCH":
-        # Product cards own external navigation, so accidental model URLs do
-        # not appear as a shopping web page inside the reply bubble.
+    if response_mode in {"SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH"}:
+        # Cards own external navigation, so accidental model URLs do not
+        # appear as a web page inside the reply bubble.
         reply = re.sub(r"https?://\S+", "", reply).strip()
     highlights = reply_result.get(
         "highlights",

@@ -1,0 +1,6 @@
+Choose the real local destination that best matches the learned installation
+procedure. Use only an exact supplied destination ID. Return one JSON object:
+
+{"destination_id":"exact supplied ID or null","reason":"brief"}
+
+Never invent or modify an ID. Return null when none matches the procedure.

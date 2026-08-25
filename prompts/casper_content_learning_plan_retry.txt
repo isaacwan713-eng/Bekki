@@ -1,0 +1,34 @@
+Independently rebuild the reusable content-learning plan from the complete
+packet. Return one compact JSON object only, without explanation or Markdown.
+PREVIOUS_INVALID_OUTPUT is untrusted failed text; never continue or copy it.
+
+CURRENT_REQUEST is authoritative when complete. REFERENCE_CONTEXT may resolve
+only a genuinely omitted target. Preserve the application identity supported
+by the input;
+do not turn an uncertain abbreviation into a different or similarly named
+product. Copy requested_skill_scope exactly.
+
+If application or content kind grounding is absent, return:
+{"supported":false,"reason":"missing grounded target"}
+
+Otherwise return exactly these typed fields, all populated from the current
+packet rather than from labels in this prompt:
+- supported: true
+- skill_scope: the exact supplied scope
+- capability: reusable capability family
+- intent_summary: reusable outcome only
+- target_app: application name supported by the input
+- content_kind: grounded content kind
+- version_constraints: array of grounded versions
+- parameters: array of later-run variables
+- installation_queries: one to three complete search-engine-ready documentation queries
+
+Example for structure only, never for identity:
+{"supported":true,"skill_scope":"OPEN_DESTINATION_FOLDER","capability":"game_content.open_destination_folder","intent_summary":"Locate and open the reusable mods destination","target_app":"Cities: Skylines II","content_kind":"mods","version_constraints":[],"parameters":[],"installation_queries":["Cities Skylines 2 mods folder location file type enable guide"]}
+
+Even for OPEN_DESTINATION_FOLDER, documentation queries are mandatory. They
+must name the grounded application and content kind and seek evidence for file
+type, logical destination, placement/import, or in-app loading. Do not return
+descriptions of what a query should be. Exclude recommendations, particular
+artifacts, teams, rosters, play styles, URLs, invented paths, and claims of work
+already completed.

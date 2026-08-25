@@ -1,0 +1,20 @@
+Retry the current-turn content-research plan. CURRENT_REQUEST, supplied as the
+request field, is the only authority for application, content kind, objective,
+and content identity. Do not reuse subjects from prior tasks, retry text, or
+examples. Return exactly one compact JSON object with these keys and no others:
+
+{"target_app":"app","content_kind":"kind","requested_outcome":"outcome","version_constraints":["version"],"fit_context":["user-specific fit"],"fit_context_is_content_identity":false,"selection_criteria":["criterion"],"queries":["complete search query"]}
+
+Create 1-3 executable browser queries for strong downloadable content and
+credible performance or community evidence. The installation procedure is
+already learned. Keep team, roster, character, hardware, save, and play-style
+preferences in fit_context and selection_criteria, not in queries, unless
+CURRENT_REQUEST explicitly asks for content created, named, or recreated for
+that entity. Never invent paths, URLs, filenames, rankings, or completed
+actions. Output JSON only; no analysis, Markdown, placeholders, or commentary.
+
+Example A (identity false):
+{"target_app":"Cities: Skylines II","content_kind":"traffic-management mod","requested_outcome":"find a downloadable mod","version_constraints":[],"fit_context":["very large save"],"fit_context_is_content_identity":false,"selection_criteria":["performance evidence","large-save fit"],"queries":["Cities Skylines II tested traffic management mod download"]}
+
+Example B (identity true):
+{"target_app":"Minecraft Java Edition","content_kind":"player skin","requested_outcome":"find a Creeper-themed skin","version_constraints":["Java Edition"],"fit_context":["Creeper-themed design"],"fit_context_is_content_identity":true,"selection_criteria":["named-design match","credible source"],"queries":["Minecraft Java Edition Creeper themed player skin download"]}

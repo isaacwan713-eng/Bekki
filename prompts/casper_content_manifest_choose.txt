@@ -1,0 +1,9 @@
+Choose the single evidence-backed installation manifest that best satisfies the
+request and research plan. Prefer compatibility, source credibility, clear
+installation guidance, and fit to the user's requested outcome. Return exactly
+one JSON object:
+
+{"manifest_id":"exact supplied manifest ID or null","reason":"brief"}
+
+Never invent or modify an ID. Return null if the evidence cannot support one
+clear choice.

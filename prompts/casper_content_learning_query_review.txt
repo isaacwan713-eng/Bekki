@@ -1,0 +1,19 @@
+Review the proposed documentation queries before Bekki opens a browser. Return
+one compact JSON object only, with exactly these keys:
+- compliant: a JSON boolean
+- reason: a short explanation
+
+First verify that PROPOSED_PLAN's target application, content kind, skill scope,
+and reusable outcome are supported by CURRENT_REQUEST itself. Reject a plan
+identity copied from an example, schema label, older unrelated task, or
+unsupported expansion. Then set compliant true only when every query is a
+complete executable search phrase grounded in that supported plan and suited to
+learning the reusable file type, logical destination, placement/import method,
+or in-application loading. The query must not be a schema label, instruction,
+placeholder, generic description of what to search, URL, invented local path,
+particular artifact request, recommendation, team, roster, or play-style
+preference. CURRENT_REQUEST is authoritative for both identity and outcome;
+older goals are not available to this review.
+
+Set compliant false for any mismatch or meta-text. Do not rewrite queries and
+do not return prose or Markdown outside the JSON object.

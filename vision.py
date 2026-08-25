@@ -2,17 +2,13 @@ import base64
 import json
 import os
 
-import requests
 from dotenv import load_dotenv
-from PySide6.QtCore import QBuffer, QIODevice
-from PySide6.QtGui import QImage
 
 load_dotenv()
 
-OLLAMA_URL = os.getenv(
-    "OLLAMA_URL",
-    "http://localhost:11434/api/generate",
-)
+import model_runtime
+
+OLLAMA_URL = model_runtime.OLLAMA_URL
 
 VISION_MODEL = os.getenv(
     "VISION_MODEL",
@@ -217,6 +213,9 @@ def _get_model_image_bytes(file_path):
         ) as file:
             return file.read()
 
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QImage
+
     image = QImage(file_path)
 
     if image.isNull():
@@ -281,42 +280,16 @@ Return valid JSON with exactly these fields:
 Current user question:
 """ + user_question
 
-    payload = {
-        "model": VISION_MODEL,
-        "prompt": prompt,
-        "images": [image_base64],
-        "format": "json",
-        "stream": False,
-        "keep_alive": "0s",
-        "options": {
-            "temperature": 0,
-            "num_ctx": 2048,
-            "num_predict": 256,
-        },
-    }
-
-    response = requests.post(
-        OLLAMA_URL,
-        json=payload,
-        timeout=180,
-    )
-
-    if not response.ok:
-        print(
-            "[VISION API ERROR]",
-            response.status_code,
-            response.text,
-        )
-
-        raise RuntimeError(
-            "Vision model rejected this image:"
-            + response.text
-        )
-
-    raw_output = (
-        response.json()
-        .get("response", "")
-        .strip()
+    raw_output = model_runtime.generate(
+        prompt,
+        model_name=VISION_MODEL,
+        images=[image_base64],
+        response_format="json",
+        num_ctx=2048,
+        num_predict=256,
+        think=False,
+        keep_alive="0s",
+        stage="vision.analyze_image",
     )
 
     try:
@@ -379,25 +352,20 @@ button outside the visible image.
 
 Launcher: """ + str(launcher_name)[:100] + """
 Requested game: """ + str(game_name)[:120]
-    payload = {
-        "model": VISION_MODEL,
-        "prompt": prompt,
-        "images": [image_base64],
-        "format": "json",
-        "stream": False,
-        "keep_alive": "0s",
-        "options": {
-            "temperature": 0,
-            "num_ctx": 2048,
-            "num_predict": 180,
-        },
-    }
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=180)
-        if not response.ok:
-            return {"action": "NONE", "reason": "Vision model rejected image."}
-        result = json.loads(response.json().get("response", "").strip())
-    except (requests.RequestException, ValueError, json.JSONDecodeError):
+        raw_output = model_runtime.generate(
+            prompt,
+            model_name=VISION_MODEL,
+            images=[image_base64],
+            response_format="json",
+            num_ctx=2048,
+            num_predict=180,
+            think=False,
+            keep_alive="0s",
+            stage="vision.locate_launcher_start_control",
+        )
+        result = json.loads(raw_output)
+    except (model_runtime.OllamaRuntimeError, ValueError, json.JSONDecodeError):
         return {"action": "NONE", "reason": "Vision control output was invalid."}
     if not isinstance(result, dict):
         return {"action": "NONE", "reason": "Vision control output was invalid."}

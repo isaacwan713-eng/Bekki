@@ -1,0 +1,14 @@
+The chosen artifact was identified on an index page, but that page has no exact
+artifact link. Create one precise browser search query for the chosen artifact's
+dedicated article or download page.
+
+Return exactly:
+{"query":"one complete executable search query"}
+
+Use the declared artifact name, target application/version, and content kind.
+The current source URL may identify a likely publisher, but do not invent a URL,
+domain, filename, ranking, or completed download. The selected artifact is now
+the content identity, so preserving its exact distinctive name is appropriate.
+Search for its dedicated page or download, not generic installation guidance,
+category indexes, or a different artifact. Output JSON only; no analysis,
+Markdown, commentary, placeholders, or multiple queries.

@@ -1,0 +1,13 @@
+The previous source-ranking response did not satisfy the JSON contract. Rank
+the supplied browser results for universal game-content discovery now.
+
+Accept general tactic download repositories and installation tutorials when
+their title or snippet clearly identifies the target game/version. Do not
+require the user's team, roster, character, hardware, or play style to appear;
+fit is evaluated after artifacts are discovered. Reject unrelated acronym
+matches, news, cities, stores, and generic pages.
+
+Use only exact supplied source IDs. Return at most six. Return exactly one JSON
+object with no prose or Markdown:
+
+{"ordered_source_ids":["exact supplied ID"],"reason":"brief"}

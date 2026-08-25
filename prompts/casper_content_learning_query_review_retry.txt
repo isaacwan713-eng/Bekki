@@ -1,0 +1,15 @@
+Independently repeat the documentation-query compliance review. The prior
+review output was structurally invalid, so make the judgment again from
+CURRENT_REQUEST and PROPOSED_PLAN without copying PREVIOUS_INVALID_OUTPUT.
+
+Return exactly one compact JSON object with a JSON boolean key compliant and a
+short string key reason. First reject any plan whose application, content kind,
+scope, or outcome is not supported by CURRENT_REQUEST, including an identity
+copied from an example, schema, or older task. compliant may be true only if
+every proposed query is a concrete search-engine-ready phrase grounded in the
+supported plan and seeks reusable destination, file-type, placement/import, or
+in-app loading documentation. Reject generic meta-text, schema or prompt labels,
+placeholders, unrelated identities, URLs, invented paths, particular artifact
+searches, recommendations, teams, rosters, and play styles.
+
+Do not rewrite the queries. Return no prose or Markdown outside the JSON object.

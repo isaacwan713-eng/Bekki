@@ -1,0 +1,17 @@
+Retry the learning-checkpoint classification. The prior model attempt did not
+produce a usable final token.
+
+Read user_message, pending_action, and recent_context. Bekki has already learned
+a tentative method and opened its candidate destination. It is asking whether
+to proceed with the original search, download, and installation request.
+
+Return only CONTINUE if the user wants to proceed now, including a reply such as
+"继续", "可以", "yes", or "go ahead". Return only REJECT if the user wants to
+stop or says the learned method/destination is wrong. Return only UNRELATED for
+a clearly different request. Otherwise return only CLARIFY.
+
+Output exactly one of these four tokens and nothing else:
+CONTINUE
+REJECT
+CLARIFY
+UNRELATED

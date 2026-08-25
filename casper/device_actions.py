@@ -496,24 +496,6 @@ def classify_device_action_family(message, recent_context):
         # integration dependency must not break an otherwise bounded action.
         return ""
 
-    try:
-        raw = tools.run_ai_prompt(
-            "prompts/casper_device_family.txt",
-            (
-                "RECENT_CONTEXT:\n"
-                + str(recent_context)[-500:]
-                + "\nCURRENT_REQUEST:\n"
-                + str(message)[:500]
-            ),
-            expect_json=False,
-            num_ctx=1024,
-            num_predict=24,
-            think=False,
-            model_name="llama3.2:latest",
-        )
-    except (ImportError, ModuleNotFoundError):
-        return ""
-    value = str(raw or "").strip().upper()
     valid = {
         "OPEN_APPLICATION",
         "WINDOW_CONTROL",
@@ -521,9 +503,34 @@ def classify_device_action_family(message, recent_context):
         "LIST_LIBRARY",
         "FILE_ACTION",
         "RECYCLE_BIN_ACTION",
+        "GAME_CONTENT_ACTION",
         "OTHER",
     }
-    return value if value in valid else ""
+    prompt_input = (
+        "RECENT_CONTEXT:\n"
+        + str(recent_context)[-500:]
+        + "\nCURRENT_REQUEST:\n"
+        + str(message)[:500]
+    )
+    for model_name in ("llama3.2:latest", "gemma3:4b"):
+        try:
+            raw = tools.run_ai_prompt(
+                "prompts/casper_device_family.txt",
+                prompt_input,
+                expect_json=False,
+                num_ctx=1024,
+                num_predict=24,
+                think=False,
+                model_name=model_name,
+            )
+        except Exception as error:
+            print("[DEVICE FAMILY FALLBACK]", model_name, repr(error))
+            continue
+        value = str(raw or "").strip().upper()
+        if value in valid:
+            return value
+        prompt_input += "\nINVALID_PREVIOUS_OUTPUT:\n" + value[:80]
+    return ""
 
 
 def classify_file_or_library_scope(message, recent_context):
@@ -550,7 +557,8 @@ def classify_file_or_library_scope(message, recent_context):
                 think=False,
                 model_name="llama3.2:latest",
             )
-        except (ImportError, ModuleNotFoundError):
+        except Exception as error:
+            print("[LOCAL DATA SCOPE FALLBACK]", repr(error))
             return None
         value = str(raw or "").strip().upper()
         if value in {"FILE_ACTION", "LIST_LIBRARY", "RECYCLE_BIN_ACTION"}:
@@ -582,10 +590,11 @@ def classify_recycle_bin_scope(message, recent_context):
                 think=False,
                 model_name="llama3.2:latest",
             )
-        except (ImportError, ModuleNotFoundError):
+        except Exception as error:
+            print("[RECYCLE SCOPE FALLBACK]", repr(error))
             return None
         value = str(raw or "").strip().upper()
-        if value in {"RECYCLE_BIN_ACTION", "OTHER"}:
+        if value in {"RECYCLE_BIN_ACTION", "GAME_CONTENT_ACTION", "OTHER"}:
             return value
         prompt_input += "\nINVALID_PREVIOUS_OUTPUT:\n" + value[:80]
     return ""
@@ -1592,6 +1601,11 @@ def execute_user_request(
     launcher=None,
     elevation_approved=False,
     device_approval=None,
+    content_workflow_selected=False,
+    recycle_workflow_selected=False,
+    file_workflow_selected=False,
+    content_resume_skill_id=None,
+    skill_lookup_requested=False,
 ):
     # A confirmed bounded action resumes through its owning executor. The
     # opaque approval payload is authority; generic AI cannot reinterpret it
@@ -1606,14 +1620,40 @@ def execute_user_request(
             message, recent_context, approval=device_approval
         )
 
-    # Recycle Bin requests have their own compact semantic gate before the
-    # generic device planner. This keeps them reachable even when the generic
-    # planner truncates or emits an unrelated valid action.
-    recycle_scope = classify_recycle_bin_scope(message, recent_context)
-    if recycle_scope == "RECYCLE_BIN_ACTION":
+    # Preserve the focused Melchior AI's ownership decision. Once that AI has
+    # selected the content workflow, lower layers decide only its stage; they
+    # cannot reinterpret it as Recycle Bin, application, or window control.
+    if content_workflow_selected:
+        from . import content_workflow
+
+        if content_resume_skill_id:
+            options = {
+                "content_authorized": True,
+                "resume_skill_id": content_resume_skill_id,
+            }
+            if skill_lookup_requested:
+                options["skill_lookup_requested"] = True
+            return content_workflow.execute(message, recent_context, **options)
+        options = {"content_authorized": True}
+        if skill_lookup_requested:
+            options["skill_lookup_requested"] = True
+        return content_workflow.execute(message, recent_context, **options)
+
+    # Melchior's focused AI owns special-workflow selection. Do not run an
+    # additional Recycle Bin/content model before every ordinary device action;
+    # duplicated semantic gates can disagree and misroute unrelated commands.
+    if recycle_workflow_selected:
         from . import recycle_bin
 
         return recycle_bin.execute(message, recent_context, approval=None)
+
+    # A file request already selected by Melchior goes straight to the
+    # bounded file executor. This prevents the unrelated app/window planner
+    # from emitting prose or guessed paths before the file workflow starts.
+    if file_workflow_selected:
+        from . import file_actions
+
+        return file_actions.execute(message, recent_context)
 
     raw_transport, applications = plan_user_request(
         message,
@@ -1642,10 +1682,28 @@ def execute_user_request(
             )
             raw_plan = _normalize_plan(retry_transport, set(by_id))
     if not isinstance(raw_plan, dict):
+        # The generic app/window planner can answer a file-search request with
+        # prose instead of its JSON contract.  Before failing, ask the bounded
+        # AI family classifier what executor owns the requested outcome.
+        # Python validates the closed family token but never infers it from
+        # filename keywords or fabricates a path.
+        invalid_family = classify_device_action_family(
+            message, recent_context
+        )
+        if invalid_family == "FILE_ACTION":
+            from . import file_actions
+
+            return file_actions.execute(message, recent_context)
+        if invalid_family == "RECYCLE_BIN_ACTION":
+            from . import recycle_bin
+
+            return recycle_bin.execute(
+                message, recent_context, approval=device_approval
+            )
         return {
             "success": False,
             "needs_clarification": True,
-            "clarification": "我没有可靠地识别出要打开哪个应用，可以说出完整名称吗？",
+            "clarification": "我没有可靠地解析这个本地操作，可以换一种说法吗？",
             "reason": "Device planner returned invalid structured output.",
         }
 
@@ -1700,6 +1758,10 @@ def execute_user_request(
         return recycle_bin.execute(
             message, recent_context, approval=device_approval
         )
+    if action_family == "GAME_CONTENT_ACTION":
+        from . import content_workflow
+
+        return content_workflow.execute(message, recent_context)
 
     # A window ID can never be launched as an application. This is a schema
     # type mismatch, not a semantic judgment; focused AI still decides the

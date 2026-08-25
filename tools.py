@@ -2,7 +2,7 @@ import json
 import os
 import re
 import social_browser
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -21,7 +21,6 @@ from urllib.parse import quote, urlparse
 from dotenv import load_dotenv
 from io import BytesIO
 from pypdf import PdfReader
-from playwright.sync_api import sync_playwright
 
 def resource_path(relative_path):
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
@@ -40,38 +39,35 @@ def config_path(relative_path):
     return resource_path(relative_path)
 load_dotenv(config_path(".env"))
 
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
+import model_runtime
+
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "").strip()
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 BRAVE_IMAGE_SEARCH_URL = "https://api.search.brave.com/res/v1/images/search"
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "gpt-oss:20b"
+OLLAMA_URL = model_runtime.OLLAMA_URL
+MODEL_NAME = "gemma3:12b"
 SEARCH_BUDGETS = (3, 5, 7, 10)
 
 
 def _explicit_shopping_merchant(user_message, region=None):
     """Preserve a merchant explicitly named by the user as a hard constraint."""
-    text = str(user_message).lower()
+    text = str(user_message or "").casefold()
     country_code = str((region or {}).get("country_code", "")).upper()
 
-    if "amazon" in text or "亚马逊" in text:
-        amazon_domains = {
-            "CA": "amazon.ca",
-            "CN": "amazon.cn",
-            "DE": "amazon.de",
-            "ES": "amazon.es",
-            "FR": "amazon.fr",
-            "GB": "amazon.co.uk",
-            "IN": "amazon.in",
-            "IT": "amazon.it",
-            "JP": "amazon.co.jp",
-        }
-        return {
-            "name": "Amazon",
-            "domain": amazon_domains.get(country_code, "amazon.com"),
-            "reason": "The user explicitly requested Amazon.",
-        }
+    amazon_domains = {
+        "CA": "amazon.ca",
+        "CN": "amazon.cn",
+        "DE": "amazon.de",
+        "ES": "amazon.es",
+        "FR": "amazon.fr",
+        "GB": "amazon.co.uk",
+        "IN": "amazon.in",
+        "IT": "amazon.it",
+        "JP": "amazon.co.jp",
+    }
 
     named_merchants = (
+        (("amazon", "亚马逊"), "Amazon", amazon_domains.get(country_code, "amazon.com")),
         (("walmart", "沃尔玛"), "Walmart", "walmart.com"),
         (("target",), "Target", "target.com"),
         (("ebay",), "eBay", "ebay.com"),
@@ -79,14 +75,117 @@ def _explicit_shopping_merchant(user_message, region=None):
         (("tmall", "天猫"), "Tmall", "tmall.com"),
         (("jd.com", "京东"), "JD", "jd.com"),
     )
+
+    occurrences = []
     for aliases, name, domain in named_merchants:
-        if any(alias in text for alias in aliases):
-            return {
-                "name": name,
-                "domain": domain,
-                "reason": "The user explicitly requested this merchant.",
-            }
-    return None
+        for alias in aliases:
+            if re.search(r"[\u3400-\u9fff]", alias):
+                matches = re.finditer(re.escape(alias), text)
+            else:
+                matches = re.finditer(
+                    rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+            for match in matches:
+                right = text[match.end():match.end() + 32]
+                if alias == "target" and re.match(
+                    r"\s+(?:audience|market|customer|customers|demographic|"
+                    r"group|age|price|budget|use|user|users)\b",
+                    right,
+                    flags=re.IGNORECASE,
+                ):
+                    continue
+                occurrences.append(
+                    {
+                        "start": match.start(),
+                        "end": match.end(),
+                        "name": name,
+                        "domain": domain,
+                    }
+                )
+    if not occurrences:
+        return None
+
+    # Keep conjunctions inside a clause so a leading negation applies to the
+    # whole merchant list. Contrast words and punctuation begin a new clause.
+    clause_marks = re.sub(
+        r"但是|而是|但|\bbut\b|\bhowever\b",
+        lambda match: "," * len(match.group(0)),
+        text,
+        flags=re.IGNORECASE,
+    )
+    delimiters = "，,。；;！？!?"
+
+    def clause_bounds(position):
+        start = max(clause_marks.rfind(mark, 0, position) for mark in delimiters) + 1
+        ends = [
+            found
+            for mark in delimiters
+            if (found := clause_marks.find(mark, position)) >= 0
+        ]
+        return start, min(ends) if ends else len(text)
+
+    grouped = {}
+    for item in sorted(occurrences, key=lambda row: row["start"]):
+        grouped.setdefault(clause_bounds(item["start"]), []).append(item)
+
+    positive = []
+    chinese_negator = (
+        r"(?:不要|不想|别|拒绝|避开|排除|除了|不选|不用|不考虑)"
+        r"\s*(?:(?:在|从|用|选|去|买|要)\s*)*$"
+    )
+    english_negator = (
+        r"(?:do\s+not|don['’]?t|not|no|avoid|exclude|except|anything\s+but)"
+        r"\s*(?:(?:use|choose|want|shop\s+at|buy\s+from)\s+)*$"
+    )
+    for (clause_start, clause_end), items in grouped.items():
+        first = items[0]
+        last = items[-1]
+        prefix = text[clause_start:first["start"]]
+        suffix = text[last["end"]:clause_end]
+        clause_is_negative = bool(
+            re.search(chinese_negator, prefix, flags=re.IGNORECASE)
+            or re.search(english_negator, prefix, flags=re.IGNORECASE)
+            or re.match(
+                r"\s*(?:都\s*)?(?:除外|之外|不要|不选|不用)",
+                suffix,
+                flags=re.IGNORECASE,
+            )
+            or re.match(
+                r"\s*(?:are\s+)?(?:excluded|not\s+wanted)\b",
+                suffix,
+                flags=re.IGNORECASE,
+            )
+        )
+        if clause_is_negative:
+            continue
+        for item in items:
+            local_left = text[max(clause_start, item["start"] - 36):item["start"]]
+            local_right = text[item["end"]:min(clause_end, item["end"] + 24)]
+            if (
+                re.search(chinese_negator, local_left, flags=re.IGNORECASE)
+                or re.search(english_negator, local_left, flags=re.IGNORECASE)
+                or re.match(
+                    r"\s*(?:除外|之外|不要|不选|不用)",
+                    local_right,
+                    flags=re.IGNORECASE,
+                )
+            ):
+                continue
+            positive.append(item)
+
+    unique = {}
+    for item in positive:
+        unique.setdefault(item["name"].casefold(), item)
+    if len(unique) != 1:
+        return None
+    merchant = next(iter(unique.values()))
+    return {
+        "name": merchant["name"],
+        "domain": merchant["domain"],
+        "reason": "The user explicitly requested this merchant.",
+    }
 
 
 def _merchant_search_scope(domain):
@@ -299,7 +398,7 @@ def search_product_image(product_title):
         clean_title,
         flags=re.IGNORECASE,
     )
-    title_tokens = _image_match_tokens(clean_title)
+    title_tokens = 'REDACTED'
     if not title_tokens:
         return ""
     image_query = '"' + clean_title[:150] + '" product photo -logo'
@@ -324,7 +423,7 @@ def search_product_image(product_title):
         if not isinstance(item, dict):
             continue
         result_title = str(item.get("title", ""))
-        result_tokens = _image_match_tokens(result_title)
+        result_tokens = 'REDACTED'
         overlap = len(title_tokens & result_tokens)
         required_overlap = 1 if len(title_tokens) <= 3 else 2
         if "logo" in result_title.lower() or overlap < required_overlap:
@@ -360,52 +459,29 @@ def call_model(
     num_predict=2048,
     think="low",
     model_name=None,
+    response_format=None,
+    images=None,
 ):
-    payload = {
-        "model": model_name or MODEL_NAME,
-        "prompt": prompt,
-        "stream": False,
-        "think": think,
-        "options": {
-            "temperature": 0,
-            "num_ctx": num_ctx,
-            "num_predict": num_predict,
-        },
-    }
-
-    response = requests.post(
-        OLLAMA_URL,
-        json=payload,
-        timeout=180,
+    return model_runtime.generate(
+        prompt,
+        num_ctx=num_ctx,
+        num_predict=num_predict,
+        think=think,
+        model_name=model_name or MODEL_NAME,
+        response_format=response_format,
+        images=images,
+        stage="tools.call_model",
     )
-    response.raise_for_status()
-
-    data = response.json()
-
-    print("DONE REASON:", data.get("done_reason"))
-    print("THINKING:", repr(data.get("thinking", "")))
-    print("RESPONSE:", repr(data.get("response", "")))
-
-    return data.get("response", "").strip()
 
 def unload_model(
     model_name=MODEL_NAME
 ):
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": model_name,
-            "keep_alive": 0,
-        },
-        timeout=30,
-    )
+    return model_runtime.unload_model(model_name)
 
-    response.raise_for_status()
 
-    print(
-        "[MODEL UNLOADED]",
-        model_name,
-    )
+def wait_for_model_unloaded(model_name, timeout_seconds=10):
+    """Wait until Ollama no longer reports a model in GPU/CPU memory."""
+    return model_runtime.wait_for_model_unloaded(model_name, timeout_seconds)
 
 def run_ai_prompt(
     prompt_path,
@@ -415,6 +491,8 @@ def run_ai_prompt(
     num_predict=2048,
     think="low",
     model_name=None,
+    json_schema=None,
+    images=None,
 ):
     with open(resource_path(prompt_path), "r", encoding="utf-8") as file:
         system_prompt = file.read()
@@ -427,6 +505,11 @@ def run_ai_prompt(
         num_predict=num_predict,
         think=think,
         model_name=model_name,
+        # Parsing JSON and asking Ollama to constrain generation are separate
+        # choices. Some gpt-oss routing prompts return an empty response when
+        # format=json is forced, so only explicitly schema-bound calls use it.
+        response_format=json_schema if expect_json and json_schema else None,
+        images=images,
     )
 
     if not expect_json:
@@ -551,61 +634,30 @@ def should_search(
 def is_confirmation(message, pending_action=None, recent_context=""):
     """Classify only the current reply against one explicit pending action."""
     pending = pending_action if isinstance(pending_action, dict) else None
-    # Device approvals are rendered with an explicit instruction to reply
-    # "继续". Handle a small exact allowlist locally so a tiny confirmation
-    # does not depend on a generative model finishing before its token limit.
-    # This shortcut is intentionally unavailable without a stored approval.
-    if pending and pending.get("type") == "device_action_approval":
-        normalized = re.sub(r"[\s，。！？、,.!?]+", "", str(message)).lower()
-        if normalized in {
-            "继续",
-            "继续吧",
-            "确认",
-            "确认执行",
-            "执行",
-            "同意",
-            "可以",
-            "是",
-            "yes",
-            "confirm",
-            "continue",
-            "proceed",
-        }:
-            print("CONFIRM: 'CONFIRM' [EXPLICIT DEVICE APPROVAL]")
-            return True
     input_data = {
         "current_user_message": str(message),
         "pending_action": pending,
         "recent_conversation": str(recent_context)[-2000:],
     }
-    decision = run_ai_prompt(
-        "prompts/confirm.txt",
-        json.dumps(input_data, ensure_ascii=False, indent=2),
-        expect_json=False,
-        num_ctx=2048,
-        num_predict=24,
-        think=False,
+    payload = json.dumps(input_data, ensure_ascii=False, separators=(",", ":"))
+    attempts = (
+        ("prompts/confirm.txt", "llama3.2:latest", 240, 2048),
+        ("prompts/confirm_retry.txt", "gemma3:12b", 800, 4096),
     )
-    decision = str(decision).strip().upper()
-    if decision not in {"CONFIRM", "NOT_CONFIRM"}:
-        # A second AI judgment uses only the essential fields. Python detects
-        # transport failure but does not infer confirmation from user wording.
-        decision = run_ai_prompt(
-            "prompts/confirm.txt",
-            json.dumps(
-                {
-                    "current_user_message": str(message),
-                    "pending_action": input_data["pending_action"],
-                    "recent_conversation": "",
-                },
-                ensure_ascii=False,
-            ),
+    decision = ""
+    for prompt_path, model_name, output_budget, context_budget in attempts:
+        raw = run_ai_prompt(
+            prompt_path,
+            payload,
             expect_json=False,
-            num_ctx=1024,
-            num_predict=24,
+            num_ctx=context_budget,
+            num_predict=output_budget,
             think=False,
+            model_name=model_name,
         )
-        decision = str(decision).strip().upper()
+        decision = str(raw or "").strip().upper()
+        if decision in {"CONFIRM", "NOT_CONFIRM"}:
+            break
     print("CONFIRM:", repr(decision))
     return decision == "CONFIRM"
 
@@ -660,6 +712,8 @@ def build_search_query(
         expect_json=False,
         num_ctx=4096,
         num_predict=256,
+        think=False,
+        model_name="gemma3:12b",
     ).strip()
 
     print(
@@ -686,6 +740,8 @@ def build_news_queries(user_message, conversation_context=""):
         expect_json=True,
         num_ctx=4096,
         num_predict=320,
+        think=False,
+        model_name="gemma3:12b",
     )
     values = result.get("queries", []) if isinstance(result, dict) else []
     queries = []
@@ -715,6 +771,8 @@ def build_claim_query(claim):
         expect_json=False,
         num_ctx=4096,
         num_predict=128,
+        think=False,
+        model_name="gemma3:12b",
     ).strip()
 
     print("BUILT CLAIM QUERY:", repr(query))
@@ -748,6 +806,8 @@ def score_sources(query, search_results):
         expect_json=True,
         num_ctx=8192,
         num_predict=1024,
+        think=False,
+        model_name="gemma3:12b",
     )
 
     scores = result.get("scores", []) if isinstance(result, dict) else []
@@ -803,7 +863,9 @@ def extract_answers(query, search_results):
             input_text,
             expect_json=True,
             num_ctx=8192,
-            num_predict=512
+            num_predict=512,
+            think=False,
+            model_name="gemma3:12b",
         )
 
         if result_ai is None:
@@ -836,6 +898,8 @@ def find_consensus(query, answers):
         expect_json=True,
         num_ctx=4096,
         num_predict=512,
+        think=False,
+        model_name="gemma3:12b",
     )
 
     if not isinstance(result, dict):
@@ -938,6 +1002,8 @@ def rank_news_results(query, search_results):
         expect_json=True,
         num_ctx=8192,
         num_predict=1024,
+        think=False,
+        model_name="gemma3:12b",
     )
 
     decisions = result.get("items", []) if isinstance(result, dict) else []
@@ -1084,113 +1150,1201 @@ def news_feed_controller(queries, status_callback=None):
     }
 
 
-def build_shopping_plan(user_message, recent_context="", region=None):
-    """Let AI preserve the user's shopping constraints and form search queries."""
-    explicit_merchant = _explicit_shopping_merchant(user_message, region)
-    memory_data = memory.initialize_memory()
-    profile_context = memory.get_long_term_context(memory_data)
-    conversation_state = context_manager.load_context()
-    planning_input = (
-        "Shopping region:\n"
-        + json.dumps(region or {}, ensure_ascii=False, indent=2)
-        + "\n\nRecent conversation:\n"
-        + str(recent_context)[-5000:]
-        + "\n\nResolved current conversation state:\n"
-        + json.dumps(conversation_state, ensure_ascii=False, indent=2)[-4500:]
-        + "\n\nLong-term user profile and preferences:\n"
-        + str(profile_context)[-3500:]
-        + "\n\nCurrent shopping request:\n"
-        + str(user_message)
+def _shopping_context_scope(user_message):
+    """Allow prior shopping text only for an explicitly referential turn."""
+    text = re.sub(r"\s+", " ", str(user_message or "")).casefold().strip()
+    reference_patterns = (
+        r"(?:这|那)(?:个|些|几|三|款|种|一个|几个)(?:里|面)?",
+        r"第(?:一|二|三|四|五|六|七|八|九|十|一个|二个|三个)个|"
+        r"最后一个|前一个|后一个",
+        r"刚才|上一个|上一轮|之前(?:的|那|推荐|提到|说|看|找)|"
+        r"前面(?:的|那|推荐|提到|说|看|找)|同样|一样|换成|改成",
+        r"\b(?:that|these|those|them|it|same|previous|former|latter)\b",
+        r"\bthis\s+(?:one|product|option|item|brand)\b",
+        r"\b(?:instead|cheaper one|more expensive one|the three)\b",
     )
-    raw = run_ai_prompt(
-        "prompts/shopping_query.txt",
-        planning_input,
-        expect_json=True,
-        num_ctx=8192,
-        num_predict=1800,
-        think=False,
-        model_name=MODEL_NAME,
+    return (
+        "NEEDS_CONTEXT"
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in reference_patterns)
+        else "CURRENT_ONLY"
     )
 
-    if not isinstance(raw, dict):
-        print("[SHOPPING PLAN RETRY] compact AI retry")
-        raw = run_ai_prompt(
-            "prompts/shopping_query_retry.txt",
-            planning_input[-7500:],
-            expect_json=True,
-            num_ctx=8192,
-            num_predict=1600,
-            think=False,
-            model_name=MODEL_NAME,
+
+def _shopping_popularity_requirement(user_message):
+    """Normalize only an explicit popularity/brand-position constraint."""
+    text = re.sub(r"\s+", " ", str(user_message or "")).casefold().strip()
+    chinese_popularity = (
+        r"(?:网红|爆红|爆款|主流|大牌|知名|名牌|热门|流行|畅销|热卖)"
+    )
+    text = re.sub(
+        rf"(?:不要|不想|不是|并非|没那么|别|拒绝|避开|排除|不考虑|无需|不|非)"
+        rf"\s*(?:(?:是|想|要|买|推荐|选择|考虑|很|太|那么|特别|真的|非常)\s*){{0,4}}"
+        rf"{chinese_popularity}(?:牌子|品牌)?",
+        " ",
+        text,
+    )
+    text = re.sub(
+        rf"{chinese_popularity}(?:牌子|品牌)?"
+        rf"[^，,。；;！？!?但而]{{0,8}}"
+        rf"(?:除外|不要(?:了|的)?(?=[，,。；;！？!?\s]|$))",
+        " ",
+        text,
+    )
+    english_popularity = (
+        r"(?:viral|trending|mainstream|popular|well[- ]known|"
+        r"established(?:\s+brand)?|best[- ]selling|best\s+seller|"
+        r"internet[- ]famous)"
+    )
+    text = re.sub(
+        rf"(?<![a-z])(?:do\s+not|don['’]?t|anything\s+but|not|no|without|avoid|exclude)"
+        rf"\s+(?:(?:longer|really|want|buy|recommend|choose|consider|too|very|particularly)\s+){{0,4}}"
+        rf"{english_popularity}(?:\s+brands?)?(?![a-z])",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        rf"(?<![a-z])(?:non[- ]?|un){english_popularity}(?![a-z])",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        rf"(?<![a-z]){english_popularity}(?:\s+brands?)?"
+        rf"(?:\s+(?!(?:but|however|except)\b)[a-z][a-z-]*){{0,3}}"
+        rf"\s+(?:excluded|not\s+wanted)(?![a-z])",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    groups = (
+        (
+            "CURRENTLY_TRENDING",
+            ("网红", "爆红", "爆款", "viral", "trending", "internet-famous"),
+        ),
+        (
+            "ESTABLISHED_BRAND",
+            ("主流", "大牌", "知名", "名牌", "mainstream", "well-known", "established brand"),
+        ),
+        (
+            "PROVEN_DEMAND",
+            ("热门", "流行", "畅销", "热卖", "popular", "best-selling", "best seller"),
+        ),
+    )
+    for requirement, phrases in groups:
+        for phrase in phrases:
+            if re.search(r"[\u3400-\u9fff]", phrase):
+                matched = phrase in text
+            else:
+                pattern = re.escape(phrase).replace(r"\ ", r"[-\s]+")
+                matched = bool(
+                    re.search(
+                        rf"(?<![a-z0-9]){pattern}(?![a-z0-9])",
+                        text,
+                        flags=re.IGNORECASE,
+                    )
+                )
+            if matched:
+                return requirement, phrase
+    return "NONE", ""
+
+
+def _shopping_category_candidate(value, user_message, region, popularity):
+    """Strip search/popularity wording and keep a compact English category."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" -_.,")
+    if not text:
+        return ""
+
+    request_text = str(user_message or "").casefold()
+    person_meaning_is_explicit = bool(
+        re.search(
+            r"明星|艺人|偶像|韩国|韩流|\b(?:celebrity|influencer|korean|k-pop)\b",
+            request_text,
+            re.IGNORECASE,
+        )
+    )
+    if popularity != "NONE" and not person_meaning_is_explicit:
+        text = re.sub(
+            r"\b(?:netred|internet[- ]?celebrity|online celebrity|"
+            r"social media celebrity|celebrity|k[- ]?pop star|"
+            r"social media star|influencer)\b",
+            " ",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\b(?:korean|k[- ]?pop)\b",
+            " ",
+            text,
+            flags=re.IGNORECASE,
         )
 
+    text = re.sub(
+        r"\b(?:currently\s+trending|internet[- ]?famous|viral|trending|"
+        r"mainstream|well[- ]known|established|popular|best[- ]selling|"
+        r"best seller|high review count|top[- ]rated|best rated|trusted)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bbrands?\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b20\d{2}\b", " ", text)
+    country_name = str((region or {}).get("country_name") or "").strip()
+    if country_name:
+        text = re.sub(
+            rf"\b{re.escape(country_name)}\b",
+            " ",
+            text,
+            flags=re.IGNORECASE,
+        )
+    text = re.sub(r"\s+", " ", text).strip(" -_.,")
+
+    country_code = str((region or {}).get("country_code") or "").upper().strip()
+    if country_code in {"US", "CA", "GB", "AU", "NZ", "IE"}:
+        if re.search(r"[\u3400-\u9fff]", text):
+            return ""
+        latin_words = re.findall(r"[A-Za-z]{2,}", text)
+        if not latin_words:
+            return ""
+        generic = {"brand", "brands", "item", "items", "product", "products"}
+        if all(word.casefold() in generic for word in latin_words):
+            return ""
+    return text[:160]
+
+
+def _shopping_requirement_in_search_material(requirement, material):
+    requirement_text = re.sub(
+        r"[^\w\u3400-\u9fff]+", " ", str(requirement or "").casefold()
+    ).strip()
+    material_text = re.sub(
+        r"[^\w\u3400-\u9fff]+", " ", str(material or "").casefold()
+    ).strip()
+    if not requirement_text or not material_text:
+        return False
+    return f" {requirement_text} " in f" {material_text} "
+
+
+def _shopping_number_tokens(value):
+    output = set()
+    for raw in re.findall(r"\d+(?:[.,]\d+)?", str(value or "")):
+        normalized = raw.replace(",", "")
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
+        output.add(normalized or "0")
+    return output
+
+
+def _shopping_constraint_tokens(value):
+    text = str(value or "").casefold()
+    replacements = (
+        (r"美元", " usd "),
+        (r"欧元", " eur "),
+        (r"英镑", " gbp "),
+        (r"人民币|元", " cny "),
+        (r"毫升", " ml "),
+        (r"千克|公斤", " kg "),
+        (r"克", " g "),
+        (r"盎司", " oz "),
+        (r"磅", " lb "),
+        (r"小时", " hr "),
+        (r"分钟", " min "),
+        (r"以下|以内|不超过|至多", " under "),
+        (r"以上|至少|不少于", " over "),
+        (r"升", " l "),
+        (r"\$|\b(?:usd|us dollars?|dollars?)\b", " usd "),
+        (r"€|\b(?:eur|euros?)\b", " eur "),
+        (r"£|\b(?:gbp|pounds? sterling)\b", " gbp "),
+        (r"¥|￥|\b(?:cny|rmb|yuan)\b", " cny "),
+        (r"\b(?:milliliters?|millilitres?)\b", " ml "),
+        (r"\b(?:liters?|litres?)\b", " l "),
+        (r"\b(?:ounces?)\b", " oz "),
+        (r"\b(?:kilograms?)\b", " kg "),
+        (r"\b(?:grams?)\b", " g "),
+        (r"\b(?:pounds?|lbs?)\b", " lb "),
+        (r"\b(?:hours?|hrs?)\b", " hr "),
+        (r"\b(?:minutes?|mins?)\b", " min "),
+        (r"\b(?:less than|below|no more than|at most|maximum|max)\b", " under "),
+        (r"\b(?:more than|above|at least|minimum)\b", " over "),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    text = re.sub(r"\d+(?:[.,]\d+)?", " ", text)
+    stopwords = {
+        "a", "an", "the", "of", "or", "and", "approximately", "about",
+        "around", "capacity", "size", "budget", "price", "target",
+    }
+    return {
+        token
+        for token in re.findall(r"[a-z]+", text)
+        if token not in stopwords
+    }
+
+
+def _shopping_requirement_is_grounded_in_plan(
+    requirement,
+    source_phrase,
+    search_material,
+):
+    exact_match = _shopping_requirement_in_search_material(
+        requirement, search_material
+    )
+    requirement_numbers = _shopping_number_tokens(requirement)
+    if not requirement_numbers:
+        return exact_match
+    if not requirement_numbers.issubset(_shopping_number_tokens(search_material)):
+        return False
+    if not requirement_numbers.issubset(_shopping_number_tokens(source_phrase)):
+        return False
+    requirement_tokens = _shopping_constraint_tokens(requirement)
+    search_tokens = _shopping_constraint_tokens(search_material)
+    source_tokens = _shopping_constraint_tokens(source_phrase)
+    if not requirement_tokens.issubset(search_tokens):
+        return False
+    critical = {
+        "usd", "eur", "gbp", "cny", "ml", "l", "oz", "kg", "g", "lb",
+        "hr", "min", "under", "over",
+    }
+    return (requirement_tokens & critical).issubset(source_tokens & critical)
+
+
+def _shopping_source_is_popularity_only(source_phrase):
+    cleaned = re.sub(
+        r"网红|爆红|爆款|主流|大牌|知名|名牌|热门|流行|畅销|热卖|"
+        r"\b(?:viral|trending|mainstream|well-known|established|popular|"
+        r"best-selling|best seller|internet-famous)\b",
+        " ",
+        str(source_phrase or ""),
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"牌子|品牌|brands?", " ", cleaned, flags=re.IGNORECASE)
+    return not re.sub(r"[\W_]+", "", cleaned, flags=re.UNICODE)
+
+
+def _shopping_non_popularity_source_material(user_message):
+    text = re.sub(r"\s+", " ", str(user_message or "").casefold()).strip()
+    text = re.sub(
+        r"(?:网红|爆红|爆款|主流|大牌|知名|名牌|热门|流行|畅销|热卖)"
+        r"(?:牌子|品牌)?",
+        " ",
+        text,
+    )
+    text = re.sub(
+        r"\b(?:internet-famous|viral|trending|mainstream|well-known|"
+        r"established brand|popular|best-selling|best seller)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _shopping_search_has_unowned_popularity_drift(
+    value,
+    user_message,
+    popularity,
+):
+    if popularity == "NONE":
+        return False
+    search_text = str(value or "").casefold()
+    request_text = str(user_message or "").casefold()
+    person_meaning_is_explicit = bool(
+        re.search(
+            r"明星|艺人|偶像|韩国|韩流|\b(?:celebrity|influencer|korean|k-pop)\b",
+            request_text,
+            re.IGNORECASE,
+        )
+    )
+    if not person_meaning_is_explicit and re.search(
+        r"\b(?:netred|internet[- ]?celebrity|online celebrity|"
+        r"social media celebrity|celebrity|k[- ]?pop(?: star)?|"
+        r"korean|social media star|influencer)\b",
+        search_text,
+        re.IGNORECASE,
+    ):
+        return True
+    if (
+        re.search(r"\bred\b", search_text)
+        and "红" not in _shopping_non_popularity_source_material(user_message)
+        and not re.search(r"\bred\b", request_text)
+    ):
+        return True
+    return False
+
+
+def _shopping_category_verification_is_usable(
+    raw,
+    user_message,
+    category,
+    context_scope="CURRENT_ONLY",
+    recent_context="",
+):
     if not isinstance(raw, dict):
-        raw = {}
+        return False
+    if str(raw.get("verdict") or "").strip().upper() != "MATCH":
+        return False
+    if str(raw.get("constraints_verdict") or "").strip().upper() != "COMPLETE":
+        return False
+    missing_constraints = raw.get("unrepresented_constraint_source_phrases")
+    if not isinstance(missing_constraints, list) or missing_constraints:
+        return False
+    echoed_category = re.sub(
+        r"\s+", " ", str(raw.get("english_category") or "").casefold()
+    ).strip()
+    expected_category = re.sub(
+        r"\s+", " ", str(category or "").casefold()
+    ).strip()
+    if not echoed_category or echoed_category != expected_category:
+        return False
+    source_phrase = re.sub(
+        r"\s+", " ", str(raw.get("source_category_phrase") or "").casefold()
+    ).strip()
+    source_scope = str(
+        raw.get("source_category_scope") or ""
+    ).strip().upper()
+    current_source_material = _shopping_non_popularity_source_material(
+        user_message
+    )
+    recent_source_material = _shopping_non_popularity_source_material(
+        recent_context
+    )
+    if source_scope == "CURRENT_REQUEST":
+        source_material = current_source_material
+    elif source_scope == "RECENT_CONTEXT" and context_scope == "NEEDS_CONTEXT":
+        source_material = recent_source_material
+    else:
+        return False
+    compact_source = re.sub(
+        r"[^\w\u3400-\u9fff]+", "", source_phrase
+    )
+    source_length_ok = bool(re.search(r"[\u3400-\u9fff]", compact_source)) or (
+        len(compact_source) >= 2
+    )
+    if (
+        not source_phrase
+        or source_phrase not in source_material
+        or _shopping_source_is_popularity_only(source_phrase)
+        or not source_length_ok
+    ):
+        return False
+    if re.fullmatch(
+        r"(?:给我|帮我|推荐|找|搜索|购买|买|三个|三款|产品|商品|"
+        r"recommend|find|search|buy|three|products?|items?)",
+        source_phrase,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return True
 
-    merchant_scope = str(raw.get("merchant_scope", "regional_mix")).lower().strip()
-    if merchant_scope not in {"exclusive", "regional_mix"}:
-        merchant_scope = "regional_mix"
 
-    merchants = raw.get("merchants", [])
-    if not isinstance(merchants, list):
-        merchants = []
-    clean_merchants = []
-    seen_domains = set()
-    for merchant in merchants[:4]:
-        if not isinstance(merchant, dict):
-            continue
-        domain = str(merchant.get("domain", "")).lower().strip()
-        domain = domain.removeprefix("www.").rstrip(".")
+def _shopping_semantic_tokens(value):
+    tokens = []
+    for token in re.findall(r"[a-z]+", str(value or "").casefold()):
+        if token.endswith("s") and len(token) > 3 and not token.endswith("ss"):
+            token = token[:-1]
+        tokens.append(token)
+    tokens.extend(re.findall(r"[\u3400-\u9fff]+", str(value or "")))
+    return set(tokens)
+
+
+def _shopping_hard_constraint_number_tokens(user_message):
+    text = str(user_message or "")
+    text = re.sub(
+        r"(?<!\d)\d+\s*(?:个|款|种|件|台|部|双|只)"
+        r"(?!\s*(?:装|套|包))|"
+        r"\b\d+\s+(?:different\s+)?(?:products?|items?|options?|candidates?)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return _shopping_number_tokens(text)
+
+
+def _shopping_raw_category_is_grounded(
+    raw,
+    user_message,
+    region,
+    popularity,
+):
+    if not isinstance(raw, dict):
+        return False
+    country_code = str((region or {}).get("country_code") or "").upper().strip()
+    if country_code not in {"US", "CA", "GB", "AU", "NZ", "IE"}:
+        return True
+    category = _shopping_category_candidate(
+        raw.get("product_query"), user_message, region, popularity
+    )
+    category_tokens = _shopping_semantic_tokens(category)
+    if not category_tokens:
+        return False
+    queries = raw.get("queries") if isinstance(raw.get("queries"), list) else []
+    search_material = " ".join(
+        [str(raw.get("product_query") or "")] + [str(value) for value in queries]
+    )
+    source_material = _shopping_non_popularity_source_material(user_message)
+    covered_tokens = set()
+    covered_constraint_numbers = set()
+    required_constraint_numbers = _shopping_hard_constraint_number_tokens(
+        user_message
+    )
+    values = raw.get("requirements")
+    if not isinstance(values, list):
+        return False
+    for value in values[:12]:
+        if isinstance(value, dict):
+            requirement = str(value.get("requirement") or "").strip()[:120]
+            source_phrase = re.sub(
+                r"\s+", " ", str(value.get("source_phrase") or "").casefold()
+            ).strip()
+            source_owned = bool(
+                source_phrase and source_phrase in source_material
+            )
+        else:
+            requirement = str(value or "").strip()[:120]
+            source_phrase = requirement
+            source_owned = bool(
+                requirement
+                and requirement.casefold() in source_material
+            )
+        popularity_only_source = _shopping_source_is_popularity_only(
+            source_phrase
+        )
+        generic_requirement = requirement.casefold() in {
+                "brand", "brands", "category", "normalized category",
+                "product category", "size", "feature", "quality",
+            }
+        ungrounded_number = _requirement_has_ungrounded_number(
+            requirement, user_message
+        )
+        plan_grounded = _shopping_requirement_is_grounded_in_plan(
+                requirement,
+                source_phrase,
+                search_material,
+            )
+        source_numbers = _shopping_number_tokens(source_phrase)
+        if source_owned and source_numbers and (
+            popularity_only_source
+            or generic_requirement
+            or ungrounded_number
+            or not plan_grounded
+        ):
+            return False
         if (
-            not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", domain)
-            or domain in seen_domains
+            not requirement
+            or not source_owned
+            or popularity_only_source
+            or generic_requirement
+            or ungrounded_number
+            or not plan_grounded
         ):
             continue
-        seen_domains.add(domain)
-        clean_merchants.append(
-            {
-                "name": str(merchant.get("name", "")).strip()[:80],
-                "domain": domain,
-                "reason": str(merchant.get("reason", "")).strip()[:220],
-            }
+        covered_tokens.update(_shopping_semantic_tokens(requirement))
+        covered_constraint_numbers.update(source_numbers)
+    return (
+        category_tokens.issubset(covered_tokens)
+        and required_constraint_numbers.issubset(covered_constraint_numbers)
+    )
+
+
+def _shopping_query_contract_is_usable(
+    raw,
+    user_message,
+    region,
+    popularity,
+    recent_context="",
+):
+    if not isinstance(raw, dict):
+        return False
+    queries = raw.get("queries")
+    product_query = str(raw.get("product_query") or "").strip()
+    if (
+        not isinstance(queries, list)
+        or not 1 <= len(queries) <= 3
+        or not product_query
+        or any(not isinstance(value, str) or not value.strip() for value in queries)
+    ):
+        return False
+
+    if any(
+        _shopping_search_has_unowned_popularity_drift(
+            value,
+            user_message,
+            popularity,
         )
-    if merchant_scope == "exclusive":
-        clean_merchants = clean_merchants[:1]
+        for value in [product_query] + [str(item) for item in queries]
+    ):
+        return False
 
-    # An explicitly named website is a deterministic user constraint. The AI
-    # still builds the semantic product query, but malformed AI output must not
-    # silently erase the requested merchant and prevent search from starting.
-    if explicit_merchant is not None:
-        merchant_scope = "exclusive"
-        clean_merchants = [explicit_merchant]
+    country_code = str((region or {}).get("country_code") or "").upper().strip()
+    latin_search_markets = {"US", "CA", "GB", "AU", "NZ", "IE"}
+    if country_code in latin_search_markets:
+        values = [product_query] + [str(value) for value in queries]
+        for index, value in enumerate(values):
+            latin_words = re.findall(r"[A-Za-z]{2,}", value)
+            cjk_characters = len(re.findall(r"[\u3400-\u9fff]", value))
+            if (
+                len(latin_words) < (1 if index == 0 else 2)
+                or cjk_characters
+            ):
+                return False
 
+        category = _shopping_category_candidate(
+            product_query,
+            user_message,
+            region,
+            popularity,
+        )
+        category_tokens = _shopping_semantic_tokens(category)
+        if not category_tokens:
+            return False
+        for query in queries:
+            if not category_tokens.issubset(
+                _shopping_semantic_tokens(query)
+            ):
+                return False
+
+    current_year = str(datetime.now().year)
+    request_text = (
+        str(user_message or "") + "\n" + str(recent_context or "")
+    )
+    allowed_query_numbers = _shopping_hard_constraint_number_tokens(
+        user_message
+    ) | _shopping_hard_constraint_number_tokens(recent_context) | {current_year}
+    for value in [product_query] + [str(item) for item in queries]:
+        if _shopping_number_tokens(value) - allowed_query_numbers:
+            return False
+        for year in re.findall(r"\b20\d{2}\b", value):
+            if year != current_year and year not in request_text:
+                return False
+
+    if popularity != "NONE":
+        material = " ".join([product_query] + [str(value) for value in queries]).casefold()
+        popularity_terms = (
+            "popular", "viral", "trending", "mainstream", "well-known",
+            "established brand", "best-selling", "best seller", "high review",
+        )
+        if not any(term in material for term in popularity_terms):
+            return False
+    return True
+
+
+def _requirement_has_ungrounded_number(
+    requirement,
+    user_message,
+    recent_context="",
+):
+    return bool(
+        _shopping_number_tokens(requirement)
+        - _shopping_number_tokens(
+            str(user_message or "") + "\n" + str(recent_context or "")
+        )
+    )
+
+
+def _recover_shopping_popularity_plan(
+    primary_raw,
+    retry_raw,
+    user_message,
+    region,
+    popularity,
+    recent_context="",
+):
+    """Recover a verified category consensus from two unusable plans."""
+    if not isinstance(primary_raw, dict) or not isinstance(retry_raw, dict):
+        return None
+    categories = [
+        _shopping_category_candidate(
+            raw.get("product_query"), user_message, region, popularity
+        )
+        for raw in (primary_raw, retry_raw)
+    ]
+    if not all(categories):
+        return None
+    normalized_categories = [
+        re.sub(r"\s+", " ", value.casefold()).strip() for value in categories
+    ]
+    if normalized_categories[0] != normalized_categories[1]:
+        return None
+    category = categories[1]
+    constraint_source_material = " ".join(
+        value
+        for value in (
+            _shopping_non_popularity_source_material(user_message),
+            _shopping_non_popularity_source_material(recent_context),
+        )
+        if value
+    )
+
+    # Recovery never merges one attempt's constraint into the other. A hard
+    # constraint must be independently present and query-grounded in both.
+    if primary_raw.get("localized_constraints") or retry_raw.get("localized_constraints"):
+        return None
+
+    def constraint_map(raw):
+        raw_search_material = " ".join(
+            str(value)
+            for value in (
+                [raw.get("product_query", "")]
+                + (
+                    raw.get("queries")
+                    if isinstance(raw.get("queries"), list)
+                    else []
+                )
+            )
+        )
+        output = {}
+        values = raw.get("requirements")
+        if not isinstance(values, list):
+            return output
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            requirement = str(value.get("requirement") or "").strip()[:120]
+            source_phrase = re.sub(
+                r"\s+", " ", str(value.get("source_phrase") or "").casefold()
+            ).strip()
+            if (
+                not requirement
+                or not source_phrase
+                or source_phrase not in constraint_source_material
+                or _shopping_source_is_popularity_only(source_phrase)
+                or _requirement_has_ungrounded_number(
+                    requirement,
+                    user_message,
+                    recent_context,
+                )
+                or not _shopping_requirement_is_grounded_in_plan(
+                    requirement,
+                    source_phrase,
+                    raw_search_material,
+                )
+            ):
+                continue
+            normalized = requirement.casefold()
+            if normalized in {
+                "brand", "brands", "category", "normalized category",
+                "product category", "size", "feature", "quality",
+            }:
+                continue
+            if _shopping_requirement_in_search_material(requirement, category):
+                continue
+            count_only = bool(
+                re.search(
+                    r"三个(?:不同)?(?:产品|商品|选项|候选|杯子|杯款)?|三款|"
+                    r"\b(?:three|3)\s+(?:different\s+)?"
+                    r"(?:products?|options?|candidates?|items?|cups?)\b",
+                    (requirement + " " + source_phrase).casefold(),
+                )
+            )
+            if count_only:
+                continue
+            key = (
+                re.sub(r"\s+", " ", requirement.casefold()).strip(),
+                source_phrase,
+            )
+            output[key] = {
+                "requirement": requirement,
+                "source_phrase": source_phrase,
+            }
+        return output
+
+    primary_constraints = constraint_map(primary_raw)
+    retry_constraints = constraint_map(retry_raw)
+    if set(primary_constraints) != set(retry_constraints):
+        return None
+    consensus_rows = [
+        retry_constraints[key]
+        for key in retry_constraints
+        if key in primary_constraints
+    ]
+    covered_repair_numbers = set()
+    for row in consensus_rows:
+        covered_repair_numbers.update(
+            _shopping_number_tokens(row.get("source_phrase"))
+        )
+    if not (
+        _shopping_hard_constraint_number_tokens(user_message)
+        | _shopping_hard_constraint_number_tokens(recent_context)
+    ).issubset(
+        covered_repair_numbers
+    ):
+        return None
+    repair_constraints = [
+        row["requirement"] for row in consensus_rows
+    ]
+
+    base = " ".join([category] + list(dict.fromkeys(repair_constraints)))
+    year = str(datetime.now().year)
+    country = str(
+        (region or {}).get("country_name")
+        or (region or {}).get("country_code")
+        or ""
+    ).strip()
+    qualifiers = {
+        "CURRENTLY_TRENDING": f"viral trending brands {year}",
+        "ESTABLISHED_BRAND": "mainstream well-known established brands",
+        "PROVEN_DEMAND": "best-selling high review count",
+        "NONE": "best rated high review count",
+    }
+    query = " ".join(
+        value for value in (base, qualifiers.get(popularity, ""), country) if value
+    )
+    repaired = dict(retry_raw)
+    repaired["product_query"] = category
+    repaired["queries"] = [re.sub(r"\s+", " ", query).strip()[:220]]
+    repaired["requirements"] = consensus_rows[:12]
+    repaired["localized_constraints"] = []
+    repaired["_python_grounded_category"] = category
+    return repaired
+
+
+def build_shopping_plan(
+    user_message,
+    recent_context="",
+    region=None,
+    allow_category_translation_repair=False,
+):
+    """Build a current-turn-grounded product plan with bounded context use."""
+    explicit_merchant = _explicit_shopping_merchant(user_message, region)
+    context_scope = _shopping_context_scope(user_message)
+    reference_context = (
+        str(recent_context)[-800:]
+        if context_scope == "NEEDS_CONTEXT"
+        else ""
+    )
+    popularity_requirement, popularity_phrase = (
+        _shopping_popularity_requirement(user_message)
+    )
+    planning_packet = {
+        "current_date": datetime.now().date().isoformat(),
+        "shopping_region": region or {},
+        "current_request": str(user_message)[:900],
+        "context_scope": context_scope,
+        "explicit_merchant": explicit_merchant,
+        "popularity_requirement": popularity_requirement,
+        "popularity_phrase": popularity_phrase,
+    }
+    if context_scope == "NEEDS_CONTEXT":
+        planning_packet["recent_context_for_reference"] = str(recent_context)[-1400:]
+    print("[SHOPPING PLAN CONTEXT]", context_scope)
+
+    def call_planner(
+        prompt_path,
+        packet,
+        num_ctx,
+        num_predict,
+        json_schema=None,
+    ):
+        try:
+            return run_ai_prompt(
+                prompt_path,
+                json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
+                expect_json=True,
+                num_ctx=num_ctx,
+                num_predict=num_predict,
+                think=False,
+                model_name="llama3.2:latest",
+                json_schema=json_schema,
+            )
+        except Exception as error:
+            print("[SHOPPING PLAN MODEL ERROR]", prompt_path, repr(error))
+            return None
+
+    def plan_is_usable(candidate):
+        if not _shopping_query_contract_is_usable(
+            candidate,
+            user_message,
+            region,
+            popularity_requirement,
+            reference_context,
+        ):
+            return False
+        if isinstance(candidate, dict) and candidate.get(
+            "_python_grounded_category"
+        ):
+            return True
+        if context_scope != "CURRENT_ONLY":
+            return True
+        return _shopping_raw_category_is_grounded(
+            candidate,
+            user_message,
+            region,
+            popularity_requirement,
+        )
+
+    def semantic_plan_is_usable(candidate, stage):
+        if not plan_is_usable(candidate):
+            return False
+        verification = call_planner(
+            "prompts/shopping_category_verify.txt",
+            {
+                "current_request": str(user_message)[:900],
+                "current_request_without_popularity": (
+                    _shopping_non_popularity_source_material(user_message)
+                )[:900],
+                "context_scope": context_scope,
+                "recent_context_for_reference": (
+                    reference_context
+                ),
+                "candidate_english_category": candidate.get(
+                    "product_query", ""
+                ),
+                "candidate_queries": candidate.get("queries", []),
+                "candidate_requirements": candidate.get(
+                    "requirements", []
+                ),
+                "popularity_requirement": popularity_requirement,
+            },
+            2048,
+            220,
+        )
+        verified = _shopping_category_verification_is_usable(
+            verification,
+            user_message,
+            candidate.get("product_query", ""),
+            context_scope,
+            reference_context,
+        )
+        if not verified:
+            print("[SHOPPING PLAN SEMANTIC REJECTED]", stage)
+        return verified
+
+    def translated_category_repair():
+        """Translate one intact source category before rebuilding a safe query."""
+        translation = call_planner(
+            "prompts/shopping_category_translate.txt",
+            {
+                "current_request": str(user_message)[:900],
+                "current_request_without_popularity": (
+                    _shopping_non_popularity_source_material(user_message)
+                )[:900],
+                "context_scope": context_scope,
+                "recent_context_for_reference": reference_context,
+                "shopping_region": region or {},
+                "popularity_requirement": popularity_requirement,
+            },
+            2048,
+            260,
+            json_schema={
+                "type": "object",
+                "properties": {
+                    "source_category_scope": {
+                        "type": "string",
+                        "enum": ["CURRENT_REQUEST", "RECENT_CONTEXT"],
+                    },
+                    "source_category_phrase": {"type": "string"},
+                    "english_category": {"type": "string"},
+                    "constraints": {
+                        "type": "array",
+                        "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source_phrase": {"type": "string"},
+                                "english_requirement": {"type": "string"},
+                            },
+                            "required": [
+                                "source_phrase",
+                                "english_requirement",
+                            ],
+                        },
+                    },
+                },
+                "required": [
+                    "source_category_scope",
+                    "source_category_phrase",
+                    "english_category",
+                    "constraints",
+                ],
+            },
+        )
+        if not isinstance(translation, dict):
+            return None
+        source_scope = str(
+            translation.get("source_category_scope") or ""
+        ).strip().upper()
+        if source_scope == "CURRENT_REQUEST":
+            source_material = _shopping_non_popularity_source_material(
+                user_message
+            )
+        elif source_scope == "RECENT_CONTEXT" and context_scope == "NEEDS_CONTEXT":
+            source_material = _shopping_non_popularity_source_material(
+                reference_context
+            )
+        else:
+            return None
+        source_phrase = re.sub(
+            r"\s+",
+            " ",
+            str(translation.get("source_category_phrase") or "").casefold(),
+        ).strip()
+        category = re.sub(
+            r"\s+",
+            " ",
+            str(translation.get("english_category") or ""),
+        ).strip()[:120]
+        if (
+            not source_phrase
+            or source_phrase not in source_material
+            or _shopping_source_is_popularity_only(source_phrase)
+            or not category
+            or re.search(r"[\u3400-\u9fff]", category)
+            or not re.search(r"[A-Za-z]", category)
+        ):
+            return None
+        rows = [{"requirement": category, "source_phrase": source_phrase}]
+        query_requirements = []
+        values = translation.get("constraints")
+        if not isinstance(values, list):
+            return None
+        for value in values[:8]:
+            if not isinstance(value, dict):
+                return None
+            owned_phrase = re.sub(
+                r"\s+",
+                " ",
+                str(value.get("source_phrase") or "").casefold(),
+            ).strip()
+            requirement = re.sub(
+                r"\s+",
+                " ",
+                str(value.get("english_requirement") or ""),
+            ).strip()[:120]
+            if (
+                not owned_phrase
+                or owned_phrase not in source_material
+                or _shopping_source_is_popularity_only(owned_phrase)
+                or not requirement
+                or re.search(r"[\u3400-\u9fff]", requirement)
+            ):
+                return None
+            rows.append(
+                {
+                    "requirement": requirement,
+                    "source_phrase": owned_phrase,
+                }
+            )
+            query_requirements.append(requirement)
+        qualifiers = {
+            "CURRENTLY_TRENDING": "viral trending brands",
+            "ESTABLISHED_BRAND": "mainstream well-known established brands",
+            "PROVEN_DEMAND": "best-selling high review count",
+            "NONE": "best rated high review count",
+        }
+        country = str(
+            (region or {}).get("country_name")
+            or (region or {}).get("country_code")
+            or ""
+        ).strip()
+        query = " ".join(
+            value
+            for value in (
+                category,
+                " ".join(query_requirements),
+                qualifiers.get(popularity_requirement, ""),
+                country,
+            )
+            if value
+        )
+        return {
+            "product_query": category,
+            "queries": [re.sub(r"\s+", " ", query).strip()[:220]],
+            "requirements": rows,
+            "localized_constraints": [],
+            "_python_grounded_category": category,
+        }
+
+    primary_raw = call_planner(
+        "prompts/shopping_query.txt", planning_packet, 4096, 700
+    )
+    raw = primary_raw
+    accepted = semantic_plan_is_usable(primary_raw, "primary")
+    retry_raw = None
+    if not accepted:
+        print("[SHOPPING PLAN RETRY] compact current-turn retry")
+        retry_packet = {
+            key: value
+            for key, value in planning_packet.items()
+            if key != "recent_context_for_reference"
+        }
+        if context_scope == "NEEDS_CONTEXT":
+            retry_packet["recent_context_for_reference"] = str(recent_context)[-800:]
+        retry_raw = call_planner(
+            "prompts/shopping_query_retry.txt", retry_packet, 3072, 600
+        )
+        raw = retry_raw
+        accepted = semantic_plan_is_usable(retry_raw, "retry")
+
+    if not accepted and allow_category_translation_repair:
+        translated = translated_category_repair()
+        if translated is not None and semantic_plan_is_usable(
+            translated, "category_translation"
+        ):
+            raw = translated
+            accepted = True
+            print("[SHOPPING PLAN CATEGORY TRANSLATION] grounded repair")
+        elif translated is not None:
+            print("[SHOPPING PLAN CATEGORY TRANSLATION REJECTED]")
+
+    if not accepted:
+        repaired = _recover_shopping_popularity_plan(
+            primary_raw,
+            retry_raw,
+            user_message,
+            region,
+            popularity_requirement,
+            reference_context,
+        )
+        if repaired is not None and semantic_plan_is_usable(repaired, "repair"):
+            raw = repaired
+            accepted = True
+            print("[SHOPPING PLAN REPAIR] grounded category consensus")
+        elif repaired is not None:
+            print("[SHOPPING PLAN REPAIR REJECTED] category verification")
+
+    planning_failed = not accepted
+    if planning_failed:
+        raw = {}
+
+    # AI-suggested merchants are never trusted for a regional mix. Casper
+    # discovers real domains later. Only a merchant explicitly present in the
+    # current request may constrain the search.
+    merchant_scope = "exclusive" if explicit_merchant else "regional_mix"
+    clean_merchants = [explicit_merchant] if explicit_merchant else []
+
+    product_query = str(raw.get("product_query") or "").strip()[:160]
     queries = raw.get("queries", [])
     if not isinstance(queries, list):
         queries = []
     queries = [str(value).strip()[:220] for value in queries if str(value).strip()][:3]
-    if not queries:
-        queries = [str(user_message).strip()[:220]]
-
-    # Keep the AI's progressive core -> compatibility -> value/popularity
-    # queries intact. The user's raw sentence is context, not a merchant query;
-    # inserting it here previously displaced the most useful third query.
-    if len(queries) < 3:
-        core_query = queries[0] if queries else str(user_message).strip()
-        popular_query = (
-            core_query
-            + " best seller high review count trusted brand"
+    popularity_terms = (
+        "popular", "viral", "trending", "mainstream", "well-known",
+        "established brand", "best-selling", "best seller", "high review",
+    )
+    if queries and not any(
+        term in " ".join(queries).casefold() for term in popularity_terms
+    ):
+        queries[0] = (
+            queries[0] + " best-selling high review count established brand"
         )[:220]
-        if popular_query not in queries:
-            queries.append(popular_query)
+    if not queries or not product_query:
+        planning_failed = True
 
-    requirements = raw.get("requirements", [])
-    if not isinstance(requirements, list):
-        requirements = []
-    requirements = [
-        str(value).strip()[:100]
-        for value in requirements
-        if str(value).strip()
-    ][:8]
+    raw_requirements = raw.get("requirements", [])
+    if not isinstance(raw_requirements, list):
+        raw_requirements = []
+    constraint_ownership_text = "\n".join(
+        value
+        for value in (str(user_message or ""), reference_context)
+        if value
+    )
+    request_normalized = re.sub(
+        r"\s+", " ", constraint_ownership_text.casefold()
+    ).strip()
+    constraint_source_material = " ".join(
+        value
+        for value in (
+            _shopping_non_popularity_source_material(user_message),
+            _shopping_non_popularity_source_material(reference_context),
+        )
+        if value
+    )
+    product_query_normalized = re.sub(
+        r"\s+", " ", product_query.casefold()
+    ).strip()
+    search_material = " ".join([product_query] + queries)
+    category_requirement = str(
+        raw.get("_python_grounded_category") or ""
+    ).strip()[:120]
+    requirements = [category_requirement] if category_requirement else []
+    for value in raw_requirements[:12]:
+        if isinstance(value, dict):
+            requirement = str(value.get("requirement") or "").strip()[:120]
+            source_phrase = re.sub(
+                r"\s+", " ", str(value.get("source_phrase") or "").casefold()
+            ).strip()
+            source_owned = bool(
+                source_phrase and source_phrase in constraint_source_material
+            )
+            popularity_only_source = _shopping_source_is_popularity_only(
+                source_phrase
+            )
+        else:
+            requirement = str(value or "").strip()[:120]
+            source_phrase = ""
+            requirement_normalized = re.sub(
+                r"\s+", " ", requirement.casefold()
+            ).strip()
+            source_owned = bool(
+                requirement_normalized
+                and (
+                    requirement_normalized in constraint_source_material
+                    or requirement_normalized in product_query_normalized
+                )
+            )
+            popularity_only_source = False
+        multipack_requested = bool(
+            re.search(
+                r"三件套|三只装|三个同款|\b(?:3[- ]?pack|three[- ]pack|pack of 3)\b",
+                request_normalized,
+            )
+        )
+        count_only_requirement = bool(
+            re.search(
+                r"三个(?:不同)?(?:产品|商品|选项|候选|杯子|杯款)?|三款|"
+                r"\b(?:three|3)\s+(?:different\s+)?(?:products?|options?|candidates?|items?|cups?)\b",
+                (requirement + " " + source_phrase).casefold(),
+            )
+        )
+        if count_only_requirement and not multipack_requested:
+            continue
+        if popularity_only_source:
+            continue
+        if popularity_requirement != "NONE":
+            raw_popularity, _raw_phrase = _shopping_popularity_requirement(
+                requirement + " " + source_phrase
+            )
+            if raw_popularity != "NONE":
+                requirement = re.sub(
+                    r"网红|爆红|爆款|主流|大牌|知名|热门|流行|畅销|热卖|"
+                    r"\b(?:viral|trending|mainstream|well-known|established|popular|"
+                    r"best-selling|best seller)\b",
+                    " ",
+                    requirement,
+                    flags=re.IGNORECASE,
+                )
+                requirement = re.sub(r"\s+", " ", requirement).strip(" -_.,")
+                if requirement.casefold() in {"", "brand", "brands", "品牌", "牌子"}:
+                    continue
+        if (
+            requirement
+            and source_owned
+            and requirement.casefold() not in {
+                "brand", "brands", "category", "normalized category",
+                "product category", "size", "feature", "quality",
+            }
+            and _shopping_requirement_is_grounded_in_plan(
+                requirement,
+                source_phrase or requirement,
+                search_material,
+            )
+            and not _requirement_has_ungrounded_number(
+                requirement,
+                user_message,
+                reference_context,
+            )
+            and requirement not in requirements
+        ):
+            requirements.append(requirement)
+        if len(requirements) >= 8:
+            break
+    hard_popularity_requirements = {
+        "CURRENTLY_TRENDING": "current cross-source brand trend evidence",
+        "ESTABLISHED_BRAND": "established brand evidence",
+        "PROVEN_DEMAND": "visible demand or review-count evidence",
+    }
+    hard_requirement = hard_popularity_requirements.get(popularity_requirement)
+    if hard_requirement and hard_requirement not in requirements:
+        requirements.append(hard_requirement)
 
     localized_constraints = raw.get("localized_constraints", [])
     if not isinstance(localized_constraints, list):
@@ -1202,11 +2356,25 @@ def build_shopping_plan(user_message, recent_context="", region=None):
         original = str(item.get("original", "")).strip()[:100]
         search_value = str(item.get("search_value", "")).strip()[:100]
         display_value = str(item.get("display_value", "")).strip()[:140]
-        if not original or not search_value:
+        kind = str(item.get("kind", "")).strip().casefold()[:40]
+        if (
+            not original
+            or not search_value
+            or kind not in {
+                "price", "currency", "capacity", "volume", "length",
+                "size", "weight", "temperature", "duration", "unit",
+            }
+            or original.casefold() not in constraint_source_material
+            or not _shopping_requirement_is_grounded_in_plan(
+                search_value,
+                original,
+                search_material,
+            )
+        ):
             continue
         clean_localized_constraints.append(
             {
-                "kind": str(item.get("kind", "other")).strip()[:40],
+                "kind": kind,
                 "original": original,
                 "search_value": search_value,
                 "display_value": display_value or original,
@@ -1214,30 +2382,56 @@ def build_shopping_plan(user_message, recent_context="", region=None):
             }
         )
 
-    preference_profile = raw.get("preference_profile", {})
-    if not isinstance(preference_profile, dict):
-        preference_profile = {}
-    allowed_profile_values = {
-        "shopping_style": {"quality_first", "balanced", "value_first", "unknown"},
-        "price_sensitivity": {"low", "medium", "high", "unknown"},
-        "brand_strategy": {
-            "premium_reliable", "trusted_value", "established_only", "balanced"
-        },
+    # Soft ranking preferences must also be owned by the current request. The
+    # planner may not invent or copy an old premium/value profile.
+    request_preferences = str(user_message or "").casefold()
+    clean_profile = {
+        "shopping_style": "unknown",
+        "price_sensitivity": "unknown",
+        "brand_strategy": "unknown",
+        "reason": "",
     }
-    clean_profile = {}
-    for field, allowed in allowed_profile_values.items():
-        value = str(preference_profile.get(field, "unknown")).lower().strip()
-        clean_profile[field] = value if value in allowed else "unknown"
-    clean_profile["reason"] = str(
-        preference_profile.get("reason", "")
-    ).strip()[:240]
+    if re.search(
+        r"便宜|实惠|性价比|预算|低价|\b(?:cheap|cheaper|budget|affordable|value)\b",
+        request_preferences,
+    ):
+        clean_profile.update(
+            {
+                "shopping_style": "value_first",
+                "price_sensitivity": "high",
+                "brand_strategy": "trusted_value",
+                "reason": "explicit current-request value preference",
+            }
+        )
+    elif re.search(
+        r"高端|高级|品质优先|质量最好|\b(?:premium|luxury|quality-first|best quality)\b",
+        request_preferences,
+    ):
+        clean_profile.update(
+            {
+                "shopping_style": "quality_first",
+                "price_sensitivity": "low",
+                "brand_strategy": "premium_reliable",
+                "reason": "explicit current-request quality preference",
+            }
+        )
+    if popularity_requirement in {"CURRENTLY_TRENDING", "ESTABLISHED_BRAND"}:
+        clean_profile["brand_strategy"] = "established_only"
+        if not clean_profile["reason"]:
+            clean_profile["reason"] = "explicit current-request brand popularity"
 
     return {
+        "planning_failed": planning_failed,
+        "context_scope": context_scope,
         "merchant_scope": merchant_scope,
         "merchants": clean_merchants,
+        "product_query": product_query,
         "queries": queries,
         "requirements": requirements,
         "localized_constraints": clean_localized_constraints,
+        "popularity_requirement": popularity_requirement,
+        "popularity_phrase": popularity_phrase,
+        "selection_policy": "PROVEN_DEMAND_FIRST",
         "preference_profile": clean_profile,
     }
 
@@ -1755,42 +2949,287 @@ SOCIAL_PLATFORM_NAMES = {
     "x": "X (formerly Twitter)",
 }
 
+_SOCIAL_QUERY_SCHEMA = {
+    "type": "object",
+    "properties": {"query": {"type": "string"}},
+    "required": ["query"],
+    "additionalProperties": False,
+}
+
+_SOCIAL_EVIDENCE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "page_summary": {"type": "string"},
+        "recent_post_count": {"type": "integer", "minimum": 0},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "author": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                    },
+                    "time": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                    },
+                    "engagement": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "discussion", "rumor", "repost", "opinion", "other"
+                        ],
+                    },
+                },
+                "required": [
+                    "title", "author", "time", "engagement", "kind"
+                ],
+                "additionalProperties": False,
+            },
+            "maxItems": 12,
+        },
+        "excluded_count": {"type": "integer", "minimum": 0},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "page_summary", "recent_post_count", "items", "excluded_count", "warnings"
+    ],
+    "additionalProperties": False,
+}
+
+_SOCIAL_VISUAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "frames_analyzed": {"type": "integer", "minimum": 0, "maximum": 3},
+        "visual_summary": {"type": "string"},
+        "observations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "post_title": {"type": "string"},
+                    "description": {"type": "string", "maxLength": 320},
+                    "relevance": {"type": "string", "maxLength": 220},
+                    "visible_text": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": 100},
+                        "maxItems": 4,
+                        "uniqueItems": True,
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
+                },
+                "required": [
+                    "post_title",
+                    "description",
+                    "relevance",
+                    "visible_text",
+                    "confidence",
+                ],
+                "additionalProperties": False,
+            },
+            "maxItems": 3,
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "frames_analyzed", "visual_summary", "observations", "warnings"
+    ],
+    "additionalProperties": False,
+}
+
+_SOCIAL_POST_DETAIL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "post_title": {"type": "string"},
+                    "restaurant_name": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                    },
+                    "restaurant_name_evidence": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                    },
+                    "introduction": {"type": "string"},
+                    "visual_description": {"type": "string"},
+                    "evidence_quotes": {
+                        "type": "array", "items": {"type": "string"},
+                        "maxItems": 5,
+                    },
+                    "visible_features": {
+                        "type": "array", "items": {"type": "string"},
+                        "maxItems": 5,
+                    },
+                    "suitability_note": {"type": "string"},
+                    "uncertainty": {"type": "string"},
+                    "engagement": {
+                        "type": "object",
+                        "properties": {
+                            "likes": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "comments": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "shares": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        },
+                        "required": ["likes", "comments", "shares"],
+                        "additionalProperties": False,
+                    },
+                    "engagement_evidence": {
+                        "type": "object",
+                        "properties": {
+                            "likes": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "comments": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "shares": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        },
+                        "required": ["likes", "comments", "shares"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": [
+                    "post_title", "restaurant_name",
+                    "restaurant_name_evidence", "introduction",
+                    "visual_description", "evidence_quotes", "visible_features",
+                    "suitability_note", "uncertainty", "engagement",
+                    "engagement_evidence",
+                ],
+                "additionalProperties": False,
+            },
+            "maxItems": 3,
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
+def _social_query_matches_platform(query, platforms):
+    query = str(query or "").strip()
+    if not query:
+        return False
+    if "xiaohongshu" in platforms:
+        return bool(re.search(r"[\u3400-\u9fff]", query))
+    return True
+
+
+def _social_narrative_language(user_message):
+    """Return an explicit display-language contract for social AI output."""
+    return (
+        "Chinese"
+        if re.search(r"[\u3400-\u9fff]", str(user_message or ""))
+        else "the same language as the user request"
+    )
+
 
 def build_social_query(user_message, platforms):
-    raw_result = run_ai_prompt(
-        "prompts/social_query.txt",
-        json.dumps(
-            {
-                "user_message": user_message,
-                "platforms": platforms,
-            },
-            ensure_ascii=False,
-        ),
-        expect_json=True,
-        num_ctx=2048,
-        num_predict=120,
-        think=False,
-        model_name="llama3.2:latest",
+    previous_query = ""
+    for attempt in (1, 2):
+        packet = {
+            "user_message": user_message,
+            "platforms": platforms,
+        }
+        if attempt == 2:
+            packet["recovery_instruction"] = (
+                "The previous query used the wrong language or was invalid. "
+                "Create a new platform-native query independently."
+            )
+            packet["previous_rejected_query"] = previous_query[:160]
+            print("[SOCIAL QUERY RETRY]", platforms)
+        raw_result = run_ai_prompt(
+            "prompts/social_query.txt",
+            json.dumps(packet, ensure_ascii=False),
+            expect_json=True,
+            num_ctx=2048,
+            num_predict=120,
+            think=False,
+            model_name="gemma3:12b",
+            json_schema=_SOCIAL_QUERY_SCHEMA,
         )
-    
+        if isinstance(raw_result, dict):
+            query = str(raw_result.get("query", "")).strip()[:160]
+            previous_query = query
+            if _social_query_matches_platform(query, platforms):
+                return query
+    raise RuntimeError(
+        "Reliable social-query AI did not produce a platform-native query."
+    )
 
-    if isinstance(raw_result, dict):
-        query = str(raw_result.get("query", "")).strip()
-        if query:
-            return query[:160]
 
-    return user_message.strip()[:160]
+def _resolve_social_post_date(value, current_date):
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if any(token in text for token in (
+        "刚刚", "分钟前", "小时前", "今天", "just now", "minutes ago",
+        "minute ago", "hours ago", "hour ago", "today",
+    )):
+        return current_date
+    if "昨天" in text or text == "yesterday":
+        return current_date - timedelta(days=1)
+    if "前天" in text:
+        return current_date - timedelta(days=2)
+    match = re.search(r"(\d+)\s*天前", text)
+    if not match:
+        match = re.search(r"(\d+)\s*days?\s*ago", text)
+    if match:
+        return current_date - timedelta(days=int(match.group(1)))
+    match = re.search(
+        r"(?<!\d)(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?!\d)",
+        text,
+    )
+    if match:
+        try:
+            return datetime(
+                int(match.group(1)), int(match.group(2)), int(match.group(3))
+            ).date()
+        except ValueError:
+            return None
+    match = re.search(
+        r"(?<!\d)(\d{1,2})(?:[-/.月])(\d{1,2})(?:日)?(?!\d)",
+        text,
+    )
+    if not match:
+        return None
+    month, day = int(match.group(1)), int(match.group(2))
+    for year in (current_date.year, current_date.year - 1):
+        try:
+            candidate = datetime(year, month, day).date()
+        except ValueError:
+            return None
+        if candidate <= current_date:
+            return candidate
+    return None
+
+
+def _nonnegative_int(value):
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
 
 def extract_social_evidence(
     page_text,
     recency_days=7,
+    current_date=None,
 ):
     """Keep only recent, visible, unverified social discussion items."""
 
-    current_date = datetime.now().date().isoformat()
+    if current_date is None:
+        current_day = datetime.now().date()
+    elif hasattr(current_date, "year") and not isinstance(current_date, str):
+        current_day = current_date
+    else:
+        current_day = datetime.strptime(
+            str(current_date), "%Y-%m-%d"
+        ).date()
+    recency_days = max(int(recency_days or 1), 1)
 
     input_text = (
-        "Current date: " + current_date
+        "Current date: " + current_day.isoformat()
         + "\nRequested recency window: "
         + str(recency_days)
         + " days\n\nVisible social-page text:\n"
@@ -1804,15 +3243,8 @@ def extract_social_evidence(
         num_ctx=8192,
         num_predict=1400,
         think=False,
-        model_name="llama3.2:latest",
-    )
-    print(
-        "[SOCIAL EVIDENCE]",
-        json.dumps(
-            evidence,
-            ensure_ascii=False,
-            indent=2,
-        ),
+        model_name="gemma3:12b",
+        json_schema=_SOCIAL_EVIDENCE_SCHEMA,
     )
 
     if not isinstance(evidence, dict):
@@ -1826,39 +3258,765 @@ def extract_social_evidence(
             ],
         }
 
-    items = evidence.get("items", [])
-    if not isinstance(items, list):
-        items = []
-
-    try:
-        recent_post_count = max(
-            int(evidence.get("recent_post_count", 0) or 0),
-            0,
+    raw_items = evidence.get("items", [])
+    if not isinstance(raw_items, list):
+        raw_items = []
+    earliest = current_day - timedelta(days=recency_days - 1)
+    items = []
+    seen = set()
+    dropped = 0
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            dropped += 1
+            continue
+        title = str(raw_item.get("title") or "").strip()[:300]
+        resolved = _resolve_social_post_date(
+            raw_item.get("time"), current_day
         )
-    except (TypeError, ValueError):
-        recent_post_count = 0
-
-    try:
-        excluded_count = max(
-            int(evidence.get("excluded_count", 0) or 0),
-            0,
+        if not title or resolved is None or not earliest <= resolved <= current_day:
+            dropped += 1
+            continue
+        author = str(raw_item.get("author") or "").strip()[:160] or None
+        identity = (title.casefold(), str(author or "").casefold())
+        if identity in seen:
+            dropped += 1
+            continue
+        seen.add(identity)
+        items.append(
+            {
+                "title": title,
+                "author": author,
+                "time": str(raw_item.get("time") or "").strip()[:80],
+                "resolved_date": resolved.isoformat(),
+                "engagement": (
+                    str(raw_item.get("engagement") or "").strip()[:80] or None
+                ),
+                "kind": str(raw_item.get("kind") or "other").lower().strip()
+                if str(raw_item.get("kind") or "other").lower().strip()
+                in {"discussion", "rumor", "repost", "opinion", "other"}
+                else "other",
+            }
         )
-    except (TypeError, ValueError):
-        excluded_count = 0
+        if len(items) >= 12:
+            break
 
     warnings = evidence.get("warnings", [])
     if not isinstance(warnings, list):
         warnings = []
-
-    return {
-        "page_summary": str(
-            evidence.get("page_summary", "")
-        )[:700],
-        "recent_post_count": recent_post_count,
-        "items": items[:5],
-        "excluded_count": excluded_count,
-        "warnings": warnings[:4],
+    warnings = [str(item)[:240] for item in warnings if str(item).strip()]
+    if dropped:
+        warnings.append(
+            "已按可解析日期排除 " + str(dropped) + " 条过期、无日期或重复内容。"
+        )
+    page_summary = str(evidence.get("page_summary", ""))[:700]
+    if not items:
+        page_summary = (
+            "最近 " + str(recency_days)
+            + " 天内没有可通过可见日期验证的社媒帖子。"
+        )
+    # Select the strongest five-to-seven candidates only after every recent
+    # item has passed date and duplicate validation. Unknown interaction stays
+    # behind known values, and equal values preserve the page's source order.
+    items.sort(
+        key=lambda item: (
+            _parse_social_metric(item.get("engagement")) is None,
+            -(_parse_social_metric(item.get("engagement")) or 0),
+        )
+    )
+    filtered = {
+        "page_summary": page_summary,
+        "recent_post_count": len(items),
+        "items": items[:7],
+        "excluded_count": _nonnegative_int(
+            evidence.get("excluded_count")
+        ) + dropped,
+        "warnings": warnings[:5],
     }
+    print(
+        "[SOCIAL EVIDENCE]",
+        json.dumps(filtered, ensure_ascii=False, indent=2),
+    )
+    return filtered
+
+
+def extract_social_visual_evidence(
+    visual_frames,
+    user_message,
+    recent_items,
+    platforms,
+):
+    frames = [
+        str(frame)
+        for frame in visual_frames
+        if isinstance(frame, str) and frame.strip()
+    ][:3]
+    allowed_titles = [
+        str(item.get("title") or "").strip()
+        for item in recent_items
+        if isinstance(item, dict) and str(item.get("title") or "").strip()
+    ]
+    empty = {
+        "frames_analyzed": 0,
+        "visual_summary": "",
+        "observations": [],
+        "warnings": [],
+    }
+    if not frames:
+        empty["warnings"] = ["社媒页面没有可读取的图片画面。"]
+        return empty
+    if not allowed_titles:
+        empty["warnings"] = [
+            "没有通过时间验证的近期帖子，因此图片未纳入近期证据。"
+        ]
+        return empty
+    packet = {
+        "current_user_request": str(user_message)[:800],
+        "required_narrative_language": _social_narrative_language(user_message),
+        "platforms": platforms,
+        "verified_recent_post_titles": allowed_titles,
+        "instruction": (
+            "Analyze only images visibly attached to one of the supplied "
+            "verified recent post titles."
+        ),
+    }
+    raw = run_ai_prompt(
+        "prompts/social_visual_extract.txt",
+        json.dumps(packet, ensure_ascii=False),
+        expect_json=True,
+        num_ctx=4096,
+        num_predict=1400,
+        think=False,
+        model_name="gemma3:12b",
+        json_schema=_SOCIAL_VISUAL_SCHEMA,
+        images=frames,
+    )
+    if not isinstance(raw, dict):
+        empty["warnings"] = ["社媒图片无法被可靠地结构化理解。"]
+        return empty
+    title_map = {title.casefold(): title for title in allowed_titles}
+    observations = []
+    rejected_observations = 0
+    for item in raw.get("observations", []):
+        if not isinstance(item, dict):
+            rejected_observations += 1
+            continue
+        title = str(item.get("post_title") or "").strip()
+        canonical_title = title_map.get(title.casefold())
+        description = str(item.get("description") or "").strip()[:500]
+        if not canonical_title or not description:
+            rejected_observations += 1
+            continue
+        visible_text = item.get("visible_text", [])
+        if not isinstance(visible_text, list):
+            visible_text = []
+        confidence = str(item.get("confidence") or "low").lower().strip()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "low"
+        observations.append(
+            {
+                "post_title": canonical_title,
+                "description": description,
+                "relevance": str(item.get("relevance") or "").strip()[:360],
+                "visible_text": [
+                    str(text)[:180] for text in visible_text[:6]
+                    if str(text).strip()
+                ],
+                "confidence": confidence,
+            }
+        )
+    warnings = raw.get("warnings", [])
+    if not isinstance(warnings, list):
+        warnings = []
+    result = {
+        "frames_analyzed": len(frames),
+        "visual_summary": (
+            "从 " + str(len(frames)) + " 个可见页面画面中提取了 "
+            + str(len(observations)) + " 条与近期帖子可靠对应的图片观察。"
+            if observations else ""
+        ),
+        "observations": observations[:6],
+        "warnings": [
+            str(item)[:240] for item in warnings[:4] if str(item).strip()
+        ],
+    }
+    if not observations:
+        result["warnings"].append(
+            "图片未能与通过时间验证的近期帖子可靠对应。"
+        )
+    elif rejected_observations:
+        result["warnings"].append(
+            "已排除 " + str(rejected_observations)
+            + " 条无法与近期帖子标题可靠对应的图片描述。"
+        )
+    print(
+        "[SOCIAL VISUAL EVIDENCE]",
+        json.dumps(result, ensure_ascii=False, indent=2),
+    )
+    return result
+
+
+def _social_match_text(value):
+    return re.sub(r"[^0-9a-z\u3400-\u9fff]+", "", str(value or "").casefold())
+
+
+def _social_visual_metric_evidence(metric, value, proof, has_frame):
+    """Accept a screenshot metric only with an explicit icon/label binding."""
+
+    if not has_frame or _parse_social_metric(value) is None:
+        return False
+    value_key = _social_match_text(value)
+    proof_text = str(proof or "").strip().casefold()
+    proof_key = _social_match_text(proof_text)
+    if not value_key or value_key not in proof_key:
+        return False
+    markers = {
+        "likes": ("点赞", "like", "heart", "心形"),
+        "comments": ("评论", "comment", "bubble", "气泡"),
+        "shares": ("分享", "转发", "share", "arrow", "箭头"),
+    }
+    if metric == "shares" and any(
+        marker in proof_text
+        for marker in ("收藏", "collect", "bookmark", "star", "星形")
+    ):
+        return False
+    return any(marker in proof_text for marker in markers.get(metric, ()))
+
+
+def match_social_post_candidates(recent_items, candidates):
+    """Bind DOM post links to AI-extracted items using the exact visible title."""
+
+    matched = []
+    used_urls = set()
+    for item in recent_items if isinstance(recent_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        title_key = _social_match_text(title)
+        if not title_key:
+            continue
+        for candidate in candidates if isinstance(candidates, list) else []:
+            if not isinstance(candidate, dict):
+                continue
+            url = str(candidate.get("url") or "").strip()
+            visible_key = _social_match_text(candidate.get("visible_text"))
+            if not url or url in used_urls or title_key not in visible_key:
+                continue
+            matched.append({**candidate, "post_title": title})
+            used_urls.add(url)
+            break
+        if len(matched) >= 7:
+            break
+    return matched
+
+
+def extract_social_post_introductions(
+    user_message,
+    recent_items,
+    post_details,
+    visual_evidence,
+):
+    """Create grounded introductions from opened post text and bounded vision."""
+
+    if not post_details:
+        return []
+    detail_by_title = {
+        str(item.get("post_title") or "").strip().casefold(): item
+        for item in post_details[:7] if isinstance(item, dict)
+    }
+    recent_by_title = {
+        str(item.get("title") or "").strip().casefold(): item
+        for item in recent_items[:7] if isinstance(item, dict)
+    }
+    introductions = []
+    seen_introduction_titles = set()
+    details = [item for item in post_details[:7] if isinstance(item, dict)]
+    for offset in range(0, len(details), 3):
+        batch = details[offset:offset + 3]
+        batch_titles = {
+            str(item.get("post_title") or "").strip().casefold()
+            for item in batch
+        }
+        batch_images = []
+        compact_details = []
+        for item in batch:
+            visual_frame = str(item.get("visual_frame") or "").strip()
+            visual_image_number = None
+            if visual_frame:
+                batch_images.append(visual_frame)
+                visual_image_number = len(batch_images)
+            compact_details.append(
+                {
+                    "post_title": item.get("post_title", ""),
+                    "visual_image_number": visual_image_number,
+                    "search_visible_text": str(
+                        item.get("search_visible_text") or ""
+                    )[:1400],
+                    "visible_text": str(item.get("visible_text") or "")[:4200],
+                }
+            )
+        packet = {
+            "user_request": str(user_message)[:800],
+            "required_narrative_language": _social_narrative_language(
+                user_message
+            ),
+            "verified_recent_items": [
+                item for key, item in recent_by_title.items()
+                if key in batch_titles
+            ],
+            "opened_post_details": compact_details,
+            "visual_evidence": {
+                "observations": [
+                    item for item in visual_evidence.get("observations", [])
+                    if isinstance(item, dict)
+                    and str(item.get("post_title") or "").strip().casefold()
+                    in batch_titles
+                ]
+            },
+        }
+        raw = run_ai_prompt(
+            "prompts/social_post_introduction.txt",
+            json.dumps(packet, ensure_ascii=False),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=1600,
+            think=False,
+            model_name="gemma3:12b",
+            json_schema=_SOCIAL_POST_DETAIL_SCHEMA,
+            images=batch_images or None,
+        )
+        if not isinstance(raw, dict):
+            continue
+        for item in raw.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("post_title") or "").strip()
+            title_key = title.casefold()
+            if title_key not in batch_titles or title_key in seen_introduction_titles:
+                continue
+            detail = detail_by_title.get(title.casefold())
+            if not detail:
+                continue
+            source_text = "\n".join(
+                (
+                    str(detail.get("search_visible_text") or ""),
+                    str(detail.get("visible_text") or ""),
+                )
+            )
+            source_key = _social_match_text(source_text)
+            quotes = []
+            for quote in item.get("evidence_quotes", []):
+                quote = str(quote or "").strip()[:240]
+                quote_key = _social_match_text(quote)
+                if quote_key and quote_key in source_key:
+                    quotes.append(quote)
+            introduction = str(item.get("introduction") or "").strip()[:500]
+            if introduction and not quotes:
+                introduction = ""
+            name = str(item.get("restaurant_name") or "").strip()[:160]
+            name_evidence = str(
+                item.get("restaurant_name_evidence") or ""
+            ).strip()[:240]
+            if (
+                not name
+                or not name_evidence
+                or _social_match_text(name_evidence) not in source_key
+                or _social_match_text(name) not in _social_match_text(name_evidence)
+            ):
+                name = ""
+                name_evidence = ""
+            raw_metrics = item.get("engagement", {})
+            raw_metric_evidence = item.get("engagement_evidence", {})
+            metrics = {}
+            metric_evidence = {}
+            for metric in ("likes", "comments", "shares"):
+                raw_value = (
+                    raw_metrics.get(metric) if isinstance(raw_metrics, dict) else None
+                )
+                raw_proof = (
+                    raw_metric_evidence.get(metric)
+                    if isinstance(raw_metric_evidence, dict) else None
+                )
+                value = str(raw_value).strip()[:80] if raw_value is not None else ""
+                proof = str(raw_proof).strip()[:180] if raw_proof is not None else ""
+                value_key = _social_match_text(value)
+                proof_key = _social_match_text(proof)
+                if (
+                    value_key and proof_key
+                    and value_key in proof_key
+                    and proof_key in source_key
+                ) or _social_visual_metric_evidence(
+                    metric,
+                    value,
+                    proof,
+                    bool(detail.get("visual_frame")),
+                ):
+                    metrics[metric] = value
+                    metric_evidence[metric] = proof
+                else:
+                    metrics[metric] = None
+                    metric_evidence[metric] = None
+            introductions.append(
+                {
+                    "post_title": title,
+                    "restaurant_name": name or None,
+                    "restaurant_name_evidence": name_evidence or None,
+                    "introduction": introduction,
+                    "visual_description": (
+                        str(item.get("visual_description") or "").strip()[:320]
+                        if detail.get("visual_frame") else ""
+                    ),
+                    "evidence_quotes": quotes[:5],
+                    "visible_features": [
+                        str(value).strip()[:220]
+                        for value in item.get("visible_features", [])[:5]
+                        if str(value).strip()
+                    ],
+                    "suitability_note": str(
+                        item.get("suitability_note") or ""
+                    ).strip()[:300],
+                    "uncertainty": str(
+                        item.get("uncertainty") or ""
+                    ).strip()[:300],
+                    "engagement": metrics,
+                    "engagement_evidence": metric_evidence,
+                }
+            )
+            seen_introduction_titles.add(title_key)
+    return introductions
+
+
+def _parse_social_metric(value):
+    """Parse a visible social count without assigning an absent metric label."""
+    text = str(value or "").strip().lower().replace(",", "")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*([kmw万千]?)", text)
+    if not match:
+        return None
+    number = float(match.group(1))
+    multiplier = {
+        "": 1,
+        "k": 1000,
+        "千": 1000,
+        "w": 10000,
+        "万": 10000,
+        "m": 1000000,
+    }.get(match.group(2), 1)
+    return max(int(round(number * multiplier)), 0)
+
+
+def _social_metrics_for_post(recent, intro):
+    displays = {}
+    values = {}
+    raw_metrics = intro.get("engagement", {}) if isinstance(intro, dict) else {}
+    for metric in ("likes", "comments", "shares"):
+        raw_display = (
+            raw_metrics.get(metric) if isinstance(raw_metrics, dict) else None
+        )
+        display = (
+            str(raw_display).strip()[:80] if raw_display is not None else ""
+        )
+        parsed = _parse_social_metric(display)
+        displays[metric] = display or None
+        values[metric] = parsed
+    generic_display = str(recent.get("engagement") or "").strip()[:80]
+    generic_value = _parse_social_metric(generic_display)
+    # The search grid's single visible interaction number is the primary social
+    # ranking signal. It is never renamed to likes/comments/shares. Explicitly
+    # labeled detail-page metrics remain available as facts and as a fallback
+    # only when the search grid has no usable number.
+    labeled_total = sum(value for value in values.values() if value is not None)
+    labeled_count = sum(value is not None for value in values.values())
+    rank_score = (
+        generic_value
+        if generic_value is not None
+        else labeled_total if labeled_count else None
+    )
+    return {
+        "display": displays,
+        "numeric": values,
+        "search_visible_interaction": (
+            generic_display if generic_value is not None else None
+        ),
+        "rank_score": rank_score,
+        "known_metric_count": labeled_count + (generic_value is not None),
+    }
+
+
+def build_social_post_summaries(recent_items, introductions):
+    """Create five-to-seven compact post summaries for the final response."""
+    intro_by_title = {
+        str(item.get("post_title") or "").strip().casefold(): item
+        for item in introductions if isinstance(item, dict)
+    }
+    summaries = []
+    for source_order, item in enumerate(
+        recent_items[:7] if isinstance(recent_items, list) else []
+    ):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        intro = intro_by_title.get(title.casefold(), {})
+        description = str(intro.get("introduction") or "").strip()[:360]
+        visual_description = str(
+            intro.get("visual_description") or ""
+        ).strip()[:240]
+        if visual_description:
+            description = (
+                (description + " ") if description else ""
+            ) + "图片可见：" + visual_description
+        if not description:
+            description = "帖子主题：《" + title + "》；正文未能可靠读取。"
+        metrics = _social_metrics_for_post(item, intro)
+        summaries.append(
+            {
+                "post_title": title,
+                "description": description,
+                "author": item.get("author"),
+                "published_at": item.get("resolved_date"),
+                "likes": metrics["display"]["likes"],
+                "comments": metrics["display"]["comments"],
+                "shares": metrics["display"]["shares"],
+                "search_visible_interaction": metrics[
+                    "search_visible_interaction"
+                ],
+                "_rank_score": metrics["rank_score"],
+                "_source_order": source_order,
+            }
+        )
+    summaries.sort(
+        key=lambda item: (
+            item["_rank_score"] is None,
+            -(item["_rank_score"] or 0),
+            item["_source_order"],
+        )
+    )
+    for item in summaries:
+        item.pop("_rank_score", None)
+        item.pop("_source_order", None)
+    print("[SOCIAL POST SUMMARIES]", len(summaries))
+    return summaries
+
+
+def render_social_research_reply(evidence, summaries, cards, recency_days):
+    """Render already AI-extracted social summaries without dropping items."""
+    summaries = summaries if isinstance(summaries, list) else []
+    cards = cards if isinstance(cards, list) else []
+    if not summaries:
+        return (
+            "小红书最近 " + str(recency_days)
+            + " 天内没有找到日期和内容都能可靠读取的相关帖子。"
+        )
+    page_summary = str(
+        evidence.get("page_summary") if isinstance(evidence, dict) else ""
+    ).strip()
+    lines = [
+        "小红书最近 " + str(recency_days) + " 天内找到 "
+        + str(len(summaries)) + " 条可验证日期的相关帖子。"
+    ]
+    if page_summary:
+        lines.append(page_summary)
+    if any(
+        item.get("search_visible_interaction") is not None
+        for item in summaries if isinstance(item, dict)
+    ):
+        lines.append(
+            "以下按搜索页可见互动从多到少排列；该数值的具体类型未标注，"
+            "不拆分为点赞、评论或分享。"
+        )
+    lines.append("")
+    for index, item in enumerate(summaries[:7], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("post_title") or "未命名帖子").strip()
+        description = str(item.get("description") or "").strip()
+        metadata = []
+        author = str(item.get("author") or "").strip()
+        published_at = str(item.get("published_at") or "").strip()
+        if author:
+            metadata.append("作者 " + author)
+        if published_at:
+            metadata.append(published_at)
+        metric_labels = (
+            ("likes", "点赞"),
+            ("comments", "评论"),
+            ("shares", "转发/分享"),
+        )
+        for field, label in metric_labels:
+            value = item.get(field)
+            if value is not None and str(value).strip():
+                metadata.append(label + " " + str(value).strip())
+        generic = item.get("search_visible_interaction")
+        if generic is not None and str(generic).strip():
+            metadata.append("搜索页可见互动 " + str(generic).strip())
+        suffix = "（" + "；".join(metadata) + "）" if metadata else ""
+        lines.append(
+            str(index) + ". 《" + title + "》：" + description + suffix
+        )
+    lines.append("")
+    if cards:
+        lines.append(
+            "最高的 " + str(len(cards)) + " 条已经放在下方卡片中。"
+        )
+    else:
+        lines.append(
+            "这次没有帖子同时取得可绑定的页面和互动依据，因此不生成卡片。"
+        )
+    lines.append("详情页没有显示的点赞、评论或转发数据会保留为未知。")
+    reply = "\n".join(lines).strip()
+    print("[SOCIAL DIRECT REPLY]", len(summaries), "summaries", len(cards), "cards")
+    return reply
+
+
+def build_social_cards(recent_items, post_details, introductions, visual_evidence):
+    """Rank grounded posts by visible engagement and return at most three cards."""
+
+    recent_by_title = {
+        str(item.get("title") or "").strip().casefold(): item
+        for item in recent_items if isinstance(item, dict)
+    }
+    intro_by_title = {
+        str(item.get("post_title") or "").strip().casefold(): item
+        for item in introductions if isinstance(item, dict)
+    }
+    visual_by_title = {
+        str(item.get("post_title") or "").strip().casefold(): item
+        for item in visual_evidence.get("observations", [])
+        if isinstance(item, dict)
+    }
+    ranked_candidates = []
+    for source_order, detail in enumerate(
+        post_details if isinstance(post_details, list) else []
+    ):
+        if not isinstance(detail, dict):
+            continue
+        post_title = str(detail.get("post_title") or "").strip()
+        recent = recent_by_title.get(post_title.casefold(), {})
+        intro = intro_by_title.get(post_title.casefold(), {})
+        visual = visual_by_title.get(post_title.casefold(), {})
+        restaurant_name = str(intro.get("restaurant_name") or "").strip()
+        summary_parts = []
+        introduction = str(intro.get("introduction") or "").strip()
+        if introduction:
+            summary_parts.append(introduction)
+        visual_description = str(
+            intro.get("visual_description") or visual.get("description") or ""
+        ).strip()
+        if visual_description:
+            summary_parts.append("图片可见：" + visual_description)
+        if not summary_parts:
+            summary_parts.append("近期社交媒体帖子；餐厅名称和更多介绍尚未确认。")
+        facts = {}
+        if recent.get("author"):
+            facts["作者"] = recent["author"]
+        if recent.get("resolved_date"):
+            facts["发布日期"] = recent["resolved_date"]
+        if restaurant_name:
+            facts["餐厅名称"] = restaurant_name
+        metrics = _social_metrics_for_post(recent, intro)
+        metric_labels = {
+            "likes": "点赞",
+            "comments": "评论",
+            "shares": "转发/分享",
+        }
+        for metric, label in metric_labels.items():
+            if metrics["display"][metric]:
+                facts[label] = metrics["display"][metric]
+        if metrics["search_visible_interaction"]:
+            facts["搜索页可见互动"] = metrics["search_visible_interaction"]
+        sections = []
+        if facts:
+            sections.append({"kind": "facts", "items": facts})
+        if intro.get("visible_features"):
+            sections.append(
+                {
+                    "kind": "note",
+                    "label": "帖子可见信息",
+                    "text": "；".join(intro["visible_features"]),
+                }
+            )
+        if intro.get("suitability_note"):
+            sections.append(
+                {
+                    "kind": "fit",
+                    "label": "是否适合本次需求",
+                    "text": intro["suitability_note"],
+                }
+            )
+        sections.append(
+            {
+                "kind": "warning",
+                "label": "信息性质",
+                "text": intro.get("uncertainty")
+                or "来自社交媒体用户分享，尚未独立核实。",
+            }
+        )
+        image_url = str(detail.get("image_url") or "").strip()
+        card = {
+            "type": "social_post",
+            "title": restaurant_name or post_title,
+            "summary": " ".join(summary_parts)[:600],
+            "url": detail.get("url", ""),
+            "domain": SOCIAL_PLATFORM_NAMES.get(
+                detail.get("platform"), detail.get("platform", "")
+            ),
+            "image": (
+                {
+                    "url": image_url,
+                    "alt": visual_description or post_title,
+                    "source_url": detail.get("url", ""),
+                }
+                if image_url.lower().startswith("https://") else None
+            ),
+            "metadata": {
+                "author": recent.get("author"),
+                "published_at": recent.get("resolved_date"),
+            },
+            "sections": sections,
+            "requirements": [],
+        }
+        if metrics["rank_score"] is not None:
+            ranked_candidates.append(
+                {
+                    "card": card,
+                    "post_title": post_title,
+                    "rank_score": metrics["rank_score"],
+                    "known_metric_count": metrics["known_metric_count"],
+                    "source_order": source_order,
+                    "metrics": metrics,
+                }
+            )
+    ranked_candidates.sort(
+        key=lambda item: (
+            -item["rank_score"],
+            -item["known_metric_count"],
+            item["source_order"],
+        )
+    )
+    print(
+        "[SOCIAL ENGAGEMENT RANK]",
+        json.dumps(
+            [
+                {
+                    "post_title": item["post_title"],
+                    "visible_total": item["rank_score"],
+                    "likes": item["metrics"]["display"]["likes"],
+                    "comments": item["metrics"]["display"]["comments"],
+                    "shares": item["metrics"]["display"]["shares"],
+                    "search_visible_interaction": item["metrics"][
+                        "search_visible_interaction"
+                    ],
+                }
+                for item in ranked_candidates[:7]
+            ],
+            ensure_ascii=False,
+        )
+    )
+    cleaned = result_cards.clean_cards(
+        [item["card"] for item in ranked_candidates[:3]]
+    )
+    print("[SOCIAL CARDS]", len(cleaned))
+    return cleaned
 
 def social_research_controller(
     user_message,
@@ -1883,10 +4041,25 @@ def social_research_controller(
         }
 
     _status(status_callback, "正在整理社媒关键词… 💬")
-    query = build_social_query(user_message, platforms)
+    try:
+        query = build_social_query(user_message, platforms)
+    except Exception as error:
+        print("[SOCIAL QUERY ERROR]", repr(error))
+        return {
+            "status": "QUERY_UNAVAILABLE",
+            "query": "",
+            "results": [],
+            "context": (
+                "MELCHIOR response mode: SOCIAL_RESEARCH\n"
+                "The reliable AI could not create a platform-native query."
+            ),
+        }
     print("[SOCIAL QUERY]", platforms, repr(query))
 
     page_texts = []
+    visual_frames = []
+    post_candidates = []
+    opened_searches = []
     results = []
 
     for platform in platforms:
@@ -1901,6 +4074,9 @@ def social_research_controller(
             opened = social_browser.open_social_search(
                 platform,
                 query,
+            )
+            opened_searches.append(
+                {"platform": platform, "url": opened.get("url", "")}
             )
 
             # Give a social SPA a brief moment to render its visible posts.
@@ -1920,6 +4096,16 @@ def social_research_controller(
                     + " =====\n"
                     + visible_text
                 )
+            page_frames = page.get("visual_frames", [])
+            if isinstance(page_frames, list):
+                for frame in page_frames:
+                    if isinstance(frame, str) and frame.strip():
+                        visual_frames.append(frame)
+                    if len(visual_frames) >= 3:
+                        break
+            candidates = page.get("post_candidates", [])
+            if isinstance(candidates, list):
+                post_candidates.extend(candidates)
 
             results.append(
                 {
@@ -1940,8 +4126,8 @@ def social_research_controller(
                 platform,
                 repr(error),
             )
-    social_browser.close_social_browser()
     if not page_texts:
+        social_browser.close_social_browser()
         return {
             "status": "NO_READABLE_SOCIAL_PAGE",
             "query": query,
@@ -1954,6 +4140,110 @@ def social_research_controller(
     evidence = extract_social_evidence(
         "\n".join(page_texts),
         recency_days=recency_days,)
+    _status(status_callback, "正在理解社媒图片… 👀")
+    visual_evidence = extract_social_visual_evidence(
+        visual_frames,
+        user_message,
+        evidence.get("items", []),
+        platforms,
+    )
+    evidence["visual_evidence"] = visual_evidence
+    print("[SOCIAL POST CANDIDATES]", len(post_candidates))
+    verified_titles = [
+        item.get("title", "")
+        for item in evidence.get("items", []) if isinstance(item, dict)
+    ]
+    title_targets = []
+    for opened in opened_searches:
+        try:
+            title_targets.extend(
+                social_browser.resolve_social_post_targets(
+                    opened.get("platform", ""),
+                    verified_titles,
+                    expected_url=opened.get("url", ""),
+                )
+            )
+        except Exception as error:
+            print("[SOCIAL TITLE RESOLVE ERROR]", repr(error))
+    print("[SOCIAL TITLE LOCATED]", len(title_targets))
+    fallback_matches = match_social_post_candidates(
+        evidence.get("items", []), post_candidates
+    )
+    matched_posts = list(title_targets)
+    matched_titles = {
+        str(item.get("post_title") or "").strip().casefold()
+        for item in matched_posts
+    }
+    for item in fallback_matches:
+        title_key = str(item.get("post_title") or "").strip().casefold()
+        if title_key and title_key not in matched_titles:
+            matched_posts.append(item)
+            matched_titles.add(title_key)
+        if len(matched_posts) >= 7:
+            break
+    print("[SOCIAL POST MATCHES]", len(matched_posts))
+    _status(status_callback, "正在读取推荐帖介绍… 📝")
+    try:
+        post_details = social_browser.inspect_social_post_details(matched_posts)
+    except Exception as error:
+        print("[SOCIAL POST DETAILS ERROR]", repr(error))
+        post_details = []
+    print("[SOCIAL POST OPENED]", len(post_details))
+    print(
+        "[SOCIAL DETAIL FRAMES]",
+        sum(
+            bool(str(item.get("visual_frame") or "").strip())
+            for item in post_details if isinstance(item, dict)
+        ),
+    )
+    if not post_details:
+        post_details = [
+            {
+                **item,
+                "search_visible_text": item.get("visible_text", ""),
+                "visible_text": item.get("visible_text", ""),
+            }
+            for item in matched_posts
+        ]
+    print("[SOCIAL POST DETAILS]", len(post_details))
+    social_browser.close_social_browser()
+    introductions = extract_social_post_introductions(
+        user_message,
+        evidence.get("items", []),
+        post_details,
+        visual_evidence,
+    )
+    post_summaries = build_social_post_summaries(
+        evidence.get("items", []),
+        introductions,
+    )
+    evidence["post_summaries"] = post_summaries
+    cards = build_social_cards(
+        evidence.get("items", []),
+        post_details,
+        introductions,
+        visual_evidence,
+    )
+    direct_reply = render_social_research_reply(
+        evidence,
+        post_summaries,
+        cards,
+        recency_days,
+    )
+    for detail in post_details:
+        url = str(detail.get("url") or "").strip()
+        if url:
+            results.append(
+                {
+                    "domain": SOCIAL_PLATFORM_NAMES.get(
+                        detail.get("platform"), detail.get("platform", "")
+                    ),
+                    "url": url,
+                    "source_score": 100,
+                    "is_concrete_news": False,
+                    "content_type": "SOCIAL_POST",
+                }
+            )
 
     context = (
         "MELCHIOR response mode: SOCIAL_RESEARCH\n"
@@ -1965,14 +4255,27 @@ def social_research_controller(
         "Describe only what people are discussing.\n"
         "Social posts and rumors are not confirmed facts.\n"
         "Do not use prior conversation as evidence.\n\n"
+        "Briefly describe every supplied post_summary (five to seven when "
+        "available). Then identify the supplied cards as the posts with the "
+        "highest validated visible engagement. If fewer than three cards are "
+        "supplied, present only those; never pad the list. Missing likes, "
+        "comments, or shares remain unknown. A generic search-grid interaction "
+        "number is not necessarily a like count.\n\n"
         "Filtered social evidence:\n"
         + json.dumps(evidence,ensure_ascii=False,indent=2,)
+        + "\n\nGrounded social recommendation cards:\n"
+        + json.dumps(cards, ensure_ascii=False, indent=2)
     )
 
     return {
         "status": "OK",
         "query": query,
         "results": results,
+        "visual_frame_count": len(visual_frames),
+        "visual_evidence": visual_evidence,
+        "social_post_summaries": post_summaries,
+        "cards": cards,
+        "direct_reply": direct_reply,
         "context": context,
     }
 
@@ -2402,6 +4705,8 @@ def read_pdf(pdf_bytes):
         }
 
 def read_page_with_browser(url):
+    from playwright.sync_api import sync_playwright
+
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
@@ -2710,5 +5015,3 @@ if __name__ == "__main__":
         "大概跟我说说这里面都是啥",
         "第7页主要写了什么？",
     ]
-
-

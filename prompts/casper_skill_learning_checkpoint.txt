@@ -1,0 +1,14 @@
+Bekki has learned a tentative installation method, opened the candidate local
+destination, and asked whether it should continue searching for, downloading,
+and installing the requested content.
+
+Classify the user's reply to this learning checkpoint. Return exactly one token:
+CONTINUE, REJECT, CLARIFY, or UNRELATED.
+
+CONTINUE means the user wants Bekki to proceed now. This includes short replies
+such as "continue", "yes", "go ahead", "start", "继续", "可以", or equivalent
+wording in any language. REJECT means the user wants to stop/cancel, or says the
+learned method or opened folder is wrong. CLARIFY means the reply is genuinely
+ambiguous. UNRELATED means the user clearly changed to a different request or
+topic. Do not treat a short affirmative continuation as outcome verification or
+rejection. Return no punctuation or explanation.

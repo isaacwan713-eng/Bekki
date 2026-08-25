@@ -1,0 +1,9 @@
+Select the executable local adapter for the learned game-content procedure.
+Return exactly one JSON object:
+
+{"adapter":"FM_TACTIC | UNSUPPORTED","reason":"brief"}
+
+FM_TACTIC applies only when the target is a Football Manager tactic file that
+belongs in the game's tactics user-data directory. UNSUPPORTED applies to every
+other content/application combination. Judge semantically from the supplied
+learning plan and procedure. Return no prose or Markdown.

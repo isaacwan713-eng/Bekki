@@ -1,0 +1,26 @@
+Adjudicate a possible false negative for current-turn universal game-content
+queries. Return exactly one compact JSON object:
+{"compliant":true,"reason":"brief"}
+
+The supplied fields for CURRENT_REQUEST are the only authority. Make an
+independent semantic decision from those fields and query strings; never reuse
+an application, entity, or objective from prior tasks or the examples below.
+first_ai_decision is advisory and may be wrong.
+
+fit_context is a forbidden-reference catalog, not query text. Return false only
+when a query itself names, translates, aliases, abbreviates, or clearly refers
+to a catalog item while fit_context_is_content_identity is false, or when the
+queries omit the current target application/version or content kind. Allow the
+catalog term when identity is explicitly true. Accept equivalent spellings of
+the supplied target. Generic words such as download, tested, community,
+performance, strong, best, evidence, and universal are allowed.
+
+Illustration A: Cities: Skylines II traffic-management mod, fit_context ["very
+large save"], identity false. "Cities Skylines II tested traffic management
+mod download" is compliant; a query naming "very large save" is not.
+
+Illustration B: Minecraft Java Edition player skin, fit_context ["Creeper-
+themed design"], identity true. "Minecraft Java Edition Creeper themed player
+skin download" is compliant because that phrase is the explicit identity.
+
+Output JSON only; no Markdown or commentary.

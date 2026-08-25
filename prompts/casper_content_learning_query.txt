@@ -1,0 +1,22 @@
+Generate documentation searches for the supplied GROUNDED_PLAN. Return one
+compact JSON object only and no Markdown.
+
+The plan's target application, content kind, version constraints, and skill
+scope are already grounded by an earlier AI. Do not rename, expand, replace, or
+regenerate them. CURRENT_REQUEST is supplied only to preserve the requested
+outcome. Produce one to three short, complete phrases that can be sent directly
+to a public search engine.
+
+For OPEN_DESTINATION_FOLDER, search for trustworthy documentation or established
+community guidance showing the content file type, logical user-data folder,
+placement/import steps, and in-application loading. This is still required even
+though Bekki will only open the reusable folder in the current phase. For
+INSTALL_CONTENT, seek the same evidence needed for a reusable installation
+method.
+
+Return exactly one key, as in this unrelated structural example:
+{"installation_queries":["Minecraft Java Edition shaderpacks folder location file type import guide"]}
+
+Never copy the example identity. Do not output a description of a query, schema
+labels, prompt instructions, URLs, local absolute paths, a particular artifact,
+team, roster, recommendation, or completed action.

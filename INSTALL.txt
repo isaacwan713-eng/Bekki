@@ -1,3 +1,25 @@
+Bekki Stable V1.3.9.5 (ranked social summaries and duplicate guard)
+
+Recommended installation:
+
+1. Close Bekki and its knowledge scheduler.
+2. Extract the ZIP outside your current AI-Assistant folder.
+3. Run INSTALL_STABLE_V1.bat.
+4. The default target is %USERPROFILE%\AI-Assistant.
+5. Start Bekki from that target with: python main.py
+
+The installer preserves your existing `.env`, `data`, `.git`, `.venv`,
+`build`, and `dist`, creates a timestamped backup, validates the new Python
+files, and restores the prior runtime automatically if installation fails.
+
+Expected startup build ID: bekki-stable-v1-3-9-5-20260824
+
+This update intentionally keeps the stable R25 UI unchanged. MAGI's
+SEARCH / LOCAL / COMMAND decision is AI-based; Python only validates the
+closed result. See STABLE_V1_3_9_5_NOTES.md for the tested social ranking fix.
+
+Legacy R25 development notes follow below.
+
 Bekki V2 - Casper Device Action Phase 13.0
 
 Copy every folder/file in this package into the root of your current
@@ -456,3 +478,133 @@ yes, confirm, continue, and proceed confirm it without calling the generative
 confirmation model. This prevents token-limit truncation from turning a
 confirmation into a second restore request. The shortcut is unavailable for
 ordinary chat and non-device pending actions; ambiguous replies still use AI.
+
+Phase 15.6 fixes the actual Windows Recycle Bin restore invocation. The Shell
+API now receives its canonical `undelete` verb instead of the localized-style
+`RESTORE` text that Windows could silently ignore while returning exit code 0.
+Post-action discovery still verifies that the approved opaque item ID really
+left the Recycle Bin before Bekki reports success.
+
+Phase 16.0 adds the bounded local installation core for Football Manager 2026
+tactics. Casper discovers real .fmf candidates inside the user's actual
+Downloads locations and discovers existing FM26 data roots under local or
+OneDrive Documents. AI selects only opaque source and destination IDs. Python
+then validates the selected file, rejects symlinks, unsafe sizes, and disguised
+Windows executables, prevents destination escape and silent overwrite, copies
+the file, and verifies the installed size before reporting success. No model
+may invent a filesystem path. Online tactic research and managed downloading
+will connect to this installer in Phase 16.1.
+
+New files:
+- casper/game_content.py
+- prompts/casper_game_content_install.txt
+- tests/test_game_content.py
+
+Phase 16.1 introduces the generic game-content workflow above individual game
+adapters. AI distinguishes online research/install requests from already-local
+content. For online requests Casper searches public pages, reads candidate and
+installation-guide evidence, extracts bounded manifests, and chooses one based
+on compatibility, source quality, instruction clarity, and user fit. Manifests
+support tactics, mods, saves, plugins, maps, and configuration packs. Source
+URLs are copied only from browser evidence; model-supplied or invented URLs and
+source IDs are rejected. Destination hints remain logical tutorial evidence,
+never assumed local paths. CAPTCHA/access checks pause as browser handoffs.
+Phase 16.0 remains only the first FM26 local adapter. Managed downloading,
+archive quarantine, and generic deployment will connect in Phase 16.2.
+
+New files:
+- casper/content_workflow.py
+- casper/content_research.py
+- prompts/casper_content_stage.txt
+- prompts/casper_content_research_plan.txt
+- prompts/casper_content_manifest_extract.txt
+- prompts/casper_content_manifest_choose.txt
+- tests/test_content_research.py
+
+Phase 16.1.1 fixes upstream routing observed during acceptance testing. A
+focused two-token AI gate now runs before the full Melchior router and chooses
+CONTENT_DEVICE_ACTION or OTHER. Requests whose final outcome includes game
+content installation, downloading, directory placement, importing/enabling, or
+explicit installation-manifest preparation enter DEVICE_ACTION before the
+general router can confuse tactics/mods with PRODUCT recommendations. Ordinary
+"which mod is best" discussion remains recommendation research. Python only
+validates the AI token and applies the corresponding bounded route.
+
+New file:
+- prompts/melchior_content_action_scope.txt
+
+Phase 16.1.2 fixes the second routing collision found in acceptance testing.
+Casper's earliest special-workflow gate now asks AI to choose exactly one of
+RECYCLE_BIN_ACTION, GAME_CONTENT_ACTION, or OTHER. A game-content request enters
+the generic content workflow before the broad device planner runs and therefore
+cannot be mistaken for LIST_RECYCLE_BIN. Recycle Bin behavior remains isolated,
+and Python only validates the focused AI token.
+
+Phase 16.1.3 preserves AI decision authority across layers. When Melchior's
+focused AI selects CONTENT_DEVICE_ACTION, the normalized plan carries
+content_workflow_selected=true into Casper. Casper then bypasses all lower
+family gates and invokes the content workflow directly. A second focused AI is
+allowed to choose only RESEARCH_AND_INSTALL or INSTALL_LOCAL_CONTENT; it cannot
+reclassify the already-owned request as OTHER, Recycle Bin, or an application.
+This removes contradictory repeated intent judgments without moving semantic
+decisions into Python.
+
+New file:
+- prompts/casper_content_authorized_stage.txt
+
+Phase 16.1.4 fixes local-model output exhaustion inside content research. The
+compact research-plan and manifest JSON calls now use llama3.2 with thinking
+disabled. An empty/invalid research plan gets one compact retry without recent
+context. Manifest extraction processes one rendered page per AI call instead
+of placing up to eight long pages into a single context, then the existing AI
+chooser compares the bounded extracted manifests. This preserves AI ownership
+while preventing reasoning text from consuming the entire output budget.
+
+Phase 16.1.5 adds AI-owned search quality control. A focused query reviewer
+preserves the full target game/version, selects the language used by the real
+content community, and removes ambiguous acronym-only searches. A second AI
+ranks bounded Bing results by exact source ID and rejects unrelated companies,
+app stores, music/radio pages, cities, and acronym collisions before any page
+is read. If no result survives, AI produces one distinct retry query set. The
+device adapter also renders Casper's exact clarification directly so the final
+reply model cannot invent missing tactic-style or tutorial-format questions.
+
+New files:
+- prompts/casper_content_query_review.txt
+- prompts/casper_content_source_rank.txt
+- prompts/casper_content_query_retry.txt
+
+Phase 16.1.6 separates universal artifact discovery from personal fit. AI now
+places a user's team, character, roster, hardware, or play style into
+fit_context and comparison criteria instead of automatically adding those names
+to web queries. For example, "best tactic suitable for Manchester United"
+searches the strongest tested FM26 tactics broadly, then evaluates Manchester
+United fit during manifest selection. An entity enters queries only when the
+user explicitly requests content created/named for it, such as a tactical
+recreation of that team.
+
+Phase 16.1.7 makes that separation fail closed. Every proposed and retry query
+must pass a separate focused AI compliance check before browser search begins.
+The check recognizes translations, aliases, and abbreviations of fit-context
+entities, so "Manchester United" and "曼联" are both rejected from universal
+tactic discovery. If query rewriting or compliance checking fails twice, no
+old query is used as fallback and no web search is executed.
+
+New file:
+- prompts/casper_content_query_compliance.txt
+
+Phase 16.1.8 adds a clean third query rewrite after malformed or noncompliant
+AI output. That rewrite sees only the target game/version, content type, and
+universal research objective; it cannot echo the original personal-fit entity
+because neither the request nor fit_context is included. Structured plan
+validation also removes target/version/content-type duplicates accidentally
+placed in fit_context, while the independent AI compliance gate still performs
+the final semantic decision before any browser search.
+
+Phase 16.1.9 isolates the final compliance judge from the original user
+request. It receives only the finished queries, target game/content type,
+fit-context exclusions, and an AI-owned boolean indicating whether the user
+explicitly requested content created or named for that entity. This prevents a
+clean universal query from being rejected merely because the earlier request
+mentioned Manchester United, while preserving support for explicit team
+recreations.

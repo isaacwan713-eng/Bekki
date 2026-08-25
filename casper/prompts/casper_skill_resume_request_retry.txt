@@ -1,0 +1,11 @@
+The previous attempt did not recover a valid resumable task. Re-read the
+pending checkpoint and recent conversation. Find the explicit user request
+that preceded Bekki's question asking whether to continue. Preserve its target,
+content type, desired result, and fit criteria.
+
+Return only:
+{"found":true,"resume_request":"complete original request","reason":"brief"}
+
+If the evidence contains only a continuation reply and no substantive earlier
+request, return only:
+{"found":false,"resume_request":null,"reason":"brief"}

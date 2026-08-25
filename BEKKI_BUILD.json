@@ -1,0 +1,8 @@
+{
+  "build_id": "bekki-stable-v1-3-9-5-20260824",
+  "package_id": "bekki-stable-v1-3-9-5-20260824",
+  "release_date": "2026-08-24",
+  "runtime_entry": "main.py",
+  "update_kind": "Stable V1.3.9.5 ranked social summaries and duplicate guard",
+  "baseline": "Bekki R25 stable Melchior/Casper/Balthasar runtime"
+}

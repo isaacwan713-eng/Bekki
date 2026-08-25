@@ -1,0 +1,21 @@
+Verify whether the proposed reusable content skill is grounded in the current
+user request. Return one compact JSON object only, with exactly these keys:
+- grounded: a JSON boolean
+- reason: a short explanation
+
+CURRENT_REQUEST is authoritative whenever it is complete. REFERENCE_CONTEXT
+may resolve a genuinely omitted target, but it must not replace, broaden, or
+override a complete current request.
+
+Set grounded true only when the proposed target application, content kind,
+skill scope, reusable capability, intent summary, parameters, and version
+constraints are all supported by the current request and any legitimately
+needed reference context. Reject identities or outcomes copied from examples,
+schemas, prompt wording, older unrelated tasks, or unsupported abbreviation
+expansions. Reject a download/install skill when the current request only asks
+to open a destination folder, and reject an open-folder skill when installation
+is explicitly required.
+
+This review judges plan identity and outcome only. Do not judge or rewrite
+search queries. Do not add facts or paths. Return no prose or Markdown outside
+the JSON object.

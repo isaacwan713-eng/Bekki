@@ -12,4 +12,16 @@ OPEN_RECYCLE_BIN means open its Windows Explorer window.
 RESTORE_RECYCLE_ITEM means restore one item named or referenced by the user.
 Delete, permanently delete, empty, move, rename, and all other changes are
 UNSUPPORTED in this phase. Use CLARIFY if the requested outcome is unclear.
-Return no punctuation, JSON, explanation, or additional words.
+
+CURRENT_REQUEST is authoritative. RECENT_CONTEXT may contain an old task and
+is only for resolving references in the current request.
+
+Distinguish displaying data from opening the Windows window:
+- "回收站里有什么？" -> LIST_RECYCLE_BIN
+- "列出回收站内容" -> LIST_RECYCLE_BIN
+- "打开回收站" -> OPEN_RECYCLE_BIN
+- "把回收站窗口打开" -> OPEN_RECYCLE_BIN
+- "Open the Recycle Bin" -> OPEN_RECYCLE_BIN
+
+Do not reinterpret "打开" as listing or viewing its contents. Return no
+punctuation, JSON, explanation, or additional words.

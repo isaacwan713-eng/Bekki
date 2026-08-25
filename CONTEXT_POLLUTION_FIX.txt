@@ -1,0 +1,36 @@
+Bekki V2 - context pollution fix
+
+Replace these files in the Bekki project root:
+
+1. melchior.py
+2. tests/test_melchior.py (optional but recommended)
+3. prompts/melchior_content_action_scope.txt
+
+This version keeps semantic judgment entirely in AI:
+
+- Melchior AI chooses the main response mode first.
+- For DEVICE_ACTION, a focused AI chooses ordinary device action versus the
+  web-to-local game-content workflow.
+- CURRENT_REQUEST appears first and is authoritative. Recent context is only
+  reference-resolution evidence.
+- Both Melchior routing calls use gpt-oss:20b instead of Python keyword rules.
+- Python only validates the AI contracts and applies mode invariants.
+- The focused gpt-oss gate has enough generation budget to finish internal
+  reasoning before emitting its one-token decision.
+
+Run the regression test from the Bekki project root:
+
+    python -m unittest tests/test_melchior.py
+
+Expected result:
+
+    Ran 6 tests
+    OK
+
+After replacing the file, test this conversation in the same chat session:
+
+    1. 网上找一个最强的 FM26 战术并导入电脑
+    2. 打开回收站
+
+The second command must route to ordinary DEVICE_ACTION without
+content_workflow_selected=true and must not mention FM2026 or tactics.

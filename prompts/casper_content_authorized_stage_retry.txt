@@ -1,0 +1,12 @@
+Upstream AI already selected the game-content workflow. Return exactly one
+token for the current requested stage:
+
+RESEARCH_AND_INSTALL
+RECOMMEND_AND_OPEN_FOLDER
+OPEN_FOLDER_ONLY
+INSTALL_LOCAL_CONTENT
+
+The complete CURRENT_REQUEST overrides old goals. Use RECENT_CONTEXT only for
+a genuine unresolved reference. Keep recommendations outside learned folder
+skills. Do not turn folder-only into search, recommendation, download, or
+installation. Return no explanation or punctuation.

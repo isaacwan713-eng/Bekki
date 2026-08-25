@@ -1,0 +1,27 @@
+Build evidence-backed installation manifests by combining the supplied rendered
+pages. One page may identify a concrete downloadable artifact while a different
+page provides trustworthy installation instructions. Return one JSON object
+with a manifests array. Each manifest must contain:
+
+source_id, supporting_source_ids, artifact_name, target_app, content_kind,
+compatibility, evidence_summary, expected_file_types, destination_hints,
+installation_steps, and post_install_steps.
+
+source_id must be the exact ID of the page that identifies the concrete tactic,
+mod, save, or other downloadable artifact. supporting_source_ids is an array of
+exact supplied IDs used for compatibility or installation guidance. A listing
+page can identify an artifact only when its rendered text gives that artifact a
+distinct name. Do not turn a generic installation tutorial into an artifact.
+
+Use only facts visible across the supplied pages. destination_hints describe
+the tutorial's logical location but must not pretend to know the user's real
+local path. Natural-language installation steps such as moving a file, opening
+the game, or selecting Load are required and are not prohibited commands. Do
+not output URLs, shell/PowerShell commands, credentials, scripts, or facts
+absent from evidence. Exclude generic discussions and pages without useful
+artifact or installation evidence. Return no prose or Markdown.
+
+When learned_installation_procedure is supplied, it is already verified local
+knowledge. Use its file types, destination hints, and steps instead of requiring
+the artifact page to repeat installation guidance. The artifact identity and
+compatibility must still come from the rendered candidate pages.

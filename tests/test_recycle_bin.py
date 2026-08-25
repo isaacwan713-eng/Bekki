@@ -1,10 +1,28 @@
 import unittest
+import sys
+import types
 from unittest.mock import patch
 
 from casper import recycle_bin
 
 
 class RecycleBinTests(unittest.TestCase):
+    def test_ai_plan_distinguishes_open_window_from_listing(self):
+        stale_context = "User: 回收站里有什么？\nAssistant: 正在读取项目"
+        model = unittest.mock.Mock(return_value="OPEN_RECYCLE_BIN")
+        tools_stub = types.SimpleNamespace(run_ai_prompt=model)
+        with patch.dict(sys.modules, {"tools": tools_stub}):
+            action = recycle_bin._plan("打开回收站", stale_context)
+
+        self.assertEqual(action, "OPEN_RECYCLE_BIN")
+        prompt_input = model.call_args.args[1]
+        self.assertLess(
+            prompt_input.index("打开回收站"),
+            prompt_input.index("回收站里有什么"),
+        )
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertGreaterEqual(model.call_args.kwargs["num_predict"], 256)
+
     def test_lists_bounded_recycle_bin_items(self):
         items = [
             {
@@ -105,6 +123,27 @@ class RecycleBinTests(unittest.TestCase):
         plan.assert_not_called()
         self.assertTrue(result["success"])
         self.assertEqual(result["action"], "restored_recycle_item")
+
+    def test_restore_uses_shell_undelete_canonical_verb(self):
+        item = {
+            "shell_path": "C:/$Recycle.Bin/recycled.txt",
+        }
+        completed = type(
+            "Completed", (), {"returncode": 0, "stderr": ""}
+        )()
+        with patch.object(
+            recycle_bin.sys, "platform", "win32"
+        ), patch.object(
+            recycle_bin.subprocess, "run", return_value=completed
+        ) as run:
+            recycle_bin._restore_item(item)
+        command = run.call_args.args[0]
+        self.assertIn("InvokeVerb('undelete')", command[-1])
+        self.assertNotIn("InvokeVerb('RESTORE')", command[-1])
+        self.assertEqual(
+            run.call_args.kwargs["env"]["BEKKI_RECYCLE_ITEM_PATH"],
+            item["shell_path"],
+        )
 
     def test_focused_restore_intent_overrides_wrong_list_plan(self):
         item = {

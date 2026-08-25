@@ -21,7 +21,7 @@ def load_confirmation_function(model):
 
 
 class ConfirmationTests(unittest.TestCase):
-    def test_explicit_device_confirmation_bypasses_ai(self):
+    def test_explicit_device_confirmation_is_still_ai_owned(self):
         model = Mock(return_value="CONFIRM")
         classify = load_confirmation_function(model)
         self.assertTrue(
@@ -31,7 +31,9 @@ class ConfirmationTests(unittest.TestCase):
                 "",
             )
         )
-        self.assertEqual(model.call_count, 0)
+        self.assertEqual(model.call_count, 1)
+        self.assertEqual(model.call_args.args[0], "prompts/confirm.txt")
+        self.assertEqual(model.call_args.kwargs["model_name"], "llama3.2:latest")
 
     def test_non_explicit_device_reply_still_uses_ai(self):
         model = Mock(side_effect=["", "CONFIRM"])
@@ -44,6 +46,10 @@ class ConfirmationTests(unittest.TestCase):
             )
         )
         self.assertEqual(model.call_count, 2)
+        self.assertEqual(
+            model.call_args_list[1].args[0], "prompts/confirm_retry.txt"
+        )
+        self.assertEqual(model.call_args_list[1].kwargs["num_predict"], 800)
 
     def test_two_invalid_ai_outputs_do_not_confirm_ambiguous_reply(self):
         model = Mock(side_effect=["", ""])

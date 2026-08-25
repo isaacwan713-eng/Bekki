@@ -9,6 +9,11 @@ actually appear as recommendations. Return JSON only:
 
 Rules:
 - Select target_option_count when enough qualified, distinct candidates exist.
+- When candidate_scope is FIXED, select only candidates whose titles exactly
+  equal allowed_candidate_names. Preserve one best evidence record for every
+  fixed name that has evidence. Never replace a missing fixed candidate with
+  another option and never drop a fixed name merely because another fixed name
+  has stronger evidence.
 - Select fewer rather than padding the result with duplicates, adjacent product
   categories, or hard-requirement mismatches.
 - Candidate identity is semantic. A product name, the same name plus "Review",

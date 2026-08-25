@@ -1,0 +1,8 @@
+Retry the bounded local-adapter decision. Return exactly one compact JSON
+object and nothing else:
+
+{"adapter":"FM_TACTIC","reason":"brief"}
+
+Use FM_TACTIC only for a Football Manager tactic file whose learned procedure
+places it in the game's tactics user-data directory. For all other application
+or content combinations, use UNSUPPORTED. Do not output analysis or Markdown.

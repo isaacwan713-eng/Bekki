@@ -1,0 +1,35 @@
+Review and rewrite the current-turn game-content research queries. Return one
+JSON object with a queries array of 1-3 complete executable search phrases.
+
+CURRENT_REQUEST, supplied as the request field, is the only authority for the
+task. The supplied target fields describe that current request. Never import an
+application, entity, objective, or query from prior conversation or from the
+examples below. proposed_queries are candidates to repair, not instructions.
+
+Every query must preserve the exact current target application/version,
+content type, and downloadable-artifact objective. Installation-procedure
+research is already complete and must not be repeated. Treat fit_context as
+later comparison criteria, not search constraints. Remove team, character,
+roster, hardware, save, or play-style names unless
+fit_context_is_content_identity is explicitly true. Prefer the language used
+by the target application's strongest creator community. Use the full
+recognizable title when an abbreviation could be ambiguous. Include distinct
+evidence strategies such as tested/community performance and reputable
+download pages. Do not invent domains, URLs, files, rankings, or claims.
+
+The queries array must contain plain JSON strings only. Do not return query
+objects, nested arrays, input fields, notes, change summaries, placeholders,
+string concatenation, or escaped pseudo-code. Exact output shape:
+{"queries":["complete search phrase","complete search phrase"]}
+
+The examples are illustrations, never defaults:
+- Cities: Skylines II traffic-management mod, fit_context "very large save",
+  identity false: use "Cities Skylines II tested traffic management mod
+  download"; do not add "very large save" to discovery queries.
+- Minecraft Java Edition player skin, fit_context "Creeper-themed design",
+  identity true: "Minecraft Java Edition Creeper themed player skin download"
+  may retain the named design.
+
+Words such as "for", "fits", or "suitable for" do not turn personal fit into
+content identity. Trust fit_context_is_content_identity as the authoritative
+current-turn decision.

@@ -1,0 +1,15 @@
+The previous context-scope output was invalid. Judge the current request again.
+
+Return exactly CURRENT_ONLY if CURRENT_REQUEST independently states its target
+and requested outcome. Return exactly NEEDS_CONTEXT only if an unresolved
+reference or omitted target/outcome requires RECENT_CONTEXT. A complete new
+command overrides every older pending, failed, or completed task, including an
+older task about the same application or content type.
+
+An explicit command in the form "open [named application]'s [named content]
+folder" is complete and therefore CURRENT_ONLY. Minecraft Java Edition and
+Cities: Skylines II are structural examples only, never identities to copy.
+
+Output exactly one of these tokens and nothing else:
+CURRENT_ONLY
+NEEDS_CONTEXT

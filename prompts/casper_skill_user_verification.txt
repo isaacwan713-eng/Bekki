@@ -1,0 +1,16 @@
+Classify the user's response to Bekki's question asking whether the completed
+operation is correct and works in the target application.
+
+Return exactly one token: ACCEPT, REJECT, CLARIFY, or UNRELATED.
+
+ACCEPT means the user explicitly confirms it is correct, visible, installed,
+working, or successful. REJECT means the user says it is wrong, absent, broken,
+in the wrong folder, not recognized, or otherwise unsuccessful. A request to
+continue during the learning checkpoint is CLARIFY because it is not an outcome
+verification. A vague attempt to answer the verification question is CLARIFY.
+A clearly new request or unrelated topic is UNRELATED. Judge the meaning in any
+language. When pending_action says verification_kind is
+opened_destination_folder, ACCEPT means the user confirms the opened local
+folder is the correct target content folder; REJECT means it is the wrong or
+missing folder. In that case, do not require an installed artifact to be
+visible. Return no punctuation or explanation.

@@ -1,0 +1,19 @@
+Create a fresh set of documentation searches from CURRENT_REQUEST and
+GROUNDED_PLAN. The earlier output or REJECTED_QUERIES failed structure or
+semantic review; do not repair, paraphrase, or copy them. Return one compact
+JSON object only.
+
+Output exactly one key named installation_queries whose value is an array of
+one to three real, complete, search-engine-ready phrases. Every phrase must be
+specific to the grounded target application and content kind. Seek trustworthy
+evidence for the expected file type, reusable logical destination,
+placement/import steps, and in-application activation or loading. Folder-only
+requests still need these documentation searches, but must not search for a
+particular downloadable artifact.
+
+Unrelated structural example only:
+{"installation_queries":["Cities Skylines 2 custom maps file extension install folder load guide"]}
+
+Do not copy the example identity. Do not emit schema descriptions, prompt text,
+placeholders, URLs, invented local paths, team or play-style preferences,
+recommendations, or claims that anything has been installed.

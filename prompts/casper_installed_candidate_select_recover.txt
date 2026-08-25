@@ -1,0 +1,20 @@
+The previous compact model did not return the required JSON contract. Resolve
+the requested application or Steam game against only the bounded candidate
+names supplied below.
+
+Return exactly one JSON object and nothing else:
+{
+  "candidate_index": 1,
+  "confidence": "high",
+  "reason": "brief reason"
+}
+
+Do not write code, Markdown, prose outside JSON, or examples.
+- Select only a candidate_index present in candidates.
+- Understand aliases such as VS Code = Visual Studio Code, FM26 = Football
+  Manager 2026, and 原神 = Genshin Impact.
+- For 原神, only an explicit Genshin Impact candidate is a high-confidence
+  match. HoYoPlay alone is not enough.
+- If no candidate is an unambiguous identity match, return candidate_index null
+  and confidence low.
+- Never invent installed state, paths, AppIDs, or candidates.

@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -510,6 +511,16 @@ class DeviceActionTests(unittest.TestCase):
             device_actions,
             "plan_user_request",
             return_value=(planned, self.apps + [game]),
+        ), patch.object(
+            device_actions,
+            "classify_file_or_library_scope",
+            return_value="LIST_LIBRARY",
+        ), patch.object(
+            device_actions,
+            "list_installed_steam_games",
+            return_value=[
+                {"name": "Football Manager 26", "app_id": "1904540"}
+            ],
         ):
             result = device_actions.execute_user_request(
                 "我的 Steam 库里有什么游戏？",
@@ -519,6 +530,24 @@ class DeviceActionTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["items"][0]["name"], "Football Manager 26")
+
+    def test_steam_library_filter_uses_only_supplied_catalog(self):
+        game = {
+            "id": "fm26-id",
+            "name": "Football Manager 26",
+            "kind": "steam_game",
+            "app_id": "1904540",
+        }
+        unrelated = {
+            "id": "edge-id",
+            "name": "Microsoft Edge",
+            "kind": "executable",
+        }
+        items = device_actions.list_installed_steam_games([unrelated, game])
+        self.assertEqual(
+            items,
+            [{"name": "Football Manager 26", "app_id": "1904540"}],
+        )
 
     def test_cloud_music_library_is_not_substituted(self):
         planned = {
@@ -651,7 +680,10 @@ class DeviceActionTests(unittest.TestCase):
             return_value=True,
         ), patch.dict(sys.modules, {"tools": fake_tools}):
             candidate = device_actions.adapt_launch_candidate(candidate)
-        self.assertEqual(candidate["path"], shortcut["target"])
+        self.assertEqual(
+            os.path.normcase(os.path.normpath(candidate["path"])),
+            os.path.normcase(os.path.normpath(shortcut["target"])),
+        )
         self.assertEqual(candidate["launcher_arguments"], ["--game=example_global"])
         self.assertEqual(candidate["expected_game_executable"], "ExampleGame.exe")
 
@@ -1031,6 +1063,143 @@ class DeviceActionTests(unittest.TestCase):
         execute.assert_called_once_with("下载文件夹里有什么？", "")
         self.assertEqual(result, expected)
 
+    def test_invalid_generic_prose_file_search_uses_bounded_file_executor(self):
+        expected = {
+            "success": True,
+            "completed": True,
+            "action": "searched_files",
+            "query": "test.txt",
+            "matches": [],
+        }
+        with patch.object(
+            device_actions,
+            "plan_user_request",
+            return_value=("Bekki: 你可以去 Documents 猜一猜。", []),
+        ), patch.object(
+            device_actions,
+            "classify_device_action_family",
+            return_value="FILE_ACTION",
+        ), patch(
+            "casper.file_actions.execute",
+            return_value=expected,
+        ) as execute:
+            result = device_actions.execute_user_request(
+                "帮我在电脑里查找名为 test.txt 的文件", ""
+            )
+
+        execute.assert_called_once_with(
+            "帮我在电脑里查找名为 test.txt 的文件", ""
+        )
+        self.assertEqual(result, expected)
+
+    def test_invalid_generic_prose_never_uses_application_clarification(self):
+        with patch.object(
+            device_actions,
+            "plan_user_request",
+            return_value=("unstructured answer", []),
+        ), patch.object(
+            device_actions,
+            "classify_device_action_family",
+            return_value="OTHER",
+        ):
+            result = device_actions.execute_user_request(
+                "执行一个无法识别的本地操作", ""
+            )
+
+        self.assertTrue(result["needs_clarification"])
+        self.assertNotIn("应用", result["clarification"])
+
+    def test_game_content_family_dispatches_to_bounded_installer(self):
+        planned = {
+            "action": "UNSUPPORTED",
+            "candidate_id": None,
+            "reason": "generic planner deferred",
+        }
+        expected = {
+            "success": True,
+            "completed": True,
+            "action": "installed_fm_tactic",
+            "name": "winner.fmf",
+        }
+        with patch.object(
+            device_actions,
+            "classify_recycle_bin_scope",
+            return_value="OTHER",
+        ), patch.object(
+            device_actions,
+            "plan_user_request",
+            return_value=(planned, []),
+        ), patch.object(
+            device_actions,
+            "classify_device_action_family",
+            return_value="GAME_CONTENT_ACTION",
+        ), patch(
+            "casper.content_workflow.execute",
+            return_value=expected,
+        ) as execute:
+            result = device_actions.execute_user_request(
+                "安装刚下载的 FM26 战术", ""
+            )
+        execute.assert_called_once_with("安装刚下载的 FM26 战术", "")
+        self.assertEqual(result, expected)
+
+    def test_upstream_content_scope_sends_game_content_before_generic_planner(self):
+        expected = {
+            "success": True,
+            "completed": False,
+            "action": "prepared_content_installation_manifest",
+        }
+        with patch.object(
+            device_actions,
+            "classify_recycle_bin_scope",
+        ) as lower_gate, patch.object(
+            device_actions, "plan_user_request"
+        ) as generic_plan, patch(
+            "casper.content_workflow.execute",
+            return_value=expected,
+        ) as execute:
+            result = device_actions.execute_user_request(
+                "网上找 FM26 战术并整理安装方案",
+                "",
+                content_workflow_selected=True,
+            )
+        lower_gate.assert_not_called()
+        generic_plan.assert_not_called()
+        execute.assert_called_once_with(
+            "网上找 FM26 战术并整理安装方案",
+            "",
+            content_authorized=True,
+        )
+        self.assertEqual(result, expected)
+
+    def test_melchior_content_authority_bypasses_all_lower_family_gates(self):
+        expected = {
+            "success": True,
+            "completed": False,
+            "action": "prepared_content_installation_manifest",
+        }
+        with patch.object(
+            device_actions, "classify_recycle_bin_scope"
+        ) as special_gate, patch.object(
+            device_actions, "plan_user_request"
+        ) as generic_plan, patch(
+            "casper.content_workflow.execute",
+            return_value=expected,
+        ) as execute:
+            result = device_actions.execute_user_request(
+                "网上找 FM26 战术并整理安装方案",
+                "",
+                content_workflow_selected=True,
+            )
+        special_gate.assert_not_called()
+        generic_plan.assert_not_called()
+        execute.assert_called_once_with(
+            "网上找 FM26 战术并整理安装方案",
+            "",
+            content_authorized=True,
+        )
+        self.assertEqual(result, expected)
+
     def test_invalid_file_library_scope_blocks_wrong_library_execution(self):
         planned = {
             "action": "LIST_LIBRARY",
@@ -1102,10 +1271,6 @@ class DeviceActionTests(unittest.TestCase):
             device_actions,
             "plan_user_request",
             return_value=(planned, windows),
-        ), patch.object(
-            device_actions,
-            "classify_recycle_bin_scope",
-            return_value="RECYCLE_BIN_ACTION",
         ), patch(
             "casper.recycle_bin.execute",
             return_value=expected,
@@ -1113,7 +1278,7 @@ class DeviceActionTests(unittest.TestCase):
             device_actions, "select_window_action"
         ) as select_window:
             result = device_actions.execute_user_request(
-                "打开回收站", ""
+                "打开回收站", "", recycle_workflow_selected=True
             )
         execute.assert_called_once_with("打开回收站", "", approval=None)
         select_window.assert_not_called()
@@ -1171,10 +1336,6 @@ class DeviceActionTests(unittest.TestCase):
             device_actions,
             "plan_user_request",
             return_value=(planned, windows),
-        ), patch.object(
-            device_actions,
-            "classify_recycle_bin_scope",
-            return_value="RECYCLE_BIN_ACTION",
         ), patch(
             "casper.recycle_bin.execute",
             return_value=expected,
@@ -1182,7 +1343,9 @@ class DeviceActionTests(unittest.TestCase):
             device_actions, "select_window_action"
         ) as select_window:
             result = device_actions.execute_user_request(
-                "恢复回收站里的 version_info", ""
+                "恢复回收站里的 version_info",
+                "",
+                recycle_workflow_selected=True,
             )
         execute.assert_called_once_with(
             "恢复回收站里的 version_info", "", approval=None
@@ -1190,7 +1353,7 @@ class DeviceActionTests(unittest.TestCase):
         select_window.assert_not_called()
         self.assertEqual(result, expected)
 
-    def test_recycle_pre_router_survives_truncated_generic_planner(self):
+    def test_melchior_recycle_authority_bypasses_truncated_generic_planner(self):
         expected = {
             "success": True,
             "completed": True,
@@ -1198,18 +1361,17 @@ class DeviceActionTests(unittest.TestCase):
             "items": [],
         }
         with patch.object(
-            device_actions,
-            "classify_recycle_bin_scope",
-            return_value="RECYCLE_BIN_ACTION",
-        ), patch.object(
+            device_actions, "classify_recycle_bin_scope"
+        ) as lower_gate, patch.object(
             device_actions, "plan_user_request"
         ) as generic_plan, patch(
             "casper.recycle_bin.execute",
             return_value=expected,
         ) as execute:
             result = device_actions.execute_user_request(
-                "回收站里有什么？", ""
+                "回收站里有什么？", "", recycle_workflow_selected=True
             )
+        lower_gate.assert_not_called()
         generic_plan.assert_not_called()
         execute.assert_called_once_with(
             "回收站里有什么？", "", approval=None
@@ -1246,6 +1408,31 @@ class DeviceActionTests(unittest.TestCase):
                 "下载文件夹里有什么？", ""
             )
         execute.assert_called_once_with("下载文件夹里有什么？", "")
+        self.assertEqual(result, expected)
+
+    def test_melchior_file_authority_bypasses_generic_device_planner(self):
+        expected = {
+            "success": True,
+            "completed": True,
+            "action": "searched_files",
+            "query": "bekki_search_test.txt",
+            "matches": ["C:/Users/Main/Downloads/bekki_search_test.txt"],
+        }
+        with patch.object(
+            device_actions, "plan_user_request"
+        ) as generic_plan, patch(
+            "casper.file_actions.execute",
+            return_value=expected,
+        ) as execute:
+            result = device_actions.execute_user_request(
+                "帮我在电脑里查找名为 bekki_search_test.txt 的文件",
+                "",
+                file_workflow_selected=True,
+            )
+        generic_plan.assert_not_called()
+        execute.assert_called_once_with(
+            "帮我在电脑里查找名为 bekki_search_test.txt 的文件", ""
+        )
         self.assertEqual(result, expected)
 
 

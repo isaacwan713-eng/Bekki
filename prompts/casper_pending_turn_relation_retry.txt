@@ -1,0 +1,6 @@
+Return exactly CHECKPOINT_REPLY, NEW_REQUEST, or AMBIGUOUS.
+
+Classify the supplied current_request against exactly one active_checkpoint.
+A complete standalone command is NEW_REQUEST, including a same-topic command.
+Only an actual reply to the checkpoint is CHECKPOINT_REPLY. Use AMBIGUOUS if the
+meaning cannot be safely distinguished. Return one token and nothing else.

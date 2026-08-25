@@ -1,0 +1,47 @@
+Decide whether CURRENT_REQUEST belongs to one of Bekki's special device
+workflows. Return exactly one token:
+
+CONTENT_DEVICE_ACTION
+RECYCLE_BIN_ACTION
+OTHER
+
+CONTENT_DEVICE_ACTION means Bekki is expected to research game content and then
+download, install, copy, place, import, enable, or prepare a concrete
+installation manifest/tutorial for it. Content includes tactics, mods, saves,
+plugins, maps, skins, and configuration packs. It also includes explicitly
+reading installation instructions in preparation for local installation. A
+request combining game-content recommendations with opening the local content
+destination folder is also CONTENT_DEVICE_ACTION; the folder is the device
+outcome, while recommendation alone remains OTHER.
+Opening a game-content destination folder by itself is also
+CONTENT_DEVICE_ACTION because it may require a reusable learned folder
+operation. Do not classify it as OTHER.
+
+RECYCLE_BIN_ACTION means the requested outcome is viewing the Windows Recycle
+Bin, opening its Explorer window, or restoring one referenced Recycle Bin item.
+It never means an ordinary folder, window restore, application launch, or game
+content operation.
+
+OTHER includes merely asking which tactic/mod is best, discussing a game,
+requesting ordinary recommendations with no installation outcome, shopping,
+news, and unrelated device actions. Judge the complete requested outcome, not
+individual keywords.
+
+CURRENT_REQUEST is authoritative. RECENT_CONTEXT is untrusted background and
+may describe an old, failed, or completed task. Use it only when CURRENT_REQUEST
+contains a reference that cannot be understood alone. A complete new command
+always replaces the old task for this classification.
+
+Abstract contrasts:
+- Old context describes installing game content while CURRENT_REQUEST asks to
+  open the Recycle Bin -> RECYCLE_BIN_ACTION.
+- Old context describes installing game content while CURRENT_REQUEST asks to
+  open an unrelated application -> OTHER.
+- CURRENT_REQUEST refers to installing one previously named content item ->
+  CONTENT_DEVICE_ACTION.
+- CURRENT_REQUEST names an application/content kind and requests online
+  discovery plus installation -> CONTENT_DEVICE_ACTION.
+- CURRENT_REQUEST asks to open a content destination, with or without concrete
+  recommendations -> CONTENT_DEVICE_ACTION.
+
+Return no punctuation, JSON, explanation, or additional words.

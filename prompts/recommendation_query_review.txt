@@ -10,6 +10,9 @@ them. Return JSON only:
 Rules:
 - Preserve the user's category, target market, requirements and intended budget
   semantics.
+- When candidate_scope is FIXED, preserve every allowed_candidate_name exactly
+  and keep every query limited to that closed set. Never broaden the search,
+  introduce alternatives, or replace a prior candidate.
 - Return 2 to 4 natural, executable queries with materially different evidence
   strategies: independent comparisons/testing, established competing models,
   and official manufacturer specifications when useful.

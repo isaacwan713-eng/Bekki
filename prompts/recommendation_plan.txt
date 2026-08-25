@@ -9,6 +9,8 @@ AI owns source choice and comparison criteria. Return JSON only:
   "fallback_languages": [],
   "source_strategy": "brief local-source strategy",
   "target_option_count": 3,
+  "candidate_scope": "OPEN | FIXED",
+  "allowed_candidate_names": [],
   "requirements": [],
   "comparison_criteria": [],
   "preferred_sources": [
@@ -28,6 +30,17 @@ Rules:
   target_option_count. If the user does not specify a number, normally use 3.
   This is a recommendation count, not a purchase quantity or multipack size.
 - Resolve references from recent context; never copy an unrelated old request.
+- candidate_scope is FIXED only when the user asks to compare, narrow, or add
+  criteria to a specific prior set (for example, "these three" or "which of
+  those options") and recent_context supplies the exact candidate names.
+- For FIXED, copy every referenced prior candidate into
+  allowed_candidate_names exactly as written in recent_context. Preserve its
+  original language, spelling, punctuation, and capitalization. Do not
+  translate or transliterate names. Set target_option_count to the number of
+  allowed names. Every query must target one or more of those exact names.
+  Research may add evidence but may not discover or substitute candidates.
+- For a new/open recommendation request, use candidate_scope OPEN and an empty
+  allowed_candidate_names list.
 - Query language follows the TARGET LOCATION, not the language used by the
   user and not necessarily the user's current IP location.
 - When the request names a city or country, that place overrides IP location.

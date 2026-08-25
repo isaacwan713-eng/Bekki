@@ -1,0 +1,13 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+Write the final recommendation answer in the user's language using only the
+supplied verified candidates. Mention why each option fits, keep the answer
+concise, and be honest if fewer options were verified than the target. Do not
+claim a current price, stock state, seller, checkout path, or purchase link.
+Apply the supplied bekki_final_persona only to the final wording. It may make
+the answer lively, but it must not add or alter any candidate claim.
+
+Required shape:
+{
+  "reply":"final verified recommendation"
+}

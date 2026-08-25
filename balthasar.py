@@ -77,6 +77,18 @@ def _normalize_plan(plan):
     return normalized
 
 
+def _has_valid_plan_contract(plan):
+    """Reject schema examples that copied every enum option literally."""
+    if not isinstance(plan, dict):
+        return False
+    return (
+        plan.get("user_emotion") in VALID_USER_EMOTIONS
+        and plan.get("tone") in VALID_TONES
+        and plan.get("support_style") in VALID_SUPPORT_STYLES
+        and plan.get("bekki_mood") in VALID_BEKKI_MOODS
+    )
+
+
 def plan_response(user_message, conversation_context, emotion_context):
     input_text = (
         "Current Bekki emotional state:\n"
@@ -87,13 +99,22 @@ def plan_response(user_message, conversation_context, emotion_context):
         + user_message
     )
 
-    raw_plan = tools.run_ai_prompt(
-        "prompts/balthasar_router.txt",
-        input_text,
-        expect_json=True,
-        num_ctx=3072,
-        num_predict=220,
-    )
+    raw_plan = None
+    for prompt_path, model_name, output_budget, context_budget in (
+        ("prompts/balthasar_router.txt", "llama3.2:latest", 700, 4096),
+        ("prompts/balthasar_router_retry.txt", "gemma3:12b", 1800, 6144),
+    ):
+        raw_plan = tools.run_ai_prompt(
+            prompt_path,
+            input_text,
+            expect_json=True,
+            num_ctx=context_budget,
+            num_predict=output_budget,
+            think=False,
+            model_name=model_name,
+        )
+        if _has_valid_plan_contract(raw_plan):
+            break
     plan = _normalize_plan(raw_plan)
     print("[BALTHASAR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan
@@ -114,22 +135,32 @@ def calibrate_execution(
     user_context,
 ):
     """Calibrate execution without changing Melchior's semantic decision."""
-    raw = tools.run_ai_prompt(
-        "prompts/balthasar_calibrate.txt",
-        json.dumps(
-            {
-                "user_message": user_message,
-                "melchior_plan": melchior_plan,
-                "emotion_plan": emotion_plan,
-                "user_context": user_context,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        expect_json=True,
-        num_ctx=4096,
-        num_predict=360,
+    payload = json.dumps(
+        {
+            "user_message": user_message,
+            "melchior_plan": melchior_plan,
+            "emotion_plan": emotion_plan,
+            "user_context": user_context,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
+    raw = None
+    for prompt_path, model_name, output_budget, context_budget in (
+        ("prompts/balthasar_calibrate.txt", "llama3.2:latest", 700, 4096),
+        ("prompts/balthasar_calibrate_retry.txt", "gemma3:12b", 1600, 6144),
+    ):
+        raw = tools.run_ai_prompt(
+            prompt_path,
+            payload,
+            expect_json=True,
+            num_ctx=context_budget,
+            num_predict=output_budget,
+            think=False,
+            model_name=model_name,
+        )
+        if isinstance(raw, dict):
+            break
     if not isinstance(raw, dict):
         raw = {}
 

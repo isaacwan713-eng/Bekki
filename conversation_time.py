@@ -95,10 +95,26 @@ def prompt_context(session, limit=8):
     )
 
 
-def recent_conversation(session, limit=8):
-    data = session_time_data(session, limit=limit)
+def recent_conversation(session, limit=8, exclude_last_message=False):
+    """Render recent messages, optionally excluding the current saved turn.
+
+    Callers that save the current user message before routing can set
+    ``exclude_last_message=True``. The exclusion is structural; Python does not
+    interpret the message text.
+    """
+    requested_limit = max(0, int(limit))
+    if requested_limit == 0:
+        return ""
+    data = session_time_data(
+        session,
+        limit=requested_limit + (1 if exclude_last_message else 0),
+    )
+    messages = data["messages"]
+    if exclude_last_message and messages:
+        messages = messages[:-1]
+    messages = messages[-requested_limit:]
     lines = []
-    for item in data["messages"]:
+    for item in messages:
         timing = (
             "created_at=" + str(item.get("created_at"))
             + "; seconds_since_previous_message="

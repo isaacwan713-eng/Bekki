@@ -32,6 +32,17 @@ Rules:
   to the evidence source, not necessarily a merchant page; do not invent price,
   stock or purchase availability.
 - Never merge facts from different candidates.
+- Preserve each candidate name exactly as visibly written in the source,
+  including its original language, spelling, punctuation, and capitalization.
+  Never translate, transliterate, localize, shorten, or invent another-language
+  name.
+- When plan.candidate_scope is FIXED, return only entries corresponding to
+  plan.allowed_candidate_names and copy the matching allowed name exactly as
+  title. Never return another candidate from the guide.
+- In FIXED scope, visible_fixed_candidate_names is the authoritative list of
+  allowed names literally found in this rendered guide. Return only those
+  names. If the list is empty, return {"candidates": []}. Never manufacture
+  evidence for every allowed name just because the names appear in the plan.
 - Use only facts stated for that candidate in the supplied page.
 - Copy every plan requirement. UNKNOWN is not MATCH.
 - A directory entry may become a candidate even without a dedicated page.

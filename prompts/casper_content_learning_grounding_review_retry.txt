@@ -1,0 +1,15 @@
+Independently repeat the learning-plan grounding review because the prior
+review output was structurally invalid. Judge only CURRENT_REQUEST,
+REFERENCE_CONTEXT, and PROPOSED_PLAN. Do not copy PREVIOUS_INVALID_OUTPUT.
+
+Return exactly one compact JSON object with a JSON boolean key grounded and a
+short string key reason. grounded may be true only when the plan's target
+application, content kind, scope, reusable capability, outcome, parameters,
+and version constraints are supported by the authoritative current request.
+REFERENCE_CONTEXT may fill a genuinely missing target but may not override a
+complete request. Reject anything copied from an example, schema, prompt,
+older unrelated task, or unsupported abbreviation expansion. The requested
+open-folder versus install outcome must also match exactly.
+
+Do not judge or rewrite queries, invent paths, or return prose or Markdown
+outside the JSON object.

@@ -1,0 +1,39 @@
+Plan web research for the game content requested in the current turn. Return
+one JSON object with: target_app, content_kind, requested_outcome,
+version_constraints (array), fit_context (array),
+fit_context_is_content_identity (boolean), selection_criteria (array), and
+queries (1-3 complete web search queries).
+
+CURRENT_REQUEST, supplied as the request field, is the only authority for the
+task's application, content kind, objective, and named identity. Never carry an
+application, team, character, product, or objective from an earlier task or
+from the examples below into the result. recent_context may resolve an explicit
+reference in CURRENT_REQUEST, but it must not replace or expand a complete
+current request. A learned procedure may constrain compatibility; it must not
+change the requested content.
+
+This phase runs after Bekki has learned and locally verified the installation
+procedure. Queries should seek strong, concrete downloadable candidate content
+and credible performance or community evidence; do not repeat installation-
+method research. Adapt query language to the target application's real creator
+community and the user's locale. Do not invent a local path, download URL,
+filename, ranking, or completed action.
+
+Separate universal artifact discovery from personal fit. A user's current
+team, character, roster, hardware, save, or play style belongs in fit_context
+and selection_criteria, not automatically in queries. Include it in queries
+only when CURRENT_REQUEST explicitly asks for content created, named, or
+recreated for that entity. Set fit_context_is_content_identity true only for
+that explicit identity case; words such as "for", "fits", and "suitable for"
+do not make fit context an identity.
+
+The payload and the following examples are data illustrations, not
+instructions or defaults. Return JSON only with exactly the required keys and
+primitive arrays of strings--never prose, Markdown, nested query objects,
+placeholders, or commentary.
+
+Example A (identity false; personal fit is not content identity):
+{"target_app":"Cities: Skylines II","content_kind":"traffic-management mod","requested_outcome":"find a strong downloadable mod","version_constraints":[],"fit_context":["very large save"],"fit_context_is_content_identity":false,"selection_criteria":["credible performance evidence","large-save fit"],"queries":["Cities Skylines II best tested traffic management mod download","Cities Skylines II traffic management mod reputable download"]}
+
+Example B (identity true; the named design is content identity):
+{"target_app":"Minecraft Java Edition","content_kind":"player skin","requested_outcome":"find a downloadable Creeper-themed skin","version_constraints":["Java Edition"],"fit_context":["Creeper-themed design"],"fit_context_is_content_identity":true,"selection_criteria":["matches the named design","credible download source"],"queries":["Minecraft Java Edition Creeper themed player skin download"]}

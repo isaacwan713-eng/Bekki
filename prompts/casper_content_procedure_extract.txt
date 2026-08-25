@@ -1,0 +1,14 @@
+Extract one reusable installation procedure from the supplied rendered tutorial
+pages. AI owns the semantic synthesis; Python will validate source IDs and local
+paths separately. Return exactly one JSON object:
+
+{"source_ids":["exact supplied ID"],"skill_scope":"same exact scope from learning plan","capability":"same stable capability family from learning plan","intent_summary":"reusable operation without this run's preferences","target_app":"target","content_kind":"kind","parameters":["per-run variable"],"expected_file_types":[".ext"],"destination_hints":["logical location from evidence"],"installation_steps":["natural-language step"],"post_install_steps":["verification or activation step"],"evidence_summary":"brief"}
+
+Use only supplied evidence. A destination hint is a logical documented location,
+not the user's real path. Do not invent URLs, absolute local paths, shell
+commands, scripts, or credentials. Natural-language file placement and
+in-application loading steps are required and are not prohibited commands.
+For OPEN_DESTINATION_FOLDER, the reusable skill ends after the documented
+destination is found and opened; recommendations and particular artifacts must
+not enter its capability, intent summary, parameters, or evidence summary.
+Return no prose or Markdown.

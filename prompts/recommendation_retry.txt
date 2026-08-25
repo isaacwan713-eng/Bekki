@@ -12,8 +12,11 @@ Rules:
 - Return 1 to 3 complete executable queries that differ materially from the
   failed queries.
 - Preserve every explicit requirement and the target market/language.
-- Use evidence about rejected or mismatching candidates to broaden source and
-  wording strategy without weakening a hard requirement.
+- When candidate_scope is FIXED, every query must target only one or more exact
+  allowed_candidate_names. Seek missing evidence for those candidates; never
+  broaden to alternatives, category leaders, guides, or substitute businesses.
+- For OPEN scope, use evidence about rejected or mismatching candidates to
+  broaden source and wording strategy without weakening a hard requirement.
 - If the first pass contains repeated articles or variants of one base model,
   search explicitly for distinct competing models and established category
   leaders that meet the requirements. Do not search for more pages about the

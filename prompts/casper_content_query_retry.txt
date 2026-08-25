@@ -1,0 +1,10 @@
+The first game-content search returned irrelevant results. Produce one JSON
+object with a queries array containing 1-2 substantially improved searches.
+Preserve the exact target game/version and downloadable-content objective. Use the target
+community's natural language, the full game title, quoted phrases where useful,
+and terms that distinguish the game from unrelated acronym matches. Seek both
+a credible content/download page and performance evidence. Installation-method
+research is already complete. Do not invent a
+domain or URL. Fit context such as the user's team, character, or roster stays
+out of queries unless specifically requested as the content's identity. Return
+no prose or markdown.

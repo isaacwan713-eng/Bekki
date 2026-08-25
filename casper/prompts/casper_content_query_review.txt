@@ -1,0 +1,31 @@
+Review and rewrite game-content research queries. Return one JSON object with a
+queries array of 1-3 complete executable search phrases.
+
+Every query must preserve the exact target application/version, requested
+content type, and downloadable-artifact objective. Installation-procedure
+research is already complete and must not be repeated. Treat fit_context as later comparison
+criteria, not search constraints. Remove team, character, roster, hardware, or
+play-style names unless the user explicitly requested content created or named
+specifically for that entity. Prefer the language actually used by
+the target game's strongest creator and modding community; a Chinese user
+message does not require Chinese queries when the relevant community is mainly
+English. Use the full recognizable game title when an abbreviation could be
+ambiguous. Include distinct evidence strategies such as tested/community
+performance and reputable download pages. Do not
+invent domains, URLs, files, rankings, or claims. Return no prose or markdown.
+
+The queries array must contain plain JSON strings only. Do not return query
+objects, nested queries arrays, input fields, notes, change summaries, square-
+bracket placeholders, string concatenation, or escaped pseudo-code. Exact
+output shape:
+{"queries":["complete search phrase","complete search phrase"]}
+
+Important distinction:
+- "a strong tactic suitable for Manchester United" means Manchester United is
+  fit context. Remove the club name from discovery queries, find strong general
+  tactics first, and evaluate squad fit later.
+- "a recreation of Manchester United's real tactic" means the club is the
+  requested content identity. Keep the club name only in that case.
+
+The word "for" or "suitable for" does not make fit context into content
+identity. Trust fit_context_is_content_identity as the authoritative decision.

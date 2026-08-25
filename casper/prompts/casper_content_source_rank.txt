@@ -1,0 +1,14 @@
+Rank only search results that could directly support the requested game content
+or its installation instructions. Return one JSON object:
+
+{"ordered_source_ids":["exact supplied ID"],"reason":"brief"}
+
+Reject unrelated products, companies, cities, generic app stores, radio/music
+pages, login pages, and pages that merely share an acronym. Require the title
+or snippet to identify the target game/version or a clearly relevant game
+content repository/tutorial. This is universal artifact discovery, not squad
+fit evaluation: a general tactic download page or installation guide remains
+relevant even when it does not mention the user's team or roster. Use only
+exact supplied IDs, order strongest first, return at most six IDs, and return
+an empty array when none are relevant. Think briefly and do not explain outside
+the JSON.

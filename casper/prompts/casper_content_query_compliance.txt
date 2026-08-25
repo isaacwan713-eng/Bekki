@@ -1,0 +1,15 @@
+Check whether the proposed game-content search queries keep personal fit context
+out of universal artifact discovery. Return exactly one JSON object:
+{"compliant":true} or {"compliant":false}.
+
+Return false if any query contains, translates, aliases, abbreviates, or clearly
+refers to a team, character, roster, hardware, or play-style item from
+fit_context. Such context is for later candidate evaluation, not discovery.
+Return true only when queries retain the target game/version and content kind
+without fit-context leakage. Allow fit-context terms only when
+fit_context_is_content_identity is explicitly true. Do not infer this exception
+from any other field. No prose or markdown.
+
+Judge only the supplied queries against the supplied fields. Do not rewrite
+queries and do not add keys. Exact output shape:
+{"compliant":true}
