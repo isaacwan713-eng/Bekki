@@ -335,5 +335,281 @@
     "judgment_reason": "Emerj.com is a commercial AI‑focused media outlet, not an official institution or primary source. The article cites industry experts and secondary data but lacks institutional editorial oversight or primary documentation required for autonomous learning approval.",
     "reviewed_at": "2026-08-12T19:18:59.524666+00:00",
     "policy_version": 2
+  },
+  {
+    "name": "NCAA College Baseball DI Stats | NCAA.com",
+    "url": "https://www.ncaa.com/stats/baseball/d1",
+    "domain": "ncaa.com",
+    "topics": [
+      "baseball statistics"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:11.720106+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The page provides official statistics for NCAA Division I college baseball, hosted on the NCAA's official website (ncaa.com). This indicates a high degree of institutional authority and relevance for learning about baseball statistics.",
+    "reviewed_at": "2026-08-26T17:00:21.570301+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "2026 Baseball Cumulative Statistics",
+    "url": "https://usfdons.com/sports/baseball/stats/2026",
+    "domain": "usfdons.com",
+    "topics": [
+      "baseball statistics"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:11.721670+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The page presents cumulative baseball statistics for the University of San Francisco (USF) baseball team. The URL (usfdons.com) is the official athletics website for USF, indicating an institutional source with editorial responsibility for the data presented. The content is directly relevant to baseball statistics and appears to be a primary source of team data.",
+    "reviewed_at": "2026-08-26T17:00:29.753095+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Data and Statistics - Sports Studies - Library Guides at University of Notre Dame",
+    "url": "https://libguides.library.nd.edu/sports-studies/background-information-data-statistics",
+    "domain": "libguides.library.nd.edu",
+    "topics": [
+      "baseball statistics"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-24T17:00:11.722919+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The page is a curated guide from the University of Notre Dame's library, indicating institutional responsibility and a focus on providing reliable data resources. The curator's contact information and the inclusion of various data sources suggest a commitment to accuracy and relevance.",
+    "reviewed_at": "2026-08-26T17:00:36.394329+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Statistics • D1Baseball",
+    "url": "https://d1baseball.com/statistics/",
+    "domain": "d1baseball.com",
+    "topics": [
+      "baseball statistics"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:11.724199+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.8,
+    "judgment_reason": "D1Baseball is a recognized institution providing college baseball statistics. The page presents a comprehensive list of teams and statistics, indicating an organized and accountable source.",
+    "reviewed_at": "2026-08-26T17:00:42.393175+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "College Baseball Statistics - The Baseball Cube",
+    "url": "https://www.thebaseballcube.com/content/college/",
+    "domain": "thebaseballcube.com",
+    "topics": [
+      "baseball statistics"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:11.725410+00:00",
+    "source_class": "aggregator",
+    "trust_score": 0.6,
+    "judgment_reason": "The site aggregates college baseball statistics from various sources. While it provides a comprehensive listing, the editorial responsibility and data accuracy require further investigation to confirm its reliability for autonomous learning.",
+    "reviewed_at": "2026-08-26T17:00:48.521039+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "FA Strategy 2024-2028: The Football Association",
+    "url": "https://www.thefa.com/about-football-association/what-we-do/fa-strategy-2024-2028",
+    "domain": "thefa.com",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:12.601101+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The URL points to an official page on The Football Association's website (thefa.com), detailing their strategy. This indicates a recognized institution publishing its own documentation.",
+    "reviewed_at": "2026-08-26T17:00:56.126347+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Networks, Strategy and Sport: the Case of City Football ...",
+    "url": "https://scispace.com/pdf/networks-strategy-and-sport-the-case-of-city-football-group-285fg26j.pdf",
+    "domain": "scispace.com",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:12.602404+00:00"
+  },
+  {
+    "name": "Governance - NCAA.org",
+    "url": "https://www.ncaa.org/sports/2021/2/9/governance.aspx",
+    "domain": "ncaa.org",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-24T17:00:12.603529+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The page is from NCAA.org, the official website of the National Collegiate Athletic Association, a recognized institution governing college athletics. The content details governance structures and policies, indicating a primary and authoritative source.",
+    "reviewed_at": "2026-08-26T17:01:02.648374+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "DEPARTMENT OF ATHLETICS POLICY & PROCEDURE MANUAL",
+    "url": "https://www.pennwest.edu/_resources/docs/about/policies/athletics-manual-clarion.pdf",
+    "domain": "pennwest.edu",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": "org_or_edu",
+    "discovered_at": "2026-08-24T17:00:12.604718+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.9,
+    "judgment_reason": "The document is a policy manual from PennWest University's Department of Athletics, indicating an official and accountable source for information related to athletics policies and procedures.",
+    "reviewed_at": "2026-08-26T17:01:12.925584+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "A survey of organizational structure and operational practices of elite youth football academies and national federations from around the world: A performance and medical perspective - PMC",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9727309/",
+    "domain": "pmc.ncbi.nlm.nih.gov",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:12.605916+00:00"
+  },
+  {
+    "name": "AI model architecture: Types, layers, and deployment explained",
+    "url": "https://www.n-ix.com/ai-model-architecture/",
+    "domain": "n-ix.com",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:13.219991+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.7,
+    "judgment_reason": "The article is published by N-iX, a software development company with expertise in AI. The author is identified as a Director and Head of Corporate AI & Efficiency, indicating a level of authority and expertise. The content provides practical guidance based on their experience with enterprise AI projects, suggesting a reliable and relevant resource.",
+    "reviewed_at": "2026-08-26T17:01:20.356204+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "AI model documentation: what to include and how ...",
+    "url": "https://verifywise.ai/lexicon/model-documentation-best-practices",
+    "domain": "verifywise.ai",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "approve",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:13.221465+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.7,
+    "judgment_reason": "The page provides best practices for AI model documentation, indicating a focus on responsible AI governance and alignment with standards like ISO/IEC 42001. While the domain is commercial, the content demonstrates a clear purpose of providing guidance and resources related to a recognized industry practice.",
+    "reviewed_at": "2026-08-26T17:01:27.019741+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "AI Architecture | IASA - BTABoK",
+    "url": "https://iasa-global.github.io/btabok/ai_ml.html",
+    "domain": "iasa-global.github.io",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:13.222724+00:00",
+    "source_class": "academic",
+    "trust_score": 0.6,
+    "judgment_reason": "The content appears to be part of a 'Business Technology Architecture Body of Knowledge' (BTABoK) hosted on a GitHub repository. While GitHub is often used for open-source projects, the content itself seems to be educational and structured, suggesting a degree of academic or institutional intent. However, further verification of the IASA organization and its editorial standards is needed to fully assess its reliability.",
+    "reviewed_at": "2026-08-26T17:01:33.531807+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "Model Architecture | AI Glossary",
+    "url": "https://mhit.ai/docs/ai-fundamentals/model-architecture",
+    "domain": "mhit.ai",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "pending_review",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-24T17:00:13.224050+00:00",
+    "source_class": "institutional",
+    "trust_score": 0.6,
+    "judgment_reason": "The site appears to be a documentation resource for an organization (mhit.ai), but its authority and editorial standards are not immediately clear. The content is relevant and well-structured, but further investigation into the organization's credibility would be beneficial.",
+    "reviewed_at": "2026-08-26T17:01:40.421255+00:00",
+    "policy_version": 2
+  },
+  {
+    "name": "UEFA strategy: United for Success | UEFA.com",
+    "url": "https://www.uefa.com/about/what-we-do/our-strategy/",
+    "domain": "uefa.com",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-26T17:00:11.266577+00:00"
+  },
+  {
+    "name": "some notes on Leadership via American Football Strategy | Lamb Sandwich",
+    "url": "https://lambsandwich.net/welcome-to-lambsandwich-net/american-football-strategy/",
+    "domain": "lambsandwich.net",
+    "topics": [
+      "football strategy"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-26T17:00:11.267940+00:00"
+  },
+  {
+    "name": "The Complete Guide to AI Architectures: From Neural Networks to Foundation Models",
+    "url": "https://huggingface.co/blog/ProCreations/the-mega-article",
+    "domain": "huggingface.co",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-26T17:00:11.910970+00:00"
+  },
+  {
+    "name": "Explore the AI reference architecture | F5",
+    "url": "https://www.f5.com/resources/reference-architectures/ai-overview",
+    "domain": "f5.com",
+    "topics": [
+      "ai model architectures"
+    ],
+    "status": "candidate",
+    "trust": "unverified",
+    "suffix_signal": null,
+    "discovered_at": "2026-08-26T17:00:11.912216+00:00"
   }
 ]

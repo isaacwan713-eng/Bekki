@@ -75,6 +75,7 @@ def execute(
     except Exception as error:
         result["status"] = "failed"
         result["errors"].append(str(error)[:1000])
+        print("[CASPER ERROR]", type(error).__name__, repr(error))
         result["audit_log"].append(
             {"event": "casper_failed", "error_type": type(error).__name__}
         )

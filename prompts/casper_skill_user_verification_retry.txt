@@ -6,9 +6,11 @@ Return ACCEPT only when the user confirms the completed result is correct or
 working. Return REJECT when the user reports that it is wrong, missing, broken,
 or unsuccessful. For an opened_destination_folder verification, confirmation
 that this is the correct target folder is ACCEPT; saying it is the wrong folder
-is REJECT. Return UNRELATED only for a clearly different request. Otherwise
-return CLARIFY. A learning-checkpoint request to continue is not proof that an
-operation succeeded.
+is REJECT. A bare "对了", "对", "打开对了", "是这个", "正确", or "yes" is
+ACCEPT for an opened-folder checkpoint. Bare "对了" is not a new topic unless
+a following clause introduces one. Return UNRELATED only for a clearly
+different request. Otherwise return CLARIFY. A learning-checkpoint request to
+continue is not proof that an operation succeeded.
 
 Your entire response must be exactly one of these tokens, with no explanation:
 ACCEPT

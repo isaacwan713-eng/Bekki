@@ -27,6 +27,8 @@ VALID_MODES = {
     "SHOPPING_RESEARCH",
     "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
+    "NERV_SKILL_ACTION",
+    "EXTERNAL_AI_ACTION",
     "DEVICE_ACTION",
 }
 
@@ -89,6 +91,8 @@ VALID_CONTEXT_PROFILES = {
     "MINIMAL",
     "CONVERSATION",
     "MEMORY",
+    "NERV_LEARNING",
+    "NERV_CURIOSITY",
     "COMPANION",
     "DOCUMENT",
     "IMAGE",
@@ -202,6 +206,18 @@ MODE_INVARIANTS = {
         "research_profile": "recommendation_match",
     },
     "TASK_ACTION": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },
+    "NERV_SKILL_ACTION": {
+        "needs_search": False,
+        "research_depth": "none",
+        "source_policy": "local_context",
+        "research_profile": "local_context",
+    },
+    "EXTERNAL_AI_ACTION": {
         "needs_search": False,
         "research_depth": "none",
         "source_policy": "local_context",
@@ -351,17 +367,31 @@ def _classify_content_device_scope(
     user_message,
     conversation_context,
     router_skill_route="none",
+    router_device_scope=None,
 ):
     """Focused AI gate that may narrow, but never widen, the main route."""
     builtin_scope = _builtin_device_scope(user_message)
     if builtin_scope:
         return builtin_scope
 
-    # The authoritative router owns whether reusable Skills may be consulted.
-    # A compact secondary model is useful for narrowing a validated lookup,
-    # but a single false positive must not turn an ordinary local action into
-    # browser research or content installation.
-    if str(router_skill_route or "none").lower().strip() != "lookup":
+    skill_lookup_selected = (
+        str(router_skill_route or "none").lower().strip() == "lookup"
+    )
+    normalized_device_scope = str(
+        router_device_scope or ""
+    ).upper().strip()
+
+    # A file/system/library action must not be widened into browser research.
+    # When the detailed router says APPLICATION_ACTION or OTHER, however, an
+    # explicit request to learn and execute a reusable content-folder workflow
+    # deserves one independent reliable-model audit. This keeps the semantic
+    # decision in AI while providing a safe bootstrap path before any verified
+    # Skill exists.
+    learning_bootstrap_audit = (
+        not skill_lookup_selected
+        and normalized_device_scope in {"APPLICATION_ACTION", "OTHER"}
+    )
+    if not skill_lookup_selected and not learning_bootstrap_audit:
         return "OTHER"
 
     prompt_input = (
@@ -370,20 +400,36 @@ def _classify_content_device_scope(
         + "\nRECENT_CONTEXT (reference resolution only):\n"
         + str(conversation_context)[-1200:]
     )
-    attempts = (
-        (
-            "prompts/melchior_content_action_scope.txt",
-            "llama3.2:latest",
-            320,
-            2048,
-        ),
-        (
-            "prompts/melchior_content_action_scope_retry.txt",
-            "gemma3:12b",
-            1000,
-            4096,
-        ),
-    )
+    if learning_bootstrap_audit:
+        attempts = (
+            (
+                "prompts/melchior_content_action_scope.txt",
+                "gemma3:12b",
+                700,
+                3072,
+            ),
+            (
+                "prompts/melchior_content_action_scope_retry.txt",
+                "gemma3:12b",
+                1000,
+                4096,
+            ),
+        )
+    else:
+        attempts = (
+            (
+                "prompts/melchior_content_action_scope.txt",
+                "llama3.2:latest",
+                320,
+                2048,
+            ),
+            (
+                "prompts/melchior_content_action_scope_retry.txt",
+                "gemma3:12b",
+                1000,
+                4096,
+            ),
+        )
     for prompt_path, model_name, output_budget, context_budget in attempts:
         raw = tools.run_ai_prompt(
             prompt_path,
@@ -504,7 +550,7 @@ def _normalize_plan(plan):
     # second persona model merely because the wording happens to be warm.
     if response_mode != "LOCAL_ANSWER":
         interaction_mode = "TASK"
-        if context_profile == "COMPANION":
+        if context_profile in {"COMPANION", "NERV_LEARNING", "NERV_CURIOSITY"}:
             context_profile = "MINIMAL"
     if interaction_mode == "COMPANION":
         context_profile = "COMPANION"
@@ -516,13 +562,126 @@ def _normalize_plan(plan):
     return normalized
 
 
+def _raw_plan_requests_nerv_audit(plan):
+    """Detect an AI-produced local/skill contradiction, not user keywords."""
+    if not isinstance(plan, dict):
+        return False
+    return (
+        str(plan.get("response_mode") or "").upper().strip()
+        == "LOCAL_ANSWER"
+        and str(plan.get("context_profile") or "").upper().strip()
+        not in {"NERV_LEARNING", "NERV_CURIOSITY"}
+        and (
+            str(plan.get("skill_route") or "").lower().strip() == "lookup"
+            or bool(str(plan.get("device_scope") or "").strip())
+        )
+    )
+
+
+def _audit_nerv_learning_query(user_message):
+    """Ask the reliable model for one closed NERV inventory decision."""
+    value = ""
+    try:
+        raw = tools.run_ai_prompt(
+            "prompts/melchior_nerv_query_scope.txt",
+            json.dumps(
+                {"current_user_message": str(user_message or "")[:1600]},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            expect_json=False,
+            num_ctx=2048,
+            num_predict=40,
+            think=False,
+            model_name="gemma3:12b",
+        )
+        value = str(raw or "").strip().upper()
+    except Exception as error:
+        print("[MELCHIOR NERV QUERY AUDIT WARNING]", repr(error))
+    finally:
+        try:
+            tools.unload_model("gemma3:12b")
+            print("[MELCHIOR NERV AUDIT MODEL RELEASED] gemma3:12b")
+        except Exception as error:
+            print("[MELCHIOR NERV AUDIT RELEASE WARNING]", repr(error))
+    if value not in {"NERV_LEARNING", "NERV_CURIOSITY", "OTHER"}:
+        value = "OTHER"
+    print("[MELCHIOR NERV QUERY AUDIT]", value)
+    return value
+
+
+def _explicit_nerv_curiosity_query(user_message):
+    """Require an explicit request before exposing Curiosity Journal.
+
+    The model still owns semantic routing.  This deterministic boundary only
+    prevents a surprising fact or ordinary reflective conversation from being
+    mistaken for a request to inspect Bekki's private NERV journal.
+    """
+    text = " ".join(str(user_message or "").casefold().split())
+    if not text:
+        return False
+    chinese_patterns = (
+        r"(?:你|bekki).{0,12}(?:最近|今天|现在)?.{0,8}(?:在想什么|想些什么|好奇什么)",
+        r"(?:最近|今天|现在).{0,10}(?:有什么)?好奇",
+        r"(?:你的|bekki的).{0,8}好奇心",
+        r"(?:你|bekki).{0,12}(?:问了|问过|询问).{0,8}chatgpt",
+        r"(?:查看|看看|显示|打开).{0,8}(?:好奇心|curiosity).{0,8}(?:记录|日志|journal)?",
+    )
+    english_patterns = (
+        r"\bwhat (?:are|were) you curious about\b",
+        r"\bwhat (?:have you|were you) been (?:wondering|thinking)\b",
+        r"\bwhat did (?:you|bekki) ask chatgpt\b",
+        r"\b(?:show|open|view) (?:your |bekki'?s )?curiosity (?:journal|log)\b",
+        r"\b(?:your|bekki'?s) recent curiosit(?:y|ies)\b",
+    )
+    return any(
+        re.search(pattern, text, re.IGNORECASE)
+        for pattern in chinese_patterns + english_patterns
+    )
+
+
+def _audit_command_store_action(user_message):
+    """Reliably separate reminder deletion from verified-skill deletion."""
+    value = ""
+    try:
+        raw = tools.run_ai_prompt(
+            "prompts/melchior_command_store_scope.txt",
+            json.dumps(
+                {"current_user_message": str(user_message or "")[:1600]},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            expect_json=False,
+            num_ctx=2048,
+            num_predict=30,
+            think=False,
+            model_name="gemma3:12b",
+        )
+        value = str(raw or "").strip().upper()
+    except Exception as error:
+        print("[MELCHIOR COMMAND STORE AUDIT WARNING]", repr(error))
+    finally:
+        try:
+            tools.unload_model("gemma3:12b")
+            print("[MELCHIOR COMMAND STORE MODEL RELEASED] gemma3:12b")
+        except Exception as error:
+            print("[MELCHIOR COMMAND STORE RELEASE WARNING]", repr(error))
+    if value not in {"TASK_ACTION", "NERV_SKILL_ACTION"}:
+        value = "TASK_ACTION"
+    print("[MELCHIOR COMMAND STORE AUDIT]", value)
+    return value
+
+
 MAGI_LANE_MODES = {
     "SEARCH": {
         "NEWS_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH",
         "SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH",
     },
     "LOCAL": {"LOCAL_ANSWER"},
-    "COMMAND": {"TASK_ACTION", "DEVICE_ACTION"},
+    "COMMAND": {
+        "TASK_ACTION", "NERV_SKILL_ACTION", "EXTERNAL_AI_ACTION",
+        "DEVICE_ACTION",
+    },
 }
 
 
@@ -815,8 +974,17 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             "Melchior could not produce a valid routing mode after retry."
         )
 
+    nerv_audit_needed = _raw_plan_requests_nerv_audit(raw_plan)
+    command_store_audit_needed = (
+        str(raw_plan.get("response_mode") or "").upper().strip()
+        == "TASK_ACTION"
+        and str(raw_plan.get("context_profile") or "").upper().strip()
+        == "NERV_LEARNING"
+    )
     plan = _normalize_plan(raw_plan)
+    crossed_lane_replanned = False
     if not _plan_matches_magi(plan, magi_route):
+        crossed_lane_replanned = True
         print(
             "[MELCHIOR CROSSED MAGI LANE]",
             str(plan.get("response_mode")),
@@ -872,10 +1040,40 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             raise RuntimeError(
                 "Melchior AI returned an invalid audited-lane route."
             )
+        command_store_audit_needed = command_store_audit_needed or (
+            str(lane_plan.get("response_mode") or "").upper().strip()
+            == "TASK_ACTION"
+            and str(lane_plan.get("context_profile") or "").upper().strip()
+            == "NERV_LEARNING"
+        )
         plan = _normalize_plan(lane_plan)
         if not _plan_matches_magi(plan, magi_route):
             raise RuntimeError(
                 "Melchior AI crossed the audited MAGI lane; request stopped safely."
+            )
+    if (
+        str(plan.get("response_mode") or "").upper().strip() == "TASK_ACTION"
+        and command_store_audit_needed
+        and _valid_magi_route(magi_route)
+        and _valid_magi_route(magi_route)[0] == "COMMAND"
+    ):
+        command_mode = _audit_command_store_action(user_message)
+        if command_mode == "NERV_SKILL_ACTION":
+            plan = _normalize_plan(
+                {
+                    "response_mode": "NERV_SKILL_ACTION",
+                    "risk": "low",
+                    "complexity": "low",
+                    "reasoning_profile": "standard",
+                    "skill_route": "none",
+                    "device_scope": None,
+                    "interaction_mode": "TASK",
+                    "context_profile": "MINIMAL",
+                    "reason": (
+                        "Reliable focused AI selected verified-skill lifecycle "
+                        "management instead of the reminder store."
+                    ),
+                }
             )
     plan = _annotate_magi(plan, magi_route)
     # A syntactically explicit open/launch command is an execution boundary,
@@ -949,6 +1147,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
                 user_message,
                 conversation_context,
                 plan.get("skill_route", "none"),
+                plan.get("device_scope"),
             )
         if content_scope == "CONTENT_DEVICE_ACTION":
             plan["risk"] = "medium"
@@ -956,6 +1155,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             plan["reasoning_profile"] = "analytical"
             plan["content_workflow_selected"] = True
             plan["skill_route"] = "lookup"
+            plan["device_scope"] = "OTHER"
             plan["reason"] = (
                 "Focused AI selected a skill-eligible web-to-local content workflow."
             )
@@ -974,5 +1174,24 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             raise RuntimeError(
                 "Melchior content-action gate returned invalid output twice."
             )
+    nerv_context_audit = "OTHER"
+    if (
+        plan.get("response_mode") == "LOCAL_ANSWER"
+        and plan.get("context_profile") not in {"NERV_LEARNING", "NERV_CURIOSITY"}
+        and (nerv_audit_needed or crossed_lane_replanned)
+    ):
+        nerv_context_audit = _audit_nerv_learning_query(user_message)
+    if nerv_context_audit in {"NERV_LEARNING", "NERV_CURIOSITY"}:
+        plan["context_profile"] = nerv_context_audit
+        plan["interaction_mode"] = "TASK"
+        plan["needs_balthasar"] = False
+    if (
+        plan.get("context_profile") == "NERV_CURIOSITY"
+        and not _explicit_nerv_curiosity_query(user_message)
+    ):
+        plan["context_profile"] = "MINIMAL"
+        plan["interaction_mode"] = "TASK"
+        plan["needs_balthasar"] = False
+        print("[MELCHIOR NERV QUERY GUARD] NERV_CURIOSITY -> OTHER")
     print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan

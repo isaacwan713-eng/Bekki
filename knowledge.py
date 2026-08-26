@@ -272,6 +272,146 @@ def apply_knowledge_judgment(candidate, source, judgment):
     return item["status"], item
 
 
+def apply_curiosity_verification(candidate, verdict, search_result, curiosity_item):
+    """Promote only a low-risk claim backed by independent search consensus."""
+
+    candidate = candidate if isinstance(candidate, dict) else {}
+    verdict = verdict if isinstance(verdict, dict) else {}
+    search_result = search_result if isinstance(search_result, dict) else {}
+    curiosity_item = curiosity_item if isinstance(curiosity_item, dict) else {}
+    judgment = (
+        search_result.get("judgment")
+        if isinstance(search_result.get("judgment"), dict)
+        else {}
+    )
+    try:
+        votes = int(judgment.get("votes") or 0)
+    except (TypeError, ValueError):
+        votes = 0
+
+    sources = []
+    domains = set()
+    for source in search_result.get("results", []):
+        if not isinstance(source, dict) or source.get("page_success") is not True:
+            continue
+        try:
+            score = int(source.get("source_score") or 0)
+        except (TypeError, ValueError):
+            score = 0
+        url = str(source.get("url") or "").strip()
+        domain = urlparse(url).netloc.lower().removeprefix("www.")
+        if not url or not domain or domain in domains or score < 70:
+            continue
+        domains.add(domain)
+        sources.append({
+            "title": str(source.get("title") or "")[:300],
+            "url": url[:2000],
+            "domain": domain,
+            "source_score": score,
+        })
+
+    if (
+        verdict.get("decision") != "PROMOTE"
+        or str(search_result.get("status") or "").upper() != "OK"
+        or judgment.get("consensus") is not True
+        or judgment.get("need_more_sources") is True
+        or votes < 2
+        or len(sources) < 2
+    ):
+        return "unverified", None
+
+    try:
+        confidence = max(0.0, min(1.0, float(verdict.get("confidence") or 0)))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    risk = str(verdict.get("risk") or "high").lower()
+    knowledge_type = str(verdict.get("knowledge_type") or "event").lower()
+    claim = str(verdict.get("canonical_claim") or "").strip()[:3000]
+    subject = str(verdict.get("subject") or candidate.get("subject") or "").strip()[:300]
+    if (
+        risk != "low"
+        or confidence < 0.85
+        or knowledge_type not in {"stable", "changing"}
+        or not claim
+        or not subject
+    ):
+        return "unverified", None
+
+    valid_for_days = verdict.get("valid_for_days")
+    try:
+        valid_for_days = int(valid_for_days) if valid_for_days is not None else None
+    except (TypeError, ValueError):
+        valid_for_days = None
+    if valid_for_days is not None:
+        valid_for_days = max(1, min(3650, valid_for_days))
+    if knowledge_type == "changing" and valid_for_days is None:
+        return "unverified", None
+
+    topics = []
+    for value in verdict.get("topics", candidate.get("topics", [])):
+        topic = str(value).strip()[:80]
+        if topic and topic not in topics:
+            topics.append(topic)
+        if len(topics) >= 12:
+            break
+
+    now = datetime.now(timezone.utc).isoformat()
+    item = {
+        "id": make_id(subject, claim),
+        "subject": subject,
+        "claim": claim,
+        "topics": topics,
+        "source_url": sources[0]["url"],
+        "source_domain": sources[0]["domain"],
+        "source_name": sources[0]["title"],
+        "sources": sources,
+        "published_at": None,
+        "learned_at": now,
+        "confidence": confidence,
+        "knowledge_type": knowledge_type,
+        "valid_for_days": valid_for_days,
+        "expires_at": (
+            (datetime.now(timezone.utc) + timedelta(days=valid_for_days)).isoformat()
+            if valid_for_days is not None else None
+        ),
+        "risk": "low",
+        "status": "verified",
+        "judge_reason": str(verdict.get("reason") or "")[:500],
+        "verification_status": "MULTI_SOURCE_CONSENSUS",
+        "verification": {
+            "query": str(search_result.get("query") or "")[:1000],
+            "canonical_answer": str(judgment.get("canonical_answer") or "")[:2000],
+            "votes": votes,
+            "independent_source_count": len(sources),
+        },
+        "provenance": {
+            "origin": "nerv_curiosity",
+            "curiosity_id": str(curiosity_item.get("id") or "")[:120],
+            "external_ai_role": "hypothesis_only",
+            "external_ai_status": "UNVERIFIED_EXTERNAL_AI",
+        },
+        "lifecycle_version": KNOWLEDGE_LIFECYCLE_VERSION,
+    }
+
+    items = load_items()
+    for index, existing in enumerate(items):
+        if existing.get("id") != item["id"]:
+            continue
+        if existing.get("status") == "verified":
+            return "duplicate", existing
+        item["created_at"] = existing.get(
+            "created_at", existing.get("learned_at", now)
+        )
+        item["updated_at"] = now
+        items[index] = item
+        _save(KNOWLEDGE_FILE, items)
+        return "verified", item
+
+    items.append(item)
+    _save(KNOWLEDGE_FILE, items)
+    return "verified", item
+
+
 def apply_lifecycle_audit(decisions):
     """Execute AI lifecycle decisions for existing knowledge entries."""
 

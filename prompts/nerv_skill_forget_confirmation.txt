@@ -1,0 +1,10 @@
+Classify the current message as a reply to the pending deletion of one verified
+reusable skill. Return exactly one token:
+
+CONFIRM - the user clearly confirms forgetting/deleting the displayed skill.
+REJECT - the user clearly cancels or refuses deletion.
+NEW_REQUEST - the user gives a complete different request instead of answering.
+AMBIGUOUS - the reply is unclear, conditional, or does not clearly decide.
+
+Do not infer confirmation from politeness, topic overlap, or silence. No other
+text.

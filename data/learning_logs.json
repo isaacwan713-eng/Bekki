@@ -257,5 +257,45 @@
       "Blake Snell struck out ten batters in his first start after returning from elbow surgery on August 11, 2026.",
       "A new Dodgers prospect showcased a nasty pitch in his debut at Double‑A on August 8, 2026."
     ]
+  },
+  {
+    "date": "2026-08-26",
+    "finished_at": "2026-08-26T17:04:45.835540+00:00",
+    "topics": [
+      "baseball statistics",
+      "football strategy",
+      "ai model architectures"
+    ],
+    "sources_checked": 5,
+    "source_candidates_discovered": 4,
+    "source_reviews": {
+      "approved": 9,
+      "pending": 3,
+      "rejected": 0,
+      "errors": 3
+    },
+    "lifecycle_audit": {
+      "kept": 0,
+      "expired": 0,
+      "removed": 0
+    },
+    "verified": 6,
+    "pending_review": 6,
+    "duplicate": 0,
+    "errors": 0,
+    "summary": [
+      "Tanner Mally of Western Mich. has a batting average of .446.",
+      "Jackson Flora of UC Santa Barbara has an earned run average of 1.06.",
+      "Georgia Tech has a team batting average of .356.",
+      "Oregon St. has a team earned run average of 3.22.",
+      "Retrosheet provides complete play-by-play data for Major League Baseball since 1910.",
+      "nflscrapR is an R package for pulling data from the NFL API.",
+      "The SportsDataverse provides software packages for R and Python to scrape sports data from various online sources.",
+      "Tanner Mally leads with a batting average of .446.",
+      "Tague Davis leads with 34 home runs.",
+      "TJ Grines leads with 66 stolen bases.",
+      "Caden Glauber and Jackson Flora are tied for the lead with 12 wins.",
+      "FULL-TIME offers an easy way to manage football leagues online."
+    ]
   }
 ]

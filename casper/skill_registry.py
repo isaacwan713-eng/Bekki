@@ -1102,6 +1102,48 @@ def load_verified(skill_id):
     return None
 
 
+def forget_verified(skill_id, confirmed=False):
+    """Remove one exact verified skill only after explicit user confirmation.
+
+    This is the authoritative destructive boundary for learned skills.  The
+    caller must resolve an existing opaque skill ID first and must pass the
+    literal boolean ``True`` after a separate confirmation turn.
+    """
+    wanted = str(skill_id or "").strip()
+    if confirmed is not True or not wanted.startswith("skill_"):
+        return None
+
+    with _REGISTRY_LOCK:
+        skills = _load_valid_skills()
+        removed = next(
+            (
+                dict(item)
+                for item in skills
+                if isinstance(item, dict) and item.get("id") == wanted
+            ),
+            None,
+        )
+        if removed is None:
+            return None
+
+        remaining = [
+            item
+            for item in skills
+            if not isinstance(item, dict) or item.get("id") != wanted
+        ]
+        _save_list(SKILLS_FILE, remaining, MAX_SKILLS)
+
+        # A user-forgotten skill must not be resurrected from the normal
+        # one-generation recovery backup if the primary file is later damaged.
+        payload = (
+            json.dumps(remaining[-MAX_SKILLS:], ensure_ascii=False, indent=2)
+            + "\n"
+        ).encode("utf-8")
+        _atomic_write_bytes(_backup_path(SKILLS_FILE), payload)
+        _append_run({"event": "verified_skill_forgotten", "skill_id": wanted})
+        return removed
+
+
 def _skill_summaries():
     summaries = []
     for item in _load_valid_skills()[-MAX_SKILLS:]:
@@ -1256,15 +1298,15 @@ def classify_user_verification(message, pending_action, recent_context=""):
     attempts = (
         (
             "prompts/casper_skill_user_verification.txt",
-            "llama3.2:latest",
+            "gemma3:12b",
             4096,
-            512,
+            900,
         ),
         (
             "prompts/casper_skill_user_verification_retry.txt",
-            "gemma3:12b",
-            8192,
-            1800,
+            "gemma3:4b",
+            4096,
+            1200,
         ),
     )
     for prompt_path, model_name, context_budget, output_budget in attempts:

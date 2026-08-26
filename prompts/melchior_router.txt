@@ -21,6 +21,11 @@ Response modes:
 - SHOPPING_RESEARCH: concrete merchant listings, current price/stock/seller,
   or a named shopping site.
 - TASK_ACTION: create, list, complete, cancel, or delete a reminder/task.
+- NERV_SKILL_ACTION: forget or remove a verified reusable operation learned by
+  Bekki. This manages Bekki Skills, never reminders and never executes a skill.
+- EXTERNAL_AI_ACTION: explicitly send a question or prompt through an external
+  AI webpage such as ChatGPT. It is an observable external-service action, not
+  a local answer and not web research.
 - DEVICE_ACTION: actually operate or inspect the local computer, apps, files,
   folders, media controls, or installed libraries.
 
@@ -35,6 +40,8 @@ Decide by requested outcome, not words:
 - "1+1等于多少" -> LOCAL_ANSWER
 - "提醒我明天打电话" -> TASK_ACTION
 - "我有哪些提醒" -> TASK_ACTION because it must inspect Bekki's task store
+- "忘掉打开 FM26 战术文件夹这个技能" -> NERV_SKILL_ACTION
+- "帮我问 ChatGPT：为什么猫会呼噜" -> EXTERNAL_AI_ACTION
 - "帮我推荐三个婴儿车" → RECOMMENDATION_RESEARCH + PRODUCT
 - "网上找一个 FM26 战术并安装" -> DEVICE_ACTION because installation is
   the requested final outcome
@@ -51,7 +58,8 @@ Set the remaining fields consistently:
 - RECOMMENDATION_RESEARCH: true, recommendation_compare, domain_evidence,
   recommendation_match.
 - SHOPPING_RESEARCH: true, shopping_compare, merchant_results, shopping_match.
-- TASK_ACTION and DEVICE_ACTION: false, none, local_context, local_context.
+- TASK_ACTION, NERV_SKILL_ACTION, EXTERNAL_AI_ACTION, and DEVICE_ACTION: false, none,
+  local_context, local_context.
 
 recommendation_domain is null unless relevant. When relevant use PRODUCT,
 RESTAURANT, LOCAL_SERVICE, or HEALTHCARE_PROVIDER. Use SHOPPING_RESEARCH for
@@ -65,6 +73,12 @@ content, software, extensions, mods, plugins, saves, maps, or tactics, or
 opening their application-specific reusable content destination. Use none for
 simple app/folder opening, Recycle Bin, generic user folders such as Downloads
 or Desktop, generic file inspection, research, and local answers.
+An explicit request to learn how to perform one of those reusable operations
+and execute it now is also skill_route=lookup. Example: "请学习以后怎么打开
+Football Manager 2026 的战术文件夹，现在找到并打开它" is DEVICE_ACTION,
+skill_route=lookup, device_scope=OTHER—not APPLICATION_ACTION. The requested
+outcome is learning and opening the reusable content destination, not launching
+Football Manager.
 
 device_scope is null for every non-DEVICE_ACTION mode. For DEVICE_ACTION use:
 - FILE_ACTION for listing, locating, searching, opening, or creating ordinary
@@ -84,6 +98,12 @@ context_profile uses the minimum needed:
 - MINIMAL for a self-contained request
 - CONVERSATION for a true follow-up needing recent turns
 - MEMORY when stored user preferences are required
+- NERV_LEARNING only when the user asks what reusable operations or skills
+  Bekki has learned/verified. This is an inventory query, not TASK_ACTION and
+  not a request to execute the learned operation.
+- NERV_CURIOSITY when the user asks what Bekki has recently wondered about,
+  what she asked ChatGPT, what she was thinking about today, or asks to view
+  her Curiosity Journal. This is a read-only journal query.
 - COMPANION for emotional support
 - DOCUMENT or IMAGE only when the active attachment is the subject
 

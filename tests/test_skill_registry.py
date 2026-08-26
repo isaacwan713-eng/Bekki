@@ -207,19 +207,36 @@ class SkillRegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             model.call_args_list[0].kwargs["model_name"],
-            "llama3.2:latest",
+            "gemma3:12b",
         )
-        self.assertEqual(model.call_args_list[0].kwargs["num_predict"], 512)
+        self.assertEqual(model.call_args_list[0].kwargs["num_predict"], 900)
         self.assertEqual(model.call_args_list[0].kwargs["num_ctx"], 4096)
         self.assertEqual(
             model.call_args_list[1].args[0],
             "prompts/casper_skill_user_verification_retry.txt",
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma3:4b"
         )
-        self.assertEqual(model.call_args_list[1].kwargs["num_predict"], 1800)
-        self.assertEqual(model.call_args_list[1].kwargs["num_ctx"], 8192)
+        self.assertEqual(model.call_args_list[1].kwargs["num_predict"], 1200)
+        self.assertEqual(model.call_args_list[1].kwargs["num_ctx"], 4096)
+
+    def test_bare_correct_reply_is_explicit_opened_folder_acceptance(self):
+        model = Mock(return_value="ACCEPT")
+        fake_tools = types.SimpleNamespace(run_ai_prompt=model)
+        pending = {
+            "type": "skill_user_verification",
+            "approval_payload": {
+                "verification_kind": "opened_destination_folder",
+                "destination_name": "Football Manager 26 tactics",
+            },
+        }
+        with patch.dict(sys.modules, {"tools": fake_tools}):
+            verdict = skill_registry.classify_user_verification(
+                "对了", pending
+            )
+        self.assertEqual(verdict, "ACCEPT")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
 
     def test_invalid_user_verification_outputs_fail_closed(self):
         model = Mock(return_value="CONTINUE")

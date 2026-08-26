@@ -10,6 +10,11 @@ download, install, copy, place, import, enable, or prepare a concrete
 installation manifest/tutorial for it. Content includes tactics, mods, saves,
 plugins, maps, skins, and configuration packs. It also includes explicitly
 reading installation instructions in preparation for local installation.
+Opening an application-specific game-content destination folder is also
+CONTENT_DEVICE_ACTION. An explicit request to learn how to locate/open that
+reusable destination and perform it now remains CONTENT_DEVICE_ACTION, even if
+an earlier planner called it APPLICATION_ACTION. Learning how to open Football
+Manager's tactics folder is not merely launching Football Manager.
 
 RECYCLE_BIN_ACTION means the requested outcome is viewing the Windows Recycle
 Bin, opening its Explorer window, or restoring one referenced Recycle Bin item.

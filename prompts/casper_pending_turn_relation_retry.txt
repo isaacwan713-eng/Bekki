@@ -4,3 +4,10 @@ Classify the supplied current_request against exactly one active_checkpoint.
 A complete standalone command is NEW_REQUEST, including a same-topic command.
 Only an actual reply to the checkpoint is CHECKPOINT_REPLY. Use AMBIGUOUS if the
 meaning cannot be safely distinguished. Return one token and nothing else.
+For a skill_user_verification checkpoint about the correct opened folder, a
+bare "对了", "对", "打开对了", "是这个", "正确", or "yes" is an actual
+CHECKPOINT_REPLY. Bare "对了" does not start a new topic without a following
+clause.
+For external_ai_login_handoff, bare "继续", "登录好了", "已经登录",
+"验证完成", "好了继续", or "done" is CHECKPOINT_REPLY and resumes the exact
+saved request. A different complete request is NEW_REQUEST.

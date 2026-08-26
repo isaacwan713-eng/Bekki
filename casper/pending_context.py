@@ -41,20 +41,44 @@ def classify(message, pending_action, recent_context=""):
     input_text = json.dumps(
         payload, ensure_ascii=False, separators=(",", ":")
     )
-    attempts = (
-        (
-            "prompts/casper_pending_turn_relation.txt",
-            "llama3.2:latest",
-            120,
-            2048,
-        ),
-        (
-            "prompts/casper_pending_turn_relation_retry.txt",
-            "gemma3:12b",
-            700,
-            4096,
-        ),
-    )
+    if str(pending_action.get("type") or "") in {
+        "skill_user_verification",
+        "external_ai_login_handoff",
+    }:
+        # Accepting or rejecting a machine-complete candidate controls whether
+        # a reusable Skill is committed, while an External AI login reply
+        # controls whether an already-approved outbound request is retried.
+        # Give both boundaries to the reliable model first; a compact model
+        # may lose a bare Chinese continuation such as "继续" or "登录好了".
+        attempts = (
+            (
+                "prompts/casper_pending_turn_relation.txt",
+                "gemma3:12b",
+                500,
+                3072,
+            ),
+            (
+                "prompts/casper_pending_turn_relation_retry.txt",
+                "gemma3:4b",
+                700,
+                4096,
+            ),
+        )
+    else:
+        attempts = (
+            (
+                "prompts/casper_pending_turn_relation.txt",
+                "llama3.2:latest",
+                120,
+                2048,
+            ),
+            (
+                "prompts/casper_pending_turn_relation_retry.txt",
+                "gemma3:12b",
+                700,
+                4096,
+            ),
+        )
     for prompt_path, model_name, output_budget, context_budget in attempts:
         raw = tools.run_ai_prompt(
             prompt_path,

@@ -98,6 +98,204 @@ class MelchiorRecoveryTests(unittest.TestCase):
         self.assertEqual(plan["context_profile"], "MINIMAL")
         self.assertFalse(plan["needs_balthasar"])
 
+    def test_verified_skill_inventory_uses_nerv_learning_context(self):
+        module = _load_melchior()
+        plan = module._normalize_plan({
+            "response_mode": "LOCAL_ANSWER",
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_LEARNING",
+        })
+        self.assertEqual(plan["context_profile"], "NERV_LEARNING")
+
+    def test_ai_can_route_verified_skill_inventory_to_nerv(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "quick",
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_LEARNING",
+            "reason": "list verified learned operations",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "你目前学会了哪些操作？",
+                magi_route={"lane": "LOCAL", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
+        self.assertEqual(plan["context_profile"], "NERV_LEARNING")
+
+    def test_ai_can_route_curiosity_journal_query(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "quick",
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_CURIOSITY",
+            "reason": "read Bekki's Curiosity Journal",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "你今天在想什么？",
+                magi_route={"lane": "LOCAL", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
+        self.assertEqual(plan["context_profile"], "NERV_CURIOSITY")
+
+    def test_surprising_fact_cannot_open_curiosity_journal(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "standard",
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_CURIOSITY",
+            "reason": "incorrectly interpreted a surprising fact as a journal query",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "我刚知道袋熊拉出来的便便竟然是方形的，感觉很奇怪。",
+                magi_route={"lane": "LOCAL", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
+        self.assertEqual(plan["context_profile"], "MINIMAL")
+
+    def test_explicit_curiosity_phrases_pass_deterministic_guard(self):
+        module = _load_melchior()
+        self.assertTrue(module._explicit_nerv_curiosity_query("你今天在想什么？"))
+        self.assertTrue(module._explicit_nerv_curiosity_query("看看你的好奇心日志"))
+        self.assertTrue(
+            module._explicit_nerv_curiosity_query("What did Bekki ask ChatGPT?")
+        )
+        self.assertFalse(
+            module._explicit_nerv_curiosity_query(
+                "我刚知道袋熊拉出来的便便竟然是方形的，感觉很奇怪。"
+            )
+        )
+
+    def test_ai_can_route_explicit_chatgpt_web_question(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "EXTERNAL_AI_ACTION",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "standard",
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": "send one explicit question through ChatGPT",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "帮我问 ChatGPT：为什么猫会呼噜？",
+                magi_route={"lane": "COMMAND", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "EXTERNAL_AI_ACTION")
+        self.assertFalse(plan["needs_search"])
+        self.assertEqual(plan["magi_lane"], "COMMAND")
+
+    def test_ai_routes_verified_skill_forget_outside_reminder_store(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "NERV_SKILL_ACTION",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "standard",
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": "forget one verified learned skill",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "忘掉打开 FM26 战术文件夹这个技能",
+                magi_route={"lane": "COMMAND", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "NERV_SKILL_ACTION")
+        self.assertFalse(plan["needs_search"])
+        self.assertEqual(plan["magi_lane"], "COMMAND")
+
+    def test_task_like_skill_forget_gets_reliable_store_audit(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "TASK_ACTION",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "standard",
+            "skill_route": "none",
+            "device_scope": "SYSTEM_ACTION",
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_LEARNING",
+            "reason": "delete a learned skill",
+        }
+        with patch.object(
+            module.tools,
+            "run_ai_prompt",
+            side_effect=[routed, "NERV_SKILL_ACTION"],
+        ) as model, patch.object(module.tools, "unload_model") as unload:
+            plan = module.plan_request(
+                "忘掉打开 FM26 战术文件夹这个技能",
+                magi_route={"lane": "COMMAND", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "NERV_SKILL_ACTION")
+        self.assertEqual(
+            model.call_args_list[1].args[0],
+            "prompts/melchior_command_store_scope.txt",
+        )
+        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma3:12b")
+        unload.assert_called_once_with("gemma3:12b")
+
+    def test_local_skill_lookup_contradiction_gets_reliable_nerv_audit(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "analytical",
+            "skill_route": "lookup",
+            "device_scope": "LIBRARY_ACTION",
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": "list Bekki learned operations",
+        }
+        with patch.object(
+            module.tools,
+            "run_ai_prompt",
+            side_effect=[routed, "NERV_LEARNING"],
+        ) as model, patch.object(module.tools, "unload_model") as unload:
+            plan = module.plan_request(
+                "你目前学会了哪些操作？",
+                magi_route={"lane": "LOCAL", "confidence": 0.95},
+            )
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(
+            model.call_args_list[1].args[0],
+            "prompts/melchior_nerv_query_scope.txt",
+        )
+        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma3:12b")
+        unload.assert_called_once_with("gemma3:12b")
+        self.assertEqual(plan["context_profile"], "NERV_LEARNING")
+
+    def test_nonlocal_route_cannot_use_nerv_learning_context(self):
+        module = _load_melchior()
+        plan = module._normalize_plan({
+            "response_mode": "DEVICE_ACTION",
+            "context_profile": "NERV_LEARNING",
+        })
+        self.assertEqual(plan["context_profile"], "MINIMAL")
+
     def test_simple_app_launch_forces_one_off_scope_even_if_ai_requests_lookup(self):
         module = _load_melchior()
         raw = {
@@ -366,6 +564,52 @@ class MelchiorRecoveryTests(unittest.TestCase):
                 "打开记事本",
                 "User: 之前安装过 FM26 战术",
                 "none",
+            )
+        self.assertEqual(result, "OTHER")
+        model.assert_not_called()
+
+    def test_reliable_audit_bootstraps_explicit_content_learning_request(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "DEVICE_ACTION",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "quick",
+            "skill_route": "none",
+            "device_scope": "APPLICATION_ACTION",
+            "reason": "open Football Manager application",
+        }
+        with patch.object(
+            module.tools,
+            "run_ai_prompt",
+            side_effect=[routed, "CONTENT_DEVICE_ACTION"],
+        ) as model:
+            plan = module.plan_request(
+                "请学习以后怎么打开 Football Manager 2026 的战术文件夹，"
+                "现在找到并打开它。"
+            )
+
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(
+            model.call_args_list[1].kwargs["model_name"],
+            "gemma3:12b",
+        )
+        self.assertTrue(plan["content_workflow_selected"])
+        self.assertEqual(plan["skill_route"], "lookup")
+        self.assertEqual(plan["response_mode"], "DEVICE_ACTION")
+
+    def test_file_action_is_not_widened_by_learning_bootstrap_audit(self):
+        module = _load_melchior()
+        with patch.object(
+            module.tools,
+            "run_ai_prompt",
+            side_effect=AssertionError("FILE_ACTION must bypass content audit"),
+        ) as model:
+            result = module._classify_content_device_scope(
+                "查找 test.txt",
+                "",
+                "none",
+                "FILE_ACTION",
             )
         self.assertEqual(result, "OTHER")
         model.assert_not_called()

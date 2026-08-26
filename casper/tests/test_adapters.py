@@ -5,6 +5,66 @@ from casper import adapters
 
 
 class AdapterRenderingTests(unittest.TestCase):
+    def test_external_ai_completed_result_is_visible_and_unverified(self):
+        with patch(
+            "casper.external_ai.execute_explicit",
+            return_value={
+                "status": "COMPLETED",
+                "provider": "ChatGPT Desktop",
+                "outbound_prompt": "为什么猫会呼噜？",
+                "answer": "可能与交流和自我安抚有关。",
+                "verification_status": "UNVERIFIED_EXTERNAL_AI",
+            },
+        ):
+            search_result, context = adapters.execute_mode(
+                "帮我问 ChatGPT：为什么猫会呼噜？",
+                {"response_mode": "EXTERNAL_AI_ACTION"},
+                {},
+                "",
+                lambda _message: None,
+            )
+        self.assertEqual(search_result["status"], "LOCAL_ACTION_RESULT")
+        self.assertIn("我实际发送的问题", search_result["direct_reply"])
+        self.assertIn("ChatGPT Desktop", search_result["direct_reply"])
+        self.assertIn("尚未验证", search_result["direct_reply"])
+        self.assertIn("UNVERIFIED", context)
+
+    def test_external_ai_desktop_login_uses_existing_checkpoint_type(self):
+        with patch(
+            "casper.external_ai.execute_explicit",
+            return_value={"status": "DESKTOP_LOGIN_REQUIRED"},
+        ):
+            search_result, context = adapters.execute_mode(
+                "帮我问 ChatGPT 一个问题",
+                {"response_mode": "EXTERNAL_AI_ACTION"},
+                {},
+                "",
+                lambda _message: None,
+            )
+        self.assertIsNone(context)
+        pending = search_result["pending_approval"]
+        self.assertEqual(pending["handoff_type"], "external_ai_login_handoff")
+        self.assertEqual(pending["event"], "external_ai_desktop_login")
+
+    def test_external_ai_desktop_timeout_is_direct_and_never_requests_retry(self):
+        with patch(
+            "casper.external_ai.execute_explicit",
+            return_value={
+                "status": "DESKTOP_RESPONSE_TIMEOUT",
+                "prompt_sent": True,
+            },
+        ):
+            search_result, context = adapters.execute_mode(
+                "帮我问 ChatGPT 一个问题",
+                {"response_mode": "EXTERNAL_AI_ACTION"},
+                {},
+                "",
+                lambda _message: None,
+            )
+        self.assertIsNone(context)
+        self.assertIn("问题已发送", search_result["direct_reply"])
+        self.assertIn("不会自动重试", search_result["direct_reply"])
+
     def test_folder_items_are_rendered_once(self):
         result = {
             "folder": "Downloads",

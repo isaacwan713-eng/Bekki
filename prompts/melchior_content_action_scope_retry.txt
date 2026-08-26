@@ -7,6 +7,8 @@ OTHER
 CONTENT_DEVICE_ACTION covers a game-content workflow that needs a reusable
 content destination, installation-method research, download, import, install,
 or a combination of concrete recommendations with opening that destination.
+It also covers an explicit request to learn how to locate/open an
+application-specific game-content folder and perform that operation now.
 RECYCLE_BIN_ACTION covers viewing/opening the Windows Recycle Bin or restoring
 one referenced item. OTHER covers every other request, including recommendation
 alone. A complete CURRENT_REQUEST overrides old goals; prior context is only

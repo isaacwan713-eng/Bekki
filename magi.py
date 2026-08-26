@@ -278,12 +278,16 @@ def route_request(
     recent_context="",
     has_document=False,
     has_image=False,
+    nerv_context="",
 ):
     packet = {
         "current_user_message": _compact(user_message, 1200),
         "recent_context_for_reference_only": _compact(recent_context, 900),
         "active_document": bool(has_document),
         "active_image": bool(has_image),
+        "nerv_profile_context_for_reference_only": _compact(
+            nerv_context, 700
+        ),
     }
     return _run_gate("prompts/magi_gate.txt", packet, "ai")
 

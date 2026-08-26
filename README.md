@@ -1,8 +1,129 @@
 🩵 Bekki AI
 
-Current installed source patch: **Stable V1.3.9.5** (`bekki-stable-v1-3-9-5-20260824`),
-built on the last stable R25 UI and runtime. On startup the authoritative root
-entry point prints this build ID and its full loaded path.
+Current installed source patch: **UI Personalization V1**
+(`bekki-ui-personalization-v1-20260826`), built on NERV Knowledge
+Verification V1.4, External AI Desktop V1.3.2, NERV Learning V1.3, and
+Stable V1.3.9.5. On startup the
+authoritative root entry point prints this build ID and its full loaded path.
+
+The header now includes a settings button for chat appearance. It can change
+the conversation/input font family and size, replace Bekki's avatar with a
+validated PNG/JPG/JPEG/WebP image, preview changes before saving, and restore
+the defaults. Saved choices live in `data/ui_preferences.json`; custom avatar
+files are copied into `data`, so the stable installer preserves them alongside
+the user's existing memory and runtime data. Applying a setting updates visible
+messages and the input area immediately without restarting Bekki.
+
+This patch uses the installed ChatGPT Desktop app for explicitly asking
+ChatGPT without an OpenAI API. Browser/CDP fallback is disabled: if the desktop
+app is missing, signed out, or does not expose a safe input through Windows UI
+Automation, Bekki stops without opening a web page. NERV may also select up to
+three privacy-screened curiosity questions per local day. Exact questions and external answers are recorded in
+the Curiosity Journal. External answers remain hypotheses: NERV extracts at
+most one low-risk factual candidate, independently searches it, and promotes
+it to Knowledge only after at least two readable, independent, high-quality
+sources form consensus. Insufficient, conflicting, high-risk, event, and news
+claims remain outside long-term Knowledge.
+
+Desktop V1.1 fixes the live `DESKTOP_INPUT_NOT_FOUND` result seen immediately
+after application launch. Bekki now waits for the ChatGPT WebView accessibility
+tree, recognizes safe composer controls exposed as Edit, Document, Custom, or
+Group, and may open the official Companion Window with Alt+Space. A companion
+send is allowed only after a distinct ChatGPT application window is observed;
+the browser and coordinate-click routes remain disabled.
+
+Desktop V1.2 rejects the non-editable `Composer utility bar` exposed by the
+live ChatGPT Desktop build. Although its accessibility name contains
+`composer`, it is only the attachment/model/voice toolbar. Excluding it lets
+the request continue to the verified Companion Window fallback.
+
+Desktop V1.3 adds an exact Windows Unicode keyboard-input fallback. When the
+real message editor is focused but the clipboard is unavailable, Bekki can
+type Chinese directly and then submit without browser or coordinate control.
+
+Desktop V1.3.1 retains that proven foreground input and Enter submission, then
+minimizes ChatGPT immediately and waits through background UI Automation. It
+declares 64-bit-safe Windows clipboard signatures, rejects user-message labels
+such as `You said:` and provider error banners as answers, and accepts only a
+substantive stable assistant response. Explicit and NERV-curiosity questions
+stay in the originating language; Bekki does not append an unsolicited English
+translation to a Chinese question.
+
+Desktop V1.3.2 corrects the live minimized-WebView timeout. After submitting,
+Bekki restores the previously active Bekki window while ChatGPT stays open
+behind it, allowing the desktop accessibility tree to continue publishing the
+answer. ChatGPT is minimized only after the answer is captured. Curiosity JSON
+fields are also length-bounded to prevent repetitive truncated output.
+
+NERV Knowledge Verification V1.4 connects Curiosity to Bekki's existing Search
+and Knowledge systems without making ChatGPT Bekki's brain. ChatGPT supplies a
+hypothesis only. Python enforces the independent-source and consensus gates;
+the local verifier writes the evidence-supported canonical claim, not the
+external wording. Verified entries record all qualifying sources and retain
+`external_ai_role=hypothesis_only` provenance. Journal queries show whether a
+curiosity was verified, rejected, skipped, or left unverified.
+
+V1.4 requires a candidate to answer the original curiosity directly. For a
+why/cause/mechanism question, an incidental detail cannot pass the candidate
+gate. One bounded recovery attempt asks for the core mechanism; if it still
+returns a side fact, verification stops safely. Durable explanatory questions
+are normalized to stable knowledge with no artificial 30-day expiry.
+
+NERV adds a governed long-term cognition layer without changing the stable UI
+or taking route authority from MAGI. It maintains a structured Profile Store,
+an AI Profile Writer grounded only in direct user quotes, least-privilege
+Context Selector, learning-event journal, audit history, and a read-only
+compatibility view of Casper's verified Skills. Sensitive or low-confidence
+profile proposals remain pending review. External AI receives no NERV profile
+context. NERV failure cannot turn a completed request into a worker failure.
+Learning V1.1 imports only Casper skills backed by a completed machine receipt
+and explicit user acceptance. It stores a path-free, URL-free summary, exposes
+that summary only to the final local writer, and never bypasses Casper for
+execution. Rejected candidates remain unlearned, duplicate confirmations
+update one record, and removed Casper skills become deprecated in NERV. An
+empty learned-skill set is now passed explicitly as `[]`, so the final writer
+cannot replace it with built-in model or system capabilities.
+
+Learning V1.2 adds a reliable-model bootstrap audit for explicit requests to
+learn and execute an application-specific game-content folder operation. If
+the detailed router mistakes that request for a normal application action, the
+12B audit may select the existing Casper content-learning workflow. Ordinary
+file, system, and library operations remain outside this widening path.
+
+Learning V1.2.1 assigns the active verified-skill confirmation boundary to the
+reliable model and explicitly grounds brief confirmations such as “对了”. A
+bare confirmation can no longer be reinterpreted as an application name; a
+sentence that continues into a genuinely new request remains a new request.
+
+Learning V1.2.2 prevents documentation details from broadening a learned
+operation. `OPEN_DESTINATION_FOLDER` skills are described only as locating and
+opening their reusable destination, even when the supporting tutorial also
+mentions copying or installing content. Existing verified skills are corrected
+when NERV rebuilds its sanitized compatibility view.
+
+Learning V1.2.3 makes the current verified NERV learning view the final
+authority for learned-skill answers. It is placed after Recent Conversation in
+the final prompt and explicitly overrides stale assistant descriptions, so an
+older incorrect copy/install claim cannot replace the current open-folder
+scope. Existing skills do not need to be learned again.
+
+Learning V1.2.4 migrates stale text already preserved in NERV's local
+compatibility file. A verified `OPEN_DESTINATION_FOLDER` record is rewritten
+from its authoritative scope and content type when loaded, even if Casper's
+adapter is temporarily unavailable. The corrected summary and empty parameter
+list are persisted without deleting or relearning the skill.
+
+Learning V1.2.5 adds the AI-selected `NERV_LEARNING` context profile for direct
+verified-skill inventory questions. Once Melchior selects this closed query
+type, NERV renders the answer from structured verified fields and bypasses the
+free-form final writer. Old conversation or memory can no longer expand an
+open-folder skill into copying or installing content.
+
+Learning V1.2.6 adds one reliable-model audit when the compact Melchior returns
+the contradictory combination `LOCAL_ANSWER` plus a device/skill lookup signal,
+or after an audited cross-lane replan ends as a local answer. The 12B model
+chooses only `NERV_LEARNING` or `OTHER`, is unloaded immediately, and runs after
+built-in device boundaries so ordinary Steam-library actions are unaffected.
 
 Stable V1.3.9.5 ranks every date-verified recent social candidate by the
 single interaction value visibly shown on the search page before selecting the

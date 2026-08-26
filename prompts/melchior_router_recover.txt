@@ -16,13 +16,14 @@ JSON.
   "skill_route": "none | lookup",
   "device_scope": null,
   "interaction_mode": "TASK | COMPANION",
-  "context_profile": "MINIMAL | CONVERSATION | MEMORY | COMPANION | DOCUMENT | IMAGE",
+  "context_profile": "MINIMAL | CONVERSATION | MEMORY | NERV_LEARNING | NERV_CURIOSITY | COMPANION | DOCUMENT | IMAGE",
   "reason": "brief reason"
 }
 
 The response_mode value must be exactly one of:
 LOCAL_ANSWER, NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
-SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH, TASK_ACTION, DEVICE_ACTION.
+SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH, TASK_ACTION, NERV_SKILL_ACTION,
+EXTERNAL_AI_ACTION, DEVICE_ACTION.
 The JSON above is only a shape example.
 
 Rules:
@@ -32,6 +33,8 @@ Rules:
   COMPANION is valid only with LOCAL_ANSWER.
 - Use the smallest context_profile: MINIMAL for self-contained requests,
   CONVERSATION for real follow-ups, MEMORY for stored personal facts,
+  NERV_LEARNING only for asking what verified reusable skills Bekki learned,
+  NERV_CURIOSITY only for asking what Bekki wondered about or asked ChatGPT,
   COMPANION for emotional support, DOCUMENT for the active document, and IMAGE
   for the active image.
 - A direct command whose requested outcome is that an installed application
@@ -50,6 +53,10 @@ Rules:
   TASK_ACTION because it reads or changes Bekki's task store. "我有哪些提醒"
   is TASK_ACTION, not LOCAL_ANSWER. A direct request to open or launch a local
   application is DEVICE_ACTION. Stable conversation is LOCAL_ANSWER.
+- Forgetting or deleting one verified reusable operation learned by Bekki is
+  NERV_SKILL_ACTION. It is not TASK_ACTION and does not execute the skill.
+- Explicitly asking Bekki to send a prompt through ChatGPT or another external
+  AI webpage is EXTERNAL_AI_ACTION.
 - For DEVICE_ACTION, set device_scope to FILE_ACTION, APPLICATION_ACTION,
   WINDOW_ACTION, SYSTEM_ACTION, LIBRARY_ACTION, RECYCLE_BIN_ACTION, or OTHER.
   Finding one named local file is FILE_ACTION. For non-device modes use null.
@@ -68,4 +75,8 @@ Rules:
   none. For all non-device modes and other simple one-off controls, set it to
   none. This only authorizes Casper to inspect verified skills; it does not
   assert a match.
+- An explicit request to learn how to open one of those reusable content
+  destinations and do it now is DEVICE_ACTION with skill_route lookup and
+  device_scope OTHER. It is not APPLICATION_ACTION because the requested
+  outcome is the content folder, not launching the named application.
 - Output JSON only. Python will apply the deterministic mode invariants.

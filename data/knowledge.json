@@ -378,5 +378,257 @@
     "status": "verified",
     "judge_reason": "Claim is supported by approved academic source, no duplication or conflict with existing knowledge.",
     "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_c23b66107b926f19",
+    "subject": "Batting Average",
+    "claim": "Tanner Mally of Western Mich. has a batting average of .446.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://www.ncaa.com/stats/baseball/d1",
+    "source_domain": "ncaa.com",
+    "source_name": "NCAA College Baseball DI Stats | NCAA.com",
+    "published_at": "2026-06-22",
+    "learned_at": "2026-08-26T17:02:18.888392+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim about Tanner Mally's batting average is a factual statistic from an approved source and does not conflict with existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_5d43580a7fc7d37c",
+    "subject": "Earned Run Average",
+    "claim": "Jackson Flora of UC Santa Barbara has an earned run average of 1.06.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://www.ncaa.com/stats/baseball/d1",
+    "source_domain": "ncaa.com",
+    "source_name": "NCAA College Baseball DI Stats | NCAA.com",
+    "published_at": "2026-06-22",
+    "learned_at": "2026-08-26T17:02:25.726004+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim about Jackson Flora's earned run average is a factual statistic from an approved source and does not conflict with existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_3e25a16f45a6c95c",
+    "subject": "Team Batting Average",
+    "claim": "Georgia Tech has a team batting average of .356.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://www.ncaa.com/stats/baseball/d1",
+    "source_domain": "ncaa.com",
+    "source_name": "NCAA College Baseball DI Stats | NCAA.com",
+    "published_at": "2026-06-22",
+    "learned_at": "2026-08-26T17:02:32.797163+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim about Georgia Tech's batting average is a factual statistic from an approved source and does not conflict with existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_63a51fd25cf6060d",
+    "subject": "Team Earned Run Average",
+    "claim": "Oregon St. has a team earned run average of 3.22.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://www.ncaa.com/stats/baseball/d1",
+    "source_domain": "ncaa.com",
+    "source_name": "NCAA College Baseball DI Stats | NCAA.com",
+    "published_at": "2026-06-22",
+    "learned_at": "2026-08-26T17:02:39.781660+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim about Oregon State's team earned run average is a factual statistic from an approved source and does not conflict with existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_f21051244acf2181",
+    "subject": "baseball statistics",
+    "claim": "Retrosheet provides complete play-by-play data for Major League Baseball since 1910.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://libguides.library.nd.edu/sports-studies/background-information-data-statistics",
+    "source_domain": "libguides.library.nd.edu",
+    "source_name": "Data and Statistics - Sports Studies - Library Guides at University of Notre Dame",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:03:14.935987+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim is a factual statement about a reliable source of baseball statistics (Retrosheet) and does not conflict with existing knowledge.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_80fbd8a530b84fbd",
+    "subject": "football strategy",
+    "claim": "nflscrapR is an R package for pulling data from the NFL API.",
+    "topics": [
+      "football strategy"
+    ],
+    "source_url": "https://libguides.library.nd.edu/sports-studies/background-information-data-statistics",
+    "source_domain": "libguides.library.nd.edu",
+    "source_name": "Data and Statistics - Sports Studies - Library Guides at University of Notre Dame",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:03:22.617929+00:00",
+    "confidence": 1.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "low",
+    "status": "verified",
+    "judge_reason": "The claim about 'nflscrapR' is a factual statement about a tool for accessing NFL data and aligns with the approved source's focus on baseball statistics. While not baseball-specific, it falls under the broader umbrella of sports data and statistics and is a useful addition.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_15e4b91ee0497935",
+    "subject": "ai model architectures",
+    "claim": "The SportsDataverse provides software packages for R and Python to scrape sports data from various online sources.",
+    "topics": [
+      "ai model architectures"
+    ],
+    "source_url": "https://libguides.library.nd.edu/sports-studies/background-information-data-statistics",
+    "source_domain": "libguides.library.nd.edu",
+    "source_name": "Data and Statistics - Sports Studies - Library Guides at University of Notre Dame",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:03:33.598992+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_207f514003ef3626",
+    "subject": "Batting Average",
+    "claim": "Tanner Mally leads with a batting average of .446.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://d1baseball.com/statistics/",
+    "source_domain": "d1baseball.com",
+    "source_name": "Statistics • D1Baseball",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:03:55.117729+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_ca7b1e8da76151e0",
+    "subject": "Home Runs",
+    "claim": "Tague Davis leads with 34 home runs.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://d1baseball.com/statistics/",
+    "source_domain": "d1baseball.com",
+    "source_name": "Statistics • D1Baseball",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:04:06.183204+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_85905abfc85f84ee",
+    "subject": "Stolen Bases",
+    "claim": "TJ Grines leads with 66 stolen bases.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://d1baseball.com/statistics/",
+    "source_domain": "d1baseball.com",
+    "source_name": "Statistics • D1Baseball",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:04:17.074599+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_ba2fe17300731024",
+    "subject": "Wins",
+    "claim": "Caden Glauber and Jackson Flora are tied for the lead with 12 wins.",
+    "topics": [
+      "baseball statistics"
+    ],
+    "source_url": "https://d1baseball.com/statistics/",
+    "source_domain": "d1baseball.com",
+    "source_name": "Statistics • D1Baseball",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:04:27.965645+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
+  },
+  {
+    "id": "knowledge_2e92a376a982ad59",
+    "subject": "FA Strategy 2024-2028",
+    "claim": "FULL-TIME offers an easy way to manage football leagues online.",
+    "topics": [
+      "football strategy"
+    ],
+    "source_url": "https://www.thefa.com/about-football-association/what-we-do/fa-strategy-2024-2028",
+    "source_domain": "thefa.com",
+    "source_name": "FA Strategy 2024-2028: The Football Association",
+    "published_at": null,
+    "learned_at": "2026-08-26T17:04:45.833546+00:00",
+    "confidence": 0.0,
+    "knowledge_type": "stable",
+    "valid_for_days": null,
+    "expires_at": null,
+    "risk": "medium",
+    "status": "pending_review",
+    "judge_reason": "Knowledge Judge returned no valid decision.",
+    "lifecycle_version": 1
   }
 ]

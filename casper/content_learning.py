@@ -432,19 +432,35 @@ def _extract_procedure(plan, pages):
         return None
     if required_scope and declared_scope != required_scope:
         return None
-    return {
-        "capability": str(
+    # The learning plan was independently grounded against the current user
+    # request before web evidence was read. Tutorial extraction may describe
+    # adjacent installation steps, but those steps must not broaden a declared
+    # open-folder skill into copying or installing content.
+    if required_scope == "OPEN_DESTINATION_FOLDER":
+        capability = str(plan.get("capability") or "").strip()[:120]
+        intent_summary = str(
+            plan.get("intent_summary") or ""
+        ).strip()[:400]
+        parameters = _strings(plan.get("parameters"), 12, 100)
+    else:
+        capability = str(
             result.get("capability") or plan["capability"]
-        ).strip()[:120],
+        ).strip()[:120]
+        intent_summary = str(
+            result.get("intent_summary")
+            or plan.get("intent_summary")
+            or ""
+        ).strip()[:400]
+        parameters = _strings(
+            result.get("parameters") or plan.get("parameters"), 12, 100
+        )
+    return {
+        "capability": capability,
         "skill_scope": declared_scope or required_scope,
-        "intent_summary": str(
-            result.get("intent_summary") or plan.get("intent_summary") or ""
-        )[:400],
+        "intent_summary": intent_summary,
         "target_app": str(result.get("target_app") or plan["target_app"])[:160],
         "content_kind": str(result.get("content_kind") or plan["content_kind"])[:100],
-        "parameters": _strings(
-            result.get("parameters") or plan.get("parameters"), 12, 100
-        ),
+        "parameters": parameters,
         "version_constraints": plan.get("version_constraints", [])[:8],
         "expected_file_types": expected,
         "destination_hints": destinations,

@@ -13,4 +13,7 @@ language. When pending_action says verification_kind is
 opened_destination_folder, ACCEPT means the user confirms the opened local
 folder is the correct target content folder; REJECT means it is the wrong or
 missing folder. In that case, do not require an installed artifact to be
-visible. Return no punctuation or explanation.
+visible. A complete bare reply such as "对了", "对", "打开对了", "是这个",
+"正确", or "yes" is ACCEPT for that checkpoint. Treat "对了" as a discourse
+marker only when additional words introduce another topic. Return no
+punctuation or explanation.

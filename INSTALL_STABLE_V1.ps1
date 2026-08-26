@@ -20,13 +20,13 @@ if (
     $sourceRoot.TrimEnd($rootTrimCharacters) -eq
     $targetRoot.TrimEnd($rootTrimCharacters)
 ) {
-    throw "Extract Stable V1.3.9.5 outside the installed AI-Assistant folder."
+    throw "Extract External AI Desktop V1 outside the installed AI-Assistant folder."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "main.py"))) {
-    throw "Invalid Stable V1.3.9.5 package: main.py is missing."
+    throw "Invalid External AI Desktop V1 package: main.py is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "BEKKI_BUILD.json"))) {
-    throw "Invalid Stable V1.3.9.5 package: BEKKI_BUILD.json is missing."
+    throw "Invalid External AI Desktop V1 package: BEKKI_BUILD.json is missing."
 }
 if (Test-Path $targetRoot) {
     if (-not (Test-Path (Join-Path $targetRoot "main.py"))) {
@@ -42,7 +42,7 @@ $backupRoot = Join-Path (Split-Path $targetRoot -Parent) (
 )
 New-Item -ItemType Directory -Path $backupRoot | Out-Null
 
-$replaceDirectories = @("assets", "casper", "prompts", "tests")
+$replaceDirectories = @("assets", "casper", "nerv", "prompts", "tests")
 $protectedNames = @(
     ".git", ".venv", "venv", "data", "build", "dist",
     "__pycache__", "casper_browser_profile", "logs"
@@ -180,10 +180,23 @@ try {
     if (Test-Path $venvPython) {
         $python = $venvPython
     }
+    & $python -c "import pywinauto"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Installing the ChatGPT Desktop UI Automation dependency..."
+        & $python -m pip install "pywinauto>=0.6.9,<0.7"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not install the pywinauto desktop dependency."
+        }
+    }
     $compileFiles = @(
         "main.py", "magi.py", "melchior.py", "model_runtime.py",
         "tools.py", "vision.py", "worker.py", "casper\core.py",
-        "casper\adapters.py", "casper\browser.py"
+        "casper\adapters.py", "casper\browser.py", "casper\external_ai.py",
+        "casper\external_ai_desktop.py",
+        "nerv\core.py", "nerv\curiosity.py",
+        "nerv\governance.py", "nerv\profile_store.py",
+        "nerv\profile_writer.py", "nerv\context_selector.py",
+        "nerv\learning_engine.py", "nerv\schemas.py"
     ) | ForEach-Object { Join-Path $targetRoot $_ }
     & $python -m py_compile @compileFiles
     if ($LASTEXITCODE -ne 0) {
@@ -203,13 +216,13 @@ try {
 } catch {
     Restore-StableRuntime
     throw (
-        "Bekki Stable V1.3.9.5 installation failed and the previous runtime was " +
+        "Bekki External AI Desktop V1 installation failed and the previous runtime was " +
         "restored. Backup retained at: " + $backupRoot +
         [Environment]::NewLine + $_.Exception.Message
     )
 }
 
-Write-Host "Bekki Stable V1.3.9.5 installed successfully."
+Write-Host "Bekki UI Personalization V1 installed successfully."
 Write-Host "Target: $targetRoot"
 Write-Host "Backup: $backupRoot"
 Write-Host "Preserved: data, .env, .git, .venv, build, dist"

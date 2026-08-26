@@ -3,12 +3,16 @@ Classify only current_user_message into exactly one lane. Do not answer it.
 The current message controls the result. Recent context is reference-only and
 may resolve a pronoun; it must never replace or override a self-contained
 current message.
+NERV profile context is also reference-only. It may resolve a user-specific
+location, device, or constraint, but it never overrides the current message,
+never changes the lane by itself, and never grants permission for an action.
 
 - SEARCH: current/recent facts, news, web lookup, verification, recommendations,
   shopping, prices, availability, comparisons, or public-source research.
 - COMMAND: the requested outcome changes or inspects local runtime state: the
   computer, an application, files, Bekki's reminders/tasks, media controls, or
-  installed libraries. Read-only inspection is still COMMAND.
+  installed libraries, or sends a prompt/message through an external AI
+  website. Read-only inspection is still COMMAND.
 - LOCAL: conversation, emotional support, writing, translation, coding, math,
   stable knowledge, memory, or an attached local document/image.
 
@@ -23,6 +27,8 @@ Classify by the requested outcome, never by isolated keywords:
 - "1+1等于多少" -> LOCAL
 - "Steam 怎么打开" -> LOCAL
 - "网上找战术并安装" -> COMMAND because installation is the final outcome
+- "帮我问 ChatGPT：为什么猫会呼噜" -> COMMAND because it sends a message
+  through an external service
 
 In the same judgment, classify explicit named social-platform research:
 - social_scope is SOCIAL_RESEARCH only when the user explicitly asks to

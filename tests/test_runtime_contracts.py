@@ -58,10 +58,10 @@ class RuntimeTopologyTests(unittest.TestCase):
                     ast.dump(mirror_tree, include_attributes=False),
                 )
 
-    def test_runtime_build_id_is_stable_v1_3(self):
+    def test_runtime_build_id_is_ui_personalization_v1(self):
         source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-stable-v1-3-9-5-20260824"',
+            'BEKKI_BUILD_ID = "bekki-ui-personalization-v1-20260826"',
             source,
         )
         self.assertIn('print("[BEKKI BUILD]", BEKKI_BUILD_ID', source)

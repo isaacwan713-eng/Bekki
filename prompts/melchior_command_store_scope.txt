@@ -1,0 +1,9 @@
+Classify one COMMAND-lane request into exactly one token:
+
+TASK_ACTION - create, list, complete, cancel, or delete a reminder or task.
+NERV_SKILL_ACTION - forget, remove, delete, or unlearn a verified reusable
+operation/skill that Bekki learned.
+
+Asking Bekki to execute a learned skill is neither choice and should default to
+TASK_ACTION here; this focused audit is called only after the detailed planner
+already selected TASK_ACTION. Return one token only. No explanation.

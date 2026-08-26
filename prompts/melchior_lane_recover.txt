@@ -6,15 +6,25 @@ Allowed modes:
 - SEARCH: NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
   SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH
 - LOCAL: LOCAL_ANSWER
-- COMMAND: TASK_ACTION, DEVICE_ACTION
+- COMMAND: TASK_ACTION, NERV_SKILL_ACTION, EXTERNAL_AI_ACTION, DEVICE_ACTION
 
 NEWS_FEED is a broad current update or multiple headlines. FACT_LOOKUP is one
 changing fact. CLAIM_CHECK verifies one explicit claim. SOCIAL_RESEARCH is an
 explicit social-platform request. SHOPPING_RESEARCH asks to buy, find price,
 stock, seller, or merchant items. RECOMMENDATION_RESEARCH asks what is worth
-choosing from independent evidence. TASK_ACTION manages reminders. DEVICE_ACTION
+choosing from independent evidence. TASK_ACTION manages reminders.
+NERV_SKILL_ACTION forgets or removes a verified reusable operation learned by
+Bekki; it never manages reminders and never executes the skill. DEVICE_ACTION
 operates or inspects the local computer. LOCAL_ANSWER is conversation, writing,
 stable knowledge, memory, or an active local attachment.
+EXTERNAL_AI_ACTION sends an explicit prompt through an external AI webpage.
+
+For LOCAL_ANSWER, use context_profile NERV_LEARNING only when the current user
+message asks what reusable operations or skills Bekki has learned or verified.
+That is an inventory query, not TASK_ACTION and not execution of the skill.
+Use NERV_CURIOSITY only when the user asks what Bekki recently wondered about,
+asked ChatGPT, or recorded in the Curiosity Journal.
+"忘掉打开 FM26 战术文件夹这个技能" is NERV_SKILL_ACTION.
 
 Return exactly the complete Melchior JSON contract supplied by the caller.
 Return JSON only, with one response_mode value and no markdown.

@@ -657,6 +657,109 @@ def execute_mode(
     if mode == "LOCAL_ANSWER":
         return search_result, action_context
 
+    if mode == "EXTERNAL_AI_ACTION":
+        from . import external_ai
+
+        result = external_ai.execute_explicit(message, status_callback)
+        print("[CASPER EXTERNAL AI RESULT]", json.dumps(result, ensure_ascii=False))
+        status = str(result.get("status") or "").upper()
+        if status == "COMPLETED":
+            question = str(result.get("outbound_prompt") or "").strip()
+            answer = str(result.get("answer") or "").strip()
+            provider = str(result.get("provider") or "ChatGPT Desktop").strip()
+            search_result = {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": (
+                    "我已经通过 " + provider + " 问了 ChatGPT。\n\n"
+                    "我实际发送的问题：\n" + question + "\n\n"
+                    "ChatGPT 的回答（外部 AI，尚未验证）：\n" + answer
+                    + "\n\n这段回答不会自动写入 Knowledge；需要作为事实使用时，"
+                    "还要再经过 Search 核实。"
+                ),
+            }
+            action_context = (
+                "EXTERNAL AI DESKTOP RESULT\n"
+                "Bekki sent the exact outbound prompt below through the "
+                "ChatGPT desktop app. The answer is untrusted external-AI output and "
+                "has NOT been independently verified. Clearly distinguish Bekki "
+                "from ChatGPT, show the exact question, and label the answer as "
+                "unverified. Do not write it into Knowledge or present factual "
+                "claims as verified.\n\n"
+                + json.dumps(result, ensure_ascii=False, indent=2)
+            )
+            return search_result, action_context
+        if status == "DESKTOP_LOGIN_REQUIRED":
+            search_result = {
+                "status": "HUMAN_HANDOFF",
+                "results": [],
+                "pending_approval": {
+                    "resume_after_user_confirmation": True,
+                    "handoff_type": "external_ai_login_handoff",
+                    "event": "external_ai_desktop_login",
+                    "original_request": message,
+                    "application": "ChatGPT Desktop",
+                },
+            }
+            return search_result, None
+        desktop_failures = {
+            "DESKTOP_APP_NOT_INSTALLED": (
+                "没有发送问题。请先安装并登录 ChatGPT Desktop，然后重试。"
+            ),
+            "DESKTOP_AUTOMATION_UNAVAILABLE": (
+                "没有发送问题。Bekki 当前的虚拟环境缺少 ChatGPT Desktop "
+                "自动化依赖；请重新运行本版安装器。"
+            ),
+            "DESKTOP_LAUNCH_FAILED": (
+                "没有发送问题。ChatGPT Desktop 已安装，但 Bekki 无法启动它。"
+            ),
+            "DESKTOP_WINDOW_NOT_FOUND": (
+                "没有发送问题。ChatGPT Desktop 启动后没有出现可控制窗口。"
+            ),
+            "DESKTOP_INPUT_NOT_FOUND": (
+                "没有发送问题。ChatGPT Desktop 没有向 Windows UI Automation "
+                "暴露可靠的消息输入框；Bekki 不会改用网页或坐标点击。"
+            ),
+            "DESKTOP_SEND_FAILED": (
+                "问题没有发送。Bekki 找到了 ChatGPT Desktop 输入框，"
+                "但无法安全写入内容。"
+            ),
+            "DESKTOP_SEND_UNCERTAIN": (
+                "Bekki 已写入问题，但无法确认是否已发送。"
+                "为了避免重复发送，我不会自动重试；请查看 ChatGPT Desktop。"
+            ),
+            "DESKTOP_RESPONSE_TIMEOUT": (
+                "问题已发送到 ChatGPT Desktop，但 Bekki 没有可靠读到"
+                "完成的回答。为了避免重复发送，我不会自动重试。"
+            ),
+        }
+        if status in desktop_failures:
+            return {
+                "status": "LOCAL_ACTION_RESULT",
+                "results": [],
+                "direct_reply": desktop_failures[status],
+            }, None
+        clarification = str(
+            result.get("reason")
+            or "没有形成可以安全发送给外部 AI 的完整问题。"
+        )
+        action_context = (
+            "EXTERNAL AI ACTION DID NOT SEND A PROMPT\n"
+            "Do not claim ChatGPT was contacted. Ask one concise clarification "
+            "or explain the privacy refusal.\n\n"
+            + json.dumps(
+                {
+                    "success": False,
+                    "needs_clarification": True,
+                    "clarification": clarification,
+                    "status": status or "NEEDS_CLARIFICATION",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return search_result, action_context
+
     if mode == "TASK_ACTION":
         import task_ai
         import tasks

@@ -8,6 +8,7 @@ import html
 import re
 import localization as i18n
 import image_loader
+import ui_preferences
 from datetime import datetime
 from PySide6.QtCore import (
     Qt,
@@ -19,6 +20,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
+    QFont,
     QFontMetrics,
     QIcon,
     QPainter,
@@ -29,6 +31,11 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFontComboBox,
+    QFormLayout,
     QFrame,
     QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect,
@@ -43,6 +50,8 @@ from PySide6.QtWidgets import (
     QWidget,
     QGridLayout,
     QMenu,
+    QMessageBox,
+    QSpinBox,
     QWidgetAction,
 )
 
@@ -173,6 +182,183 @@ class ModernMenu(QMenu):
         self.addAction(action)
         return action
 
+
+class AppearanceDialog(QDialog):
+    """Small live-preview editor for chat typography and Bekki's avatar."""
+
+    def __init__(self, preferences, parent=None):
+        super().__init__(parent)
+        self._original = ui_preferences.normalize_preferences(preferences)
+        self._avatar_path = self._original.get("avatar_path", "")
+        self.setWindowTitle(i18n.t("appearance"))
+        self.setModal(True)
+        self.setMinimumWidth(410)
+        self.setStyleSheet(
+            f"""
+            QDialog {{ background-color: {COLORS['canvas']}; }}
+            QLabel {{ color: {COLORS['text']}; font-family: {UI_FONT}; }}
+            QFontComboBox, QSpinBox {{
+                background: white;
+                border: 1px solid {COLORS['line']};
+                border-radius: 9px;
+                color: {COLORS['text']};
+                min-height: 32px;
+                padding: 0 8px;
+            }}
+            QPushButton {{
+                background: white;
+                border: 1px solid {COLORS['line']};
+                border-radius: 9px;
+                color: {COLORS['blue_dark']};
+                min-height: 32px;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {COLORS['blue_soft']}; }}
+            """
+        )
+
+        title = QLabel(i18n.t("appearance_title"))
+        title.setStyleSheet(
+            f"font-family:{UI_FONT};font-size:18px;font-weight:750;color:{COLORS['blue_dark']};"
+        )
+        subtitle = QLabel(i18n.t("appearance_subtitle"))
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(
+            f"font-family:{UI_FONT};font-size:11px;color:{COLORS['muted']};"
+        )
+
+        self.font_combo = QFontComboBox()
+        self.font_combo.setCurrentFont(QFont(self._original["font_family"]))
+        self.font_size = QSpinBox()
+        self.font_size.setRange(11, 20)
+        self.font_size.setSuffix(" pt")
+        self.font_size.setValue(self._original["font_size"])
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignLeft)
+        form.setFormAlignment(Qt.AlignTop)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.addRow(i18n.t("chat_font"), self.font_combo)
+        form.addRow(i18n.t("chat_font_size"), self.font_size)
+
+        self.avatar_preview = QLabel()
+        self.avatar_preview.setFixedSize(72, 72)
+        self.avatar_preview.setAlignment(Qt.AlignCenter)
+        self.avatar_preview.setStyleSheet(
+            "background:#eaf6ff;border:1px solid #d7eafb;border-radius:36px;"
+        )
+        choose_avatar = QPushButton(i18n.t("choose_avatar"))
+        choose_avatar.clicked.connect(self._choose_avatar)
+        default_avatar = QPushButton(i18n.t("default_avatar"))
+        default_avatar.clicked.connect(self._use_default_avatar)
+        avatar_buttons = QVBoxLayout()
+        avatar_buttons.setContentsMargins(0, 0, 0, 0)
+        avatar_buttons.setSpacing(7)
+        avatar_buttons.addWidget(choose_avatar)
+        avatar_buttons.addWidget(default_avatar)
+        avatar_row = QHBoxLayout()
+        avatar_row.setSpacing(12)
+        avatar_row.addWidget(self.avatar_preview)
+        avatar_row.addLayout(avatar_buttons)
+        avatar_row.addStretch()
+
+        preview_label = QLabel(i18n.t("preview"))
+        preview_label.setStyleSheet(
+            f"font-family:{UI_FONT};font-size:11px;font-weight:700;color:{COLORS['muted']};"
+        )
+        self.text_preview = QLabel(i18n.t("appearance_preview_text"))
+        self.text_preview.setWordWrap(True)
+        self.text_preview.setStyleSheet(
+            "background:white;border:1px solid #dce9f6;border-radius:14px;"
+            "color:#35465a;padding:10px 13px;"
+        )
+
+        reset_button = QPushButton(i18n.t("restore_defaults"))
+        reset_button.clicked.connect(self._restore_defaults)
+        standard_button = QDialogButtonBox.StandardButton
+        buttons = QDialogButtonBox(
+            standard_button.Save | standard_button.Cancel
+        )
+        buttons.button(standard_button.Save).setText(i18n.t("save"))
+        buttons.button(standard_button.Cancel).setText(i18n.t("cancel"))
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        button_row = QHBoxLayout()
+        button_row.addWidget(reset_button)
+        button_row.addStretch()
+        button_row.addWidget(buttons)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addLayout(form)
+        layout.addLayout(avatar_row)
+        layout.addWidget(preview_label)
+        layout.addWidget(self.text_preview)
+        layout.addLayout(button_row)
+
+        self.font_combo.currentFontChanged.connect(self._refresh_preview)
+        self.font_size.valueChanged.connect(self._refresh_preview)
+        self._refresh_preview()
+
+    def _default_avatar_path(self):
+        return resource_path("assets/bekki_avatar.jpeg")
+
+    def _refresh_preview(self, *_args):
+        family = self.font_combo.currentFont().family()
+        size = self.font_size.value()
+        self.text_preview.setFont(QFont(family, size))
+        avatar_path = self._avatar_path or self._default_avatar_path()
+        avatar = create_round_avatar(avatar_path, 72)
+        if avatar.isNull():
+            self.avatar_preview.setPixmap(QPixmap())
+            self.avatar_preview.setText("🩵")
+        else:
+            self.avatar_preview.setText("")
+            self.avatar_preview.setPixmap(avatar)
+
+    def _choose_avatar(self):
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            i18n.t("choose_avatar"),
+            "",
+            "Images (*.png *.jpg *.jpeg *.webp)",
+        )
+        if selected:
+            if QPixmap(selected).isNull():
+                QMessageBox.warning(
+                    self,
+                    i18n.t("appearance"),
+                    i18n.t("invalid_avatar"),
+                )
+                return
+            self._avatar_path = selected
+            _AVATAR_CACHE.clear()
+            self._refresh_preview()
+
+    def _use_default_avatar(self):
+        self._avatar_path = ""
+        _AVATAR_CACHE.clear()
+        self._refresh_preview()
+
+    def _restore_defaults(self):
+        defaults = ui_preferences.normalize_preferences({})
+        self.font_combo.setCurrentFont(QFont(defaults["font_family"]))
+        self.font_size.setValue(defaults["font_size"])
+        self._use_default_avatar()
+
+    def preferences(self):
+        avatar_path = self._avatar_path
+        if avatar_path:
+            avatar_path = ui_preferences.persist_avatar(avatar_path)
+        return ui_preferences.normalize_preferences({
+            "font_family": self.font_combo.currentFont().family(),
+            "font_size": self.font_size.value(),
+            "avatar_path": avatar_path,
+        })
 
 class ModernLineEdit(QLineEdit):
     """Line edit with a compact Bekki-styled editing menu."""
@@ -354,11 +540,22 @@ def create_round_avatar(path, size=42):
     return rounded
 
 
+def _chat_font_values(preferences):
+    value = ui_preferences.normalize_preferences(preferences)
+    family = re.sub(
+        r"[^0-9A-Za-z \-\u3400-\u9fff]",
+        "",
+        value["font_family"],
+    ).strip() or ui_preferences.DEFAULTS["font_family"]
+    return family, value["font_size"]
+
+
 class HeaderWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._language_handler = None
         self._task_handler = None
+        self._settings_handler = None
 
         brand_mark = QLabel("♥")
         brand_mark.setAlignment(Qt.AlignCenter)
@@ -435,6 +632,23 @@ class HeaderWidget(QWidget):
             """
         )
 
+        self.settings_button = QPushButton("⚙")
+        self.settings_button.setFixedSize(28, 28)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        self.settings_button.setToolTip(i18n.t("appearance"))
+        self.settings_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f5f2ff;
+                border: 1px solid #e4dcf7;
+                border-radius: 14px;
+                color: #7d71a8;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #ece6ff; color: #675991; }
+            """
+        )
+
         self.task_button = QPushButton("✓")
         self.task_button.setFixedSize(28,28)
         self.task_button.setCursor(
@@ -493,6 +707,7 @@ class HeaderWidget(QWidget):
         title_layout.addStretch()
         title_layout.addWidget(self.task_button)
         title_layout.addWidget(self.language_button)
+        title_layout.addWidget(self.settings_button)
         title_layout.addWidget(self.history_button)
         title_layout.addWidget(version_badge)
 
@@ -508,6 +723,10 @@ class HeaderWidget(QWidget):
 
     def connect_language_change(self, handler):
         self._language_handler = handler
+
+    def connect_settings(self, handler):
+        self._settings_handler = handler
+        self.settings_button.clicked.connect(handler)
 
     def show_language_menu(self):
         menu = ModernMenu(self.language_button, width=220)
@@ -534,6 +753,7 @@ class HeaderWidget(QWidget):
         self.language_button.setToolTip(i18n.t("language"))
         self.history_button.setToolTip(i18n.t("history_toggle"))
         self.task_button.setToolTip(i18n.t("tasks"))
+        self.settings_button.setToolTip(i18n.t("appearance"))
 
     def connect_task_toggle(self
                             ,handler,
@@ -1458,22 +1678,26 @@ class ResultCardList(QWidget):
 
 class MessageWidget(QWidget):
     def __init__(
-            self,
-            sender,
-            text,
-            sources=None,
-            highlights=None,
-            cards=None,):
+        self,
+        sender,
+        text,
+        sources=None,
+        highlights=None,
+        cards=None,
+        preferences=None,
+    ):
         super().__init__()
 
         is_user = sender.lower() in {"you", "user", "isaac"}
         self._is_user_message = is_user
+        self._preferences = ui_preferences.normalize_preferences(preferences)
         outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(2, 6, 2, 6)
         outer_layout.setSpacing(9)
 
         avatar_label = QLabel()
         avatar_label.setFixedSize(42, 42)
+        self.avatar_label = avatar_label
 
         self._plain_text = str(text)
         self._highlights = highlights or []
@@ -1490,6 +1714,7 @@ class MessageWidget(QWidget):
         self._render_text()
 
         name_label = QLabel(sender)
+        self.name_label = name_label
         message_layout = QVBoxLayout()
         self.message_layout = message_layout
         message_layout.setContentsMargins(0, 0, 0, 0)
@@ -1632,7 +1857,54 @@ class MessageWidget(QWidget):
         if sources:
             self.set_sources(sources)
 
+        self.apply_preferences(self._preferences)
         QTimer.singleShot(0, self._fit_bubble_height)
+
+    def apply_preferences(self, preferences):
+        self._preferences = ui_preferences.normalize_preferences(preferences)
+        family, size = _chat_font_values(self._preferences)
+        if self._is_user_message:
+            name_color = "#a16d86"
+            bubble_style = """
+                background-color: #f9dce8;
+                border: 1px solid #f2cedd;
+                color: #3d3440;
+            """
+        else:
+            name_color = "#4f86bd"
+            bubble_style = """
+                background-color: #ffffff;
+                border: 1px solid #dce9f6;
+                color: #35465a;
+            """
+        self.name_label.setStyleSheet(
+            f'color:{name_color};font-family:"{family}";font-size:10px;font-weight:700;'
+        )
+        self.bubble.setStyleSheet(
+            f"""
+            QLabel {{
+                {bubble_style}
+                border-radius: 17px;
+                font-family: "{family}";
+                font-size: {size}px;
+                padding: 9px 13px;
+            }}
+            """
+        )
+        if not self._is_user_message:
+            avatar_path = ui_preferences.resolved_avatar_path(
+                self._preferences,
+                resource_path("assets/bekki_avatar.jpeg"),
+            )
+            avatar = create_round_avatar(avatar_path, 42)
+            if avatar.isNull():
+                self.avatar_label.setPixmap(QPixmap())
+                self.avatar_label.setText("🩵")
+                self.avatar_label.setAlignment(Qt.AlignCenter)
+            else:
+                self.avatar_label.setText("")
+                self.avatar_label.setPixmap(avatar)
+        self._fit_bubble_height()
 
     def set_text(self, text):
         self._plain_text = str(text)
@@ -1860,8 +2132,9 @@ class MessageWidget(QWidget):
         self.updateGeometry()
 
 class ChatArea(QWidget):
-    def __init__(self, show_welcome=True):
+    def __init__(self, show_welcome=True, preferences=None):
         super().__init__()
+        self._preferences = ui_preferences.normalize_preferences(preferences)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -1927,10 +2200,24 @@ class ChatArea(QWidget):
 
     def add_message(self, role, message, sources=None, highlights=None,cards=None,):
         widget = MessageWidget(
-            role, message, sources = sources, highlights = highlights,cards=cards)
+            role,
+            message,
+            sources=sources,
+            highlights=highlights,
+            cards=cards,
+            preferences=self._preferences,
+        )
         self.message_layout.addWidget(widget)
         self.scroll_to_bottom()
         return widget
+
+    def apply_preferences(self, preferences):
+        self._preferences = ui_preferences.normalize_preferences(preferences)
+        for index in range(self.message_layout.count()):
+            widget = self.message_layout.itemAt(index).widget()
+            if isinstance(widget, MessageWidget):
+                widget.apply_preferences(self._preferences)
+        self.scroll_to_bottom()
 
     def scroll_to_bottom(self):
         QTimer.singleShot(
@@ -1948,9 +2235,10 @@ class ChatArea(QWidget):
 
 
 class InputArea(QWidget):
-    def __init__(self):
+    def __init__(self, preferences=None):
         super().__init__()
         self._desktop_handlers = None
+        self._preferences = ui_preferences.normalize_preferences(preferences)
 
         self.attachment_bar = QFrame()
         self.attachment_bar.setVisible(False)
@@ -2220,6 +2508,31 @@ class InputArea(QWidget):
         layout.addWidget(self.status_label)
         layout.addLayout(input_layout)
         self.setLayout(layout)
+        self.apply_preferences(self._preferences)
+
+    def apply_preferences(self, preferences):
+        self._preferences = ui_preferences.normalize_preferences(preferences)
+        family, size = _chat_font_values(self._preferences)
+        self.input_box.setFont(QFont(family, size))
+        self.input_box.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background-color: #ffffff;
+                border: 1px solid #d4e1ef;
+                border-radius: 24px;
+                color: #334155;
+                font-family: "{family}";
+                font-size: {size}px;
+                padding: 7px 14px;
+            }}
+            QPlainTextEdit:focus {{ border: 1px solid #77b6f3; }}
+            QPlainTextEdit:disabled {{
+                background-color: #f4f6f9;
+                color: #9ba7b4;
+            }}
+            """
+        )
+        self.input_box._schedule_height_adjustment()
 
     def get_text(self):
         return self.input_box.toPlainText().strip()
@@ -2874,11 +3187,13 @@ class BekkiWindow(QWidget):
             """
         )
 
+        self.ui_preferences = ui_preferences.load_preferences()
         self.header = HeaderWidget()
         self.chat = ChatArea(
-            show_welcome=show_welcome
+            show_welcome=show_welcome,
+            preferences=self.ui_preferences,
         )
-        self.input_area = InputArea()
+        self.input_area = InputArea(preferences=self.ui_preferences)
         self.sidebar = HistorySidebar()
         self.task_drawer = TaskDrawer()
 
@@ -2935,6 +3250,34 @@ class BekkiWindow(QWidget):
         self.header.connect_task_toggle(
             self.toggle_task_drawer
         )
+
+        self.header.connect_settings(
+            self.open_appearance_settings
+        )
+
+    def open_appearance_settings(self):
+        dialog = AppearanceDialog(self.ui_preferences, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        try:
+            preferences = dialog.preferences()
+            self.ui_preferences = ui_preferences.save_preferences(preferences)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(
+                self,
+                i18n.t("appearance"),
+                i18n.t("appearance_save_failed", error=str(error)),
+            )
+            return
+        self.apply_ui_preferences(self.ui_preferences)
+
+    def apply_ui_preferences(self, preferences):
+        self.ui_preferences = ui_preferences.normalize_preferences(preferences)
+        _AVATAR_CACHE.clear()
+        self.chat.apply_preferences(self.ui_preferences)
+        self.input_area.apply_preferences(self.ui_preferences)
+        self.input_area.set_status(i18n.t("appearance_saved"))
+        QTimer.singleShot(2200, lambda: self.input_area.set_status(""))
 
     def connect_language_change(
         self,

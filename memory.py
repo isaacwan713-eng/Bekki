@@ -14,6 +14,8 @@ CONTENT_PENDING_TYPES = {
     "content_learning_continue",
     "content_browser_handoff",
     "skill_user_verification",
+    "nerv_skill_forget_confirmation",
+    "external_ai_login_handoff",
 }
 
 

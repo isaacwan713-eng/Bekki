@@ -1,4 +1,4 @@
-Bekki Stable V1.3.9.5 (ranked social summaries and duplicate guard)
+Bekki UI Personalization V1
 
 Recommended installation:
 
@@ -12,11 +12,48 @@ The installer preserves your existing `.env`, `data`, `.git`, `.venv`,
 `build`, and `dist`, creates a timestamped backup, validates the new Python
 files, and restores the prior runtime automatically if installation fails.
 
-Expected startup build ID: bekki-stable-v1-3-9-5-20260824
+Expected startup build ID: bekki-ui-personalization-v1-20260826
 
-This update intentionally keeps the stable R25 UI unchanged. MAGI's
-SEARCH / LOCAL / COMMAND decision is AI-based; Python only validates the
-closed result. See STABLE_V1_3_9_5_NOTES.md for the tested social ranking fix.
+This update adds a top-right appearance settings button. It can change chat
+font family and size, replace Bekki's avatar, preview the result, and restore
+defaults. Preferences and copied custom avatars live in `data`, so they are
+preserved by later stable updates. It also retains the installed ChatGPT
+Desktop integration instead of browser/CDP control, and supports
+up to three privacy-screened NERV Curiosity Journal questions per local day. Existing
+data, memory, environment settings, and verified Casper Skills are preserved.
+The installer adds pywinauto to the existing virtual environment when needed.
+Install and sign in to ChatGPT Desktop before the first live test. No web
+fallback is used. See EXTERNAL_AI_DESKTOP_V1_NOTES.md for the boundaries.
+
+V1.1 waits for the desktop WebView accessibility tree to finish loading. If
+the main composer remains unavailable, it opens ChatGPT's official Companion
+Window with Alt+Space and continues only after observing a distinct ChatGPT
+window. It still uses no browser or screen-coordinate clicking.
+
+V1.2 rejects ChatGPT's non-editable "Composer utility bar" so it cannot be
+mistaken for the message box. That condition now reaches the safe Companion
+Window fallback.
+
+V1.3 adds direct Windows Unicode keyboard input when the editable ChatGPT
+control is found but the Windows clipboard is temporarily unavailable. This
+supports Chinese prompts without using browser or screen-coordinate clicking.
+
+V1.3.1 keeps the verified V1.3 foreground send, minimizes ChatGPT immediately
+after submission, and reads the answer through background UI Automation. It
+fixes 64-bit clipboard handles, rejects `You said:`/404 UI text as answers, and
+keeps Chinese questions Chinese unless translation was explicitly requested.
+
+V1.3.2 keeps ChatGPT open behind Bekki while waiting, because the live Desktop
+WebView stops exposing new answer nodes when minimized. Bekki regains focus
+immediately after submission; ChatGPT is minimized after answer capture.
+
+NERV Knowledge Verification V1.4 treats every ChatGPT answer as an unverified
+hypothesis. A low-risk, durable factual candidate must pass an independent
+3→5→7 search and receive consensus from at least two readable high-quality
+domains before it can enter Knowledge. Otherwise it remains unverified.
+For why/cause/mechanism questions, the candidate must contain the central
+explanation. A side fact triggers one bounded recovery attempt and cannot be
+promoted merely because it is easy to verify.
 
 Legacy R25 development notes follow below.
 

@@ -96,6 +96,45 @@ class ContentLearningTests(unittest.TestCase):
             ],
         )
 
+    def test_open_folder_procedure_cannot_inherit_copy_install_intent(self):
+        plan = {
+            "skill_scope": "OPEN_DESTINATION_FOLDER",
+            "capability": "game_content.open_destination_folder",
+            "intent_summary": "Locate and open the reusable tactics folder",
+            "target_app": "Football Manager 2026",
+            "content_kind": "tactics",
+            "parameters": [],
+            "version_constraints": [],
+        }
+        extracted = {
+            "source_ids": ["source-id"],
+            "skill_scope": "OPEN_DESTINATION_FOLDER",
+            "capability": "game_content.open_destination_folder",
+            "intent_summary": "Copy a .fmf tactic into the tactics folder",
+            "target_app": "Football Manager 2026",
+            "content_kind": "tactics",
+            "parameters": ["tactic_file"],
+            "expected_file_types": [".fmf"],
+            "destination_hints": ["tactics folder"],
+            "installation_steps": ["Locate the documented tactics folder"],
+            "post_install_steps": [],
+            "evidence_summary": "The tutorial also discusses copying files.",
+        }
+        pages = [{
+            "source_id": "source-id",
+            "title": "FM documentation",
+            "domain": "example.test",
+            "url": "https://example.test/fm",
+            "content": "Documentation",
+        }]
+        with patch.object(content_learning, "_ai", return_value=extracted):
+            procedure = content_learning._extract_procedure(plan, pages)
+        self.assertEqual(
+            procedure["intent_summary"],
+            "Locate and open the reusable tactics folder",
+        )
+        self.assertEqual(procedure["parameters"], [])
+
     def test_invalid_query_reviews_and_failed_repair_stop_before_discovery(self):
         plan = {
             "supported": True,

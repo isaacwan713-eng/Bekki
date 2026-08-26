@@ -36,6 +36,38 @@ class PendingContextTests(unittest.TestCase):
         )
         self.assertEqual(result, "CHECKPOINT_REPLY")
 
+    def test_bare_correct_reply_uses_reliable_skill_verification_boundary(self):
+        model = Mock(return_value="CHECKPOINT_REPLY")
+        tools_stub = types.SimpleNamespace(run_ai_prompt=model)
+        pending = {
+            "type": "skill_user_verification",
+            "original_request": "打开 Football Manager 2026 战术文件夹",
+            "approval_payload": {
+                "verification_kind": "opened_destination_folder",
+                "target_app": "Football Manager 2026",
+                "destination_name": "Football Manager 26 tactics",
+            },
+        }
+        with patch.dict(sys.modules, {"tools": tools_stub}):
+            result = pending_context.classify("对了", pending, "")
+        self.assertEqual(result, "CHECKPOINT_REPLY")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertIn('"current_request":"对了"', model.call_args.args[1])
+
+    def test_external_ai_login_continue_uses_reliable_checkpoint_boundary(self):
+        model = Mock(return_value="CHECKPOINT_REPLY")
+        tools_stub = types.SimpleNamespace(run_ai_prompt=model)
+        pending = {
+            "type": "external_ai_login_handoff",
+            "event": "external_ai_login",
+            "original_request": "帮我问 ChatGPT 为什么猫会呼噜？",
+        }
+        with patch.dict(sys.modules, {"tools": tools_stub}):
+            result = pending_context.classify("继续", pending, "")
+        self.assertEqual(result, "CHECKPOINT_REPLY")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertIn('"current_request":"继续"', model.call_args.args[1])
+
     def test_invalid_primary_uses_distinct_retry_then_fails_closed(self):
         result, model = self._classify(["", "not-a-relation"])
         self.assertEqual(result, "AMBIGUOUS")

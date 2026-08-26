@@ -7,7 +7,8 @@ Choose exactly one lane by the requested final outcome:
   shopping, price, stock, availability, or public-source research.
 - COMMAND: actually operate or inspect local runtime state: the computer,
   applications, files, Bekki's reminders/tasks, media controls, or installed
-  libraries. Read-only inspection is still COMMAND; "我有哪些提醒" is COMMAND.
+  libraries, or send a prompt/message through an external AI website.
+  Read-only inspection is still COMMAND; "我有哪些提醒" is COMMAND.
 - LOCAL: conversation, translation, writing, coding, math, stable knowledge,
   memory, or understanding an attached local document/image.
 

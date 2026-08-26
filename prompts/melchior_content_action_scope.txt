@@ -16,6 +16,11 @@ outcome, while recommendation alone remains OTHER.
 Opening a game-content destination folder by itself is also
 CONTENT_DEVICE_ACTION because it may require a reusable learned folder
 operation. Do not classify it as OTHER.
+An explicit request to learn how to locate/open that reusable destination and
+then perform it now is CONTENT_DEVICE_ACTION, even if an earlier planner called
+it APPLICATION_ACTION. Example: learning how to open Football Manager's tactics
+folder and opening it now is CONTENT_DEVICE_ACTION; it is not merely launching
+Football Manager.
 
 RECYCLE_BIN_ACTION means the requested outcome is viewing the Windows Recycle
 Bin, opening its Explorer window, or restoring one referenced Recycle Bin item.

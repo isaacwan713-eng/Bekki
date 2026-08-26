@@ -90,6 +90,33 @@ class SkillRegistryV2Tests(unittest.TestCase):
         self.assertIsNotNone(self._mark(candidate))
         return skill_registry.commit_verified(candidate["id"], feedback)
 
+    def test_verified_skill_forget_requires_literal_confirmation(self):
+        skill = self._commit(self._candidate())
+        self.assertIsNone(skill_registry.forget_verified(skill["id"]))
+        self.assertIsNone(
+            skill_registry.forget_verified(skill["id"], confirmed="yes")
+        )
+        self.assertIsNotNone(skill_registry.load_verified(skill["id"]))
+
+    def test_confirmed_verified_skill_forget_removes_primary_and_backup(self):
+        skill = self._commit(self._candidate())
+        removed = skill_registry.forget_verified(skill["id"], confirmed=True)
+        self.assertEqual(removed["id"], skill["id"])
+        self.assertIsNone(skill_registry.load_verified(skill["id"]))
+        self.assertEqual(
+            skill_registry._load_list(skill_registry.SKILLS_FILE), []
+        )
+        self.assertEqual(
+            skill_registry._load_list(skill_registry.SKILLS_FILE + ".bak"), []
+        )
+
+    def test_confirmed_unknown_skill_forget_changes_nothing(self):
+        skill = self._commit(self._candidate())
+        self.assertIsNone(
+            skill_registry.forget_verified("skill_unknown", confirmed=True)
+        )
+        self.assertIsNotNone(skill_registry.load_verified(skill["id"]))
+
     def test_schema_v2_requires_scope_adapter_destination_and_types(self):
         self.assertEqual(skill_registry.SCHEMA_VERSION, 2)
         self.assertEqual(
