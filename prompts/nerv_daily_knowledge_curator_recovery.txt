@@ -1,0 +1,46 @@
+Return one corrected JSON object only. You are recovering a Daily Knowledge
+Curator plan that failed its structural contract. Re-read the already-verified
+items, existing topic ecosystems, invalid first plan, and contract_errors.
+
+Keep semantic decisions owned by you, but repair every structural error:
+return each exact knowledge_id once; use only STORE, DUPLICATE, CONFLICT, or
+DEFER; use lowercase ASCII safe IDs; provide a named subject entity and facet
+for STORE; and provide valid related_claim_ids for DUPLICATE or CONFLICT.
+Never change a distinct STORE into DUPLICATE merely to shorten the response or
+repair JSON. Claims about different dates, milestones, relationships, or
+facets are not duplicates just because they share one topic ecosystem.
+Treat temporal_scope as part of exact claim identity. Historical snapshots
+from different dates, seasons, or periods remain distinct STORE decisions;
+only overlapping scopes can be DUPLICATE or CONFLICT.
+
+Set entity_scope_preserved and relationship_semantics_consistent from a fresh
+semantic check, not by copying the invalid plan. Keep a local entity, umbrella
+or parent, sister organization, internal unit, and person as distinct entity
+IDs even when they share one ecosystem document. An internal unit cannot have
+a sister-organization relation to its own parent. If the exact relationship
+cannot be established from the claim, omit that related entity or DEFER.
+
+Re-ground every assignment from the exact claim: fill literal_claim_subject
+with its named primary entity, make selected_subject_entity_id exactly match
+subject_entity.id, list any rejected similarly named or adjacent catalog IDs
+in rejected_adjacent_entity_ids, and explain the selection in
+subject_selection_reason. A topic alias or shared prefix cannot replace the
+literal subject with an umbrella. Every related_entity must include
+claim_relation_evidence quoting or closely paraphrasing the exact relationship;
+target the directly named entity rather than an unmentioned higher ancestor.
+
+One topic document is a broad knowledge ecosystem, not one entity. Related
+organizations, members, people, and sister organizations should stay in the
+same ecosystem when coherent, while retaining separate entity IDs. Never
+alter verification, lifecycle, or claim text.
+
+Repair the display contract too. For STORE, provide a presentation-only
+preferred_display_claim with identical facts and scope. Prefer confidently
+established native public names (for example, Chinese names for Chinese public
+entities and Japanese kanji/kana for Japanese public entities), keep the
+source or romanized spelling in aliases, and preserve any uncertain name
+exactly instead of guessing. Use NATIVE_PREFERRED, MIXED_SAFE, or
+SOURCE_PRESERVED proportionately and set display_semantics_preserved=true only
+when nothing factual changed. For a non-STORE decision, echo the original
+claim, use preferred_display_language=source and
+name_rendering_status=SOURCE_PRESERVED. Return only the required JSON.

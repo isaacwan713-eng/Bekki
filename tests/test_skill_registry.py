@@ -207,7 +207,7 @@ class SkillRegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             model.call_args_list[0].kwargs["model_name"],
-            "gemma3:12b",
+            "gemma4:12b",
         )
         self.assertEqual(model.call_args_list[0].kwargs["num_predict"], 900)
         self.assertEqual(model.call_args_list[0].kwargs["num_ctx"], 4096)
@@ -216,7 +216,7 @@ class SkillRegistryTests(unittest.TestCase):
             "prompts/casper_skill_user_verification_retry.txt",
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:4b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:e4b"
         )
         self.assertEqual(model.call_args_list[1].kwargs["num_predict"], 1200)
         self.assertEqual(model.call_args_list[1].kwargs["num_ctx"], 4096)
@@ -236,7 +236,7 @@ class SkillRegistryTests(unittest.TestCase):
                 "对了", pending
             )
         self.assertEqual(verdict, "ACCEPT")
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
 
     def test_invalid_user_verification_outputs_fail_closed(self):
         model = Mock(return_value="CONTINUE")
@@ -276,7 +276,7 @@ class SkillRegistryTests(unittest.TestCase):
             model.call_args_list[1].kwargs["num_predict"], 2400
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:12b"
         )
         self.assertEqual(model.call_args_list[1].kwargs["num_ctx"], 8192)
 
@@ -348,7 +348,7 @@ class SkillRegistryTests(unittest.TestCase):
             "prompts/casper_skill_resume_request_retry.txt",
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:12b"
         )
         self.assertEqual(model.call_args_list[1].kwargs["num_predict"], 3600)
         self.assertEqual(model.call_args_list[1].kwargs["num_ctx"], 8192)
@@ -373,7 +373,7 @@ class SkillRegistryTests(unittest.TestCase):
             "llama3.2:latest",
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:12b"
         )
 
 

@@ -3,10 +3,13 @@
 import json
 import re
 from copy import deepcopy
+from datetime import datetime
 
 from .schemas import (
     CURIOSITY_KNOWLEDGE_CANDIDATE_SCHEMA,
+    CURIOSITY_KNOWLEDGE_CERTIFICATION_SCHEMA,
     CURIOSITY_KNOWLEDGE_VERDICT_SCHEMA,
+    KNOWLEDGE_DOMAINS,
 )
 
 
@@ -32,6 +35,12 @@ _TEMPORAL_QUESTION_RE = re.compile(
     r"\bthis (?:year|month|week)\b)",
     re.IGNORECASE,
 )
+_PERSISTABLE_LIFECYCLE_SHAPES = {
+    "FIXED_HISTORY": "stable",
+    "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM": "stable",
+    "MAINTAINED_SET_OR_STRUCTURE": "reviewable",
+}
+_TRANSIENT_LIFECYCLE_BASIS = "TRANSIENT_NONSTRUCTURAL_STATE_OR_EVENT"
 
 
 class CuriosityKnowledgeVerifier:
@@ -45,8 +54,8 @@ class CuriosityKnowledgeVerifier:
         if self.unload_model is None:
             return
         try:
-            self.unload_model("gemma3:12b")
-            print("[NERV KNOWLEDGE MODEL RELEASED]", stage, "gemma3:12b")
+            self.unload_model("gemma4:12b")
+            print("[NERV KNOWLEDGE MODEL RELEASED]", stage, "gemma4:12b")
         except Exception as error:
             print("[NERV KNOWLEDGE MODEL RELEASE WARNING]", stage, repr(error))
 
@@ -59,6 +68,10 @@ class CuriosityKnowledgeVerifier:
             "external_ai_answer": str(item.get("answer") or "")[:6000],
             "external_ai_status": "UNVERIFIED_EXTERNAL_AI",
             "trigger_summary": str(item.get("trigger_summary") or "")[:400],
+            "authoritative_current_date": (
+                datetime.now().astimezone().date().isoformat()
+            ),
+            "current_date_role": "HOST_LOCAL_TEMPORAL_AUTHORITY",
         }
 
     def _call_candidate_model(self, prompt_path, packet):
@@ -69,7 +82,7 @@ class CuriosityKnowledgeVerifier:
             num_ctx=8192,
             num_predict=700,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
             json_schema=CURIOSITY_KNOWLEDGE_CANDIDATE_SCHEMA,
         )
 
@@ -84,35 +97,125 @@ class CuriosityKnowledgeVerifier:
         subject = " ".join(str(raw.get("subject") or "").split())[:200]
         risk = str(raw.get("risk") or "high").lower()
         knowledge_type = str(raw.get("knowledge_type") or "event").lower()
+        knowledge_domain = str(
+            raw.get("knowledge_domain") or "other"
+        ).lower().strip()
+        if knowledge_domain not in KNOWLEDGE_DOMAINS:
+            knowledge_domain = "other"
+        verification_level = str(
+            raw.get("verification_level") or "double"
+        ).lower().strip()
+        if verification_level not in {"standard", "double"}:
+            verification_level = "double"
+        if knowledge_domain in {"medical", "legal"}:
+            verification_level = "double"
+
+        question = str(packet.get("question") or "")
+        temporal_scope = raw.get("temporal_scope")
+        normalized_temporal_scope = None
+        if isinstance(temporal_scope, dict):
+            scope_type = str(
+                temporal_scope.get("scope_type") or ""
+            ).upper()
+            requested_period = " ".join(
+                str(temporal_scope.get("requested_period") or "").split()
+            )[:240]
+            if scope_type in {
+                "LATEST_COMPLETED_PERIOD", "EXPLICIT_PERIOD"
+            } and requested_period:
+                normalized_temporal_scope = {
+                    "scope_type": scope_type,
+                    "requested_period": requested_period,
+                    "allow_previous_period": False,
+                }
+        lifecycle_basis = str(
+            raw.get("lifecycle_basis") or ""
+        ).upper().strip()
+        if not lifecycle_basis:
+            if knowledge_type == "stable" and normalized_temporal_scope:
+                lifecycle_basis = "FIXED_HISTORY"
+            elif knowledge_type == "stable":
+                lifecycle_basis = (
+                    "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM"
+                )
+            elif knowledge_type == "reviewable":
+                lifecycle_basis = "MAINTAINED_SET_OR_STRUCTURE"
+            else:
+                lifecycle_basis = _TRANSIENT_LIFECYCLE_BASIS
+
+        # Explanatory biology/physics/mechanism questions describe durable
+        # knowledge unless the question itself contains an explicit time cue.
+        causal_lifecycle_override = (
+            _CAUSAL_QUESTION_RE.search(question)
+            and not _TEMPORAL_QUESTION_RE.search(question)
+        )
+        if causal_lifecycle_override:
+            knowledge_type = "stable"
+            lifecycle_basis = (
+                "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM"
+            )
+            normalized_temporal_scope = None
         if (
             not claim
             or not subject
             or risk != "low"
-            or knowledge_type not in {"stable", "changing"}
         ):
-            return {"decision": "SKIP", "reason": "candidate_policy_gate"}
+            return {
+                "decision": "SKIP",
+                "reason": "candidate_policy_gate",
+            }
 
-        # Explanatory biology/physics/mechanism questions describe durable
-        # knowledge unless the question itself contains an explicit time cue.
-        question = str(packet.get("question") or "")
-        if (
-            _CAUSAL_QUESTION_RE.search(question)
-            and not _TEMPORAL_QUESTION_RE.search(question)
+        if lifecycle_basis == _TRANSIENT_LIFECYCLE_BASIS or knowledge_type in {
+            "changing", "event", "news"
+        }:
+            return {
+                "decision": "SKIP",
+                "reason": "non_reusable_knowledge",
+            }
+
+        expected_type = _PERSISTABLE_LIFECYCLE_SHAPES.get(lifecycle_basis)
+        valid_for_days = raw.get("valid_for_days")
+        lifecycle_valid = expected_type == knowledge_type
+        if lifecycle_basis == "FIXED_HISTORY":
+            lifecycle_valid = (
+                lifecycle_valid
+                and normalized_temporal_scope is not None
+            )
+            valid_for_days = None
+        elif lifecycle_basis == (
+            "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM"
         ):
-            knowledge_type = "stable"
+            lifecycle_valid = lifecycle_valid and (
+                valid_for_days is None or causal_lifecycle_override
+            )
+            valid_for_days = None
+        elif lifecycle_basis == "MAINTAINED_SET_OR_STRUCTURE":
+            lifecycle_valid = (
+                lifecycle_valid
+                and isinstance(valid_for_days, int)
+                and 1 <= valid_for_days <= 3650
+            )
+        else:
+            lifecycle_valid = False
+        if not lifecycle_valid:
+            return {
+                "decision": "SKIP",
+                "reason": "lifecycle_contract_invalid",
+            }
 
         result = deepcopy(raw)
         result["claim"] = claim
         result["subject"] = subject
         result["risk"] = risk
         result["knowledge_type"] = knowledge_type
-        result["valid_for_days"] = (
-            None if knowledge_type == "stable" else result.get("valid_for_days")
+        result["lifecycle_basis"] = lifecycle_basis
+        result["valid_for_days"] = valid_for_days
+        result["knowledge_domain"] = knowledge_domain
+        result["verification_level"] = verification_level
+        result["cluster_label"] = (
+            " ".join(str(raw.get("cluster_label") or subject).split())[:120]
         )
-        if knowledge_type == "changing" and not isinstance(
-            result.get("valid_for_days"), int
-        ):
-            return {"decision": "SKIP", "reason": "changing_claim_missing_expiry"}
+        result["temporal_scope"] = normalized_temporal_scope
         result["reason"] = (
             "从外部回答中提取的核心候选事实，需要独立验证。"
             if _CJK_RE.search(question)
@@ -140,23 +243,31 @@ class CuriosityKnowledgeVerifier:
                 packet,
             )
             result = self._normalize_candidate(raw, packet)
+            recovery_reason = ""
             if result.get("decision") == "VERIFY":
                 allowed, reason = self._direct_answer_gate(
                     packet["question"], result.get("claim")
                 )
                 if not allowed:
-                    print("[NERV KNOWLEDGE CANDIDATE RECOVERY]", reason)
-                    recovery_packet = dict(packet)
-                    recovery_packet["rejected_candidate"] = {
-                        "subject": result.get("subject"),
-                        "claim": result.get("claim"),
-                        "rejection_reason": reason,
-                    }
-                    raw = self._call_candidate_model(
-                        "prompts/nerv_curiosity_knowledge_candidate_recovery.txt",
-                        recovery_packet,
-                    )
-                    result = self._normalize_candidate(raw, packet)
+                    recovery_reason = reason
+            elif result.get("reason") == "lifecycle_contract_invalid":
+                recovery_reason = "lifecycle_contract_invalid"
+            if recovery_reason:
+                print(
+                    "[NERV KNOWLEDGE CANDIDATE RECOVERY]",
+                    recovery_reason,
+                )
+                recovery_packet = dict(packet)
+                recovery_packet["rejected_candidate"] = {
+                    "subject": result.get("subject"),
+                    "claim": result.get("claim"),
+                    "rejection_reason": recovery_reason,
+                }
+                raw = self._call_candidate_model(
+                    "prompts/nerv_curiosity_knowledge_candidate_recovery.txt",
+                    recovery_packet,
+                )
+                result = self._normalize_candidate(raw, packet)
         finally:
             self._release("CANDIDATE")
         if result.get("decision") == "VERIFY":
@@ -168,20 +279,34 @@ class CuriosityKnowledgeVerifier:
         return result
 
     @staticmethod
-    def build_query(claim, fallback_builder):
+    def build_query(
+        claim,
+        fallback_builder,
+        verification_level="double",
+        knowledge_domain="other",
+    ):
         """Preserve non-English entities instead of asking AI to translate them."""
         compact_claim = " ".join(str(claim or "").split()).strip()[:180]
         if not compact_claim:
             return ""
         if _CJK_RE.search(compact_claim):
-            query = compact_claim + " scientific study official research"
+            level = str(verification_level or "double").lower().strip()
+            domain = str(knowledge_domain or "other").lower().strip()
+            if level == "standard":
+                query = compact_claim + " 官方资料 可靠来源"
+            elif domain == "legal":
+                query = compact_claim + " official law primary source"
+            elif domain == "medical":
+                query = compact_claim + " medical guideline peer reviewed research"
+            else:
+                query = compact_claim + " scientific study official research"
             print("[NERV ENTITY-ANCHORED QUERY]", repr(query))
             return query
         return fallback_builder(compact_claim)
 
     @staticmethod
-    def evidence_gate(search_result):
-        """Require readable, independent web evidence before semantic review."""
+    def evidence_gate(search_result, verification_level="double"):
+        """Apply the selected standard or double evidence contract."""
         result = search_result if isinstance(search_result, dict) else {}
         judgment = result.get("judgment") if isinstance(result.get("judgment"), dict) else {}
         sources = []
@@ -208,19 +333,39 @@ class CuriosityKnowledgeVerifier:
             votes = int(judgment.get("votes") or 0)
         except (TypeError, ValueError):
             votes = 0
-        allowed = (
-            str(result.get("status") or "").upper() == "OK"
-            and judgment.get("consensus") is True
-            and judgment.get("need_more_sources") is not True
-            and votes >= MIN_CONSENSUS_VOTES
-            and len(sources) >= MIN_INDEPENDENT_SOURCES
+        level = str(verification_level or "double").lower().strip()
+        if level not in {"standard", "double"}:
+            level = "double"
+        extracted_answer = any(
+            isinstance(item, dict)
+            and str(item.get("answer") or "").strip()
+            for item in result.get("answers", [])
         )
+        if level == "standard":
+            allowed = (
+                str(result.get("status") or "").upper()
+                in {"OK", "INSUFFICIENT_EVIDENCE"}
+                and len(sources) >= 1
+                and extracted_answer
+            )
+            success_reason = "ai_plus_source_corroboration"
+        else:
+            allowed = (
+                str(result.get("status") or "").upper() == "OK"
+                and judgment.get("consensus") is True
+                and judgment.get("need_more_sources") is not True
+                and votes >= MIN_CONSENSUS_VOTES
+                and len(sources) >= MIN_INDEPENDENT_SOURCES
+            )
+            success_reason = "double_independent_consensus"
         return {
             "allowed": allowed,
             "sources": sources,
             "votes": votes,
+            "verification_level": level,
+            "external_ai_can_corroborate": level == "standard",
             "reason": (
-                "independent_consensus"
+                success_reason
                 if allowed
                 else "insufficient_independent_evidence"
             ),
@@ -228,7 +373,12 @@ class CuriosityKnowledgeVerifier:
 
     def evaluate(self, item, candidate, search_result):
         """Compare the hypothesis with search evidence after the hard gate."""
-        gate = self.evidence_gate(search_result)
+        verification_level = str(
+            candidate.get("verification_level") or "double"
+        ).lower().strip()
+        if verification_level not in {"standard", "double"}:
+            verification_level = "double"
+        gate = self.evidence_gate(search_result, verification_level)
         if not gate["allowed"]:
             return {
                 "decision": "KEEP_UNVERIFIED",
@@ -241,7 +391,9 @@ class CuriosityKnowledgeVerifier:
             key: candidate.get(key)
             for key in (
                 "subject", "claim", "topics", "knowledge_type",
-                "valid_for_days", "risk",
+                "lifecycle_basis", "valid_for_days", "risk", "knowledge_domain",
+                "verification_level", "cluster_label",
+                "temporal_scope",
             )
         }
         judgment = result.get("judgment")
@@ -257,6 +409,11 @@ class CuriosityKnowledgeVerifier:
                 "curiosity_id": item_packet["curiosity_id"],
                 "question": item_packet["question"],
                 "external_ai_status": "UNVERIFIED_EXTERNAL_AI",
+                "external_ai_supporting_answer": (
+                    item_packet["external_ai_answer"]
+                    if verification_level == "standard"
+                    else None
+                ),
             },
             "candidate_hypothesis": candidate_packet,
             "search_status": result.get("status"),
@@ -264,9 +421,14 @@ class CuriosityKnowledgeVerifier:
             "extracted_evidence": result.get("answers", [])[:7],
             "qualified_sources": gate["sources"],
             "rules": [
-                "External AI is hypothesis only and is never evidence.",
+                (
+                    "For STANDARD verification, the external AI answer is one corroborating signal and one qualified readable source is still mandatory."
+                    if verification_level == "standard"
+                    else "For DOUBLE verification, external AI is hypothesis only and never evidence."
+                ),
                 "The original question and candidate claim are authoritative for entity identity.",
                 "Free-form candidate/search reasons are intentionally excluded.",
+                "Only stable, reviewable, or fixed-history knowledge may be promoted; current/open state remains journal-only.",
             ],
         }
         try:
@@ -277,7 +439,7 @@ class CuriosityKnowledgeVerifier:
                 num_ctx=8192,
                 num_predict=850,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
                 json_schema=CURIOSITY_KNOWLEDGE_VERDICT_SCHEMA,
             )
         finally:
@@ -290,19 +452,141 @@ class CuriosityKnowledgeVerifier:
             }
         verdict = deepcopy(raw)
         verdict["evidence_gate"] = gate
+        verdict["verification_level"] = verification_level
+        verdict["knowledge_domain"] = str(
+            verdict.get("knowledge_domain")
+            or candidate.get("knowledge_domain")
+            or "other"
+        ).lower().strip()
+        verdict["cluster_label"] = " ".join(
+            str(
+                verdict.get("cluster_label")
+                or candidate.get("cluster_label")
+                or candidate.get("subject")
+                or ""
+            ).split()
+        )[:120]
+        if not isinstance(verdict.get("temporal_scope"), dict):
+            verdict["temporal_scope"] = candidate.get("temporal_scope")
+        verdict["lifecycle_basis"] = str(
+            verdict.get("lifecycle_basis")
+            or candidate.get("lifecycle_basis")
+            or ""
+        ).upper().strip()
+        if not verdict["lifecycle_basis"]:
+            verdict_type = str(
+                verdict.get("knowledge_type") or "event"
+            ).lower()
+            if verdict_type == "stable" and isinstance(
+                verdict.get("temporal_scope"), dict
+            ):
+                verdict["lifecycle_basis"] = "FIXED_HISTORY"
+            elif verdict_type == "stable":
+                verdict["lifecycle_basis"] = (
+                    "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM"
+                )
+            elif verdict_type == "reviewable":
+                verdict["lifecycle_basis"] = (
+                    "MAINTAINED_SET_OR_STRUCTURE"
+                )
         if verdict.get("decision") != "PROMOTE":
             return verdict
         try:
             confidence = float(verdict.get("confidence") or 0)
         except (TypeError, ValueError):
             confidence = 0.0
+        confidence_floor = 0.80 if verification_level == "standard" else 0.88
+        knowledge_type = str(
+            verdict.get("knowledge_type") or "event"
+        ).lower()
+        lifecycle_basis = str(
+            verdict.get("lifecycle_basis") or ""
+        ).upper()
+        expected_type = _PERSISTABLE_LIFECYCLE_SHAPES.get(lifecycle_basis)
+        valid_for_days = verdict.get("valid_for_days")
+        lifecycle_valid = expected_type == knowledge_type
+        if lifecycle_basis == "FIXED_HISTORY":
+            temporal_scope = verdict.get("temporal_scope")
+            lifecycle_valid = (
+                lifecycle_valid
+                and isinstance(temporal_scope, dict)
+                and str(temporal_scope.get("scope_type") or "").upper()
+                in {"LATEST_COMPLETED_PERIOD", "EXPLICIT_PERIOD"}
+                and bool(str(temporal_scope.get("requested_period") or "").strip())
+                and temporal_scope.get("allow_previous_period") is False
+                and valid_for_days is None
+            )
+        elif lifecycle_basis == (
+            "DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM"
+        ):
+            lifecycle_valid = lifecycle_valid and valid_for_days is None
+        elif lifecycle_basis == "MAINTAINED_SET_OR_STRUCTURE":
+            lifecycle_valid = (
+                lifecycle_valid
+                and isinstance(valid_for_days, int)
+                and 1 <= valid_for_days <= 3650
+            )
+        else:
+            lifecycle_valid = False
         if (
             str(verdict.get("risk") or "high").lower() != "low"
-            or str(verdict.get("knowledge_type") or "event").lower()
-            not in {"stable", "changing"}
-            or confidence < 0.85
+            or not lifecycle_valid
+            or confidence < confidence_floor
             or not str(verdict.get("canonical_claim") or "").strip()
         ):
             verdict["decision"] = "KEEP_UNVERIFIED"
             verdict["reason"] = "verdict_policy_gate"
+            return verdict
+        if verification_level == "double":
+            certification_packet = {
+                "question": item_packet["question"],
+                "candidate_hypothesis": candidate_packet,
+                "first_verdict": {
+                    key: verdict.get(key)
+                    for key in (
+                        "subject", "canonical_claim", "topics",
+                        "knowledge_domain", "cluster_label", "knowledge_type",
+                        "lifecycle_basis", "valid_for_days", "temporal_scope",
+                        "confidence",
+                    )
+                },
+                "extracted_evidence": result.get("answers", [])[:7],
+                "qualified_sources": gate["sources"],
+            }
+            try:
+                certification = self.model_call(
+                    "prompts/nerv_curiosity_knowledge_double_certify.txt",
+                    json.dumps(
+                        certification_packet,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    expect_json=True,
+                    num_ctx=6144,
+                    num_predict=420,
+                    think=False,
+                    model_name="gemma4:12b",
+                    json_schema=CURIOSITY_KNOWLEDGE_CERTIFICATION_SCHEMA,
+                )
+            finally:
+                self._release("DOUBLE_CERTIFICATION")
+            try:
+                certification_confidence = float(
+                    (certification or {}).get("confidence") or 0
+                )
+            except (TypeError, ValueError):
+                certification_confidence = 0.0
+            if (
+                not isinstance(certification, dict)
+                or certification.get("decision") != "CERTIFY"
+                or certification_confidence < 0.88
+            ):
+                verdict["decision"] = "KEEP_UNVERIFIED"
+                verdict["reason"] = "double_certification_failed"
+            else:
+                verdict["double_certification"] = {
+                    "decision": "CERTIFY",
+                    "confidence": certification_confidence,
+                    "reason": str(certification.get("reason") or "")[:400],
+                }
         return verdict

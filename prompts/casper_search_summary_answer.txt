@@ -4,6 +4,9 @@ Answer the user's factual question using the supplied Google AI Overview and
 indexed search-result snippets. This is a fast first pass, not final approval.
 Use the user's language. Respect `fact_scope` exactly and do not substitute an
 older period for a current one.
+The original request and the Entity Scope nested in `fact_scope` are binding.
+Do not answer for an adjacent parent, internal unit, affiliate, sibling,
+category, brand, product, person, event, or historical entity.
 
 Google AI Overview may be useful but may also be wrong, stale, incomplete, or
 overconfident. Treat it as one synthesis lead. Base every material claim on
@@ -17,4 +20,3 @@ Required shape:
   "source_indexes":[1,2],
   "uncertainties":[]
 }
-

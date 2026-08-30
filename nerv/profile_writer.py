@@ -39,6 +39,6 @@ class ProfileWriter:
             num_ctx=4096,
             num_predict=700,
             think=False,
-            model_name="gemma3:4b",
+            model_name="gemma4:e4b",
             json_schema=PROFILE_WRITER_SCHEMA,
         )

@@ -18,6 +18,10 @@ from .schemas import (
 _LOCK = threading.RLock()
 MAX_ITEMS = 100
 MAX_DRAFTS_FOR_SELECTION = 20
+MIN_HARD_CONFIDENCE = 0.40
+DEFAULT_DAILY_LIMIT = 10
+MAX_DAILY_LIMIT = 10
+DAILY_LIMIT_VERSION = 2
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 
 
@@ -36,7 +40,8 @@ class CuriosityJournal:
             "schema_version": CURIOSITY_SCHEMA_VERSION,
             "revision": 0,
             "enabled": True,
-            "daily_limit": 3,
+            "daily_limit": DEFAULT_DAILY_LIMIT,
+            "daily_limit_version": DAILY_LIMIT_VERSION,
             "items": [],
         }
 
@@ -51,7 +56,22 @@ class CuriosityJournal:
         value.setdefault("schema_version", CURIOSITY_SCHEMA_VERSION)
         value.setdefault("revision", 0)
         value.setdefault("enabled", True)
-        value.setdefault("daily_limit", 3)
+        # V1 stored the hard-coded default of three without distinguishing it
+        # from a user preference.  V2 raises Bekki's bounded idle exploration
+        # budget to ten, so migrate only that legacy shape.  Future explicit
+        # limits remain intact.
+        try:
+            daily_limit_version = int(
+                value.get("daily_limit_version") or 0
+            )
+        except (TypeError, ValueError):
+            daily_limit_version = 0
+        if daily_limit_version < DAILY_LIMIT_VERSION:
+            value["daily_limit"] = DEFAULT_DAILY_LIMIT
+            value["daily_limit_version"] = DAILY_LIMIT_VERSION
+            governance.save_json(self.path, value)
+        value.setdefault("daily_limit", DEFAULT_DAILY_LIMIT)
+        value.setdefault("daily_limit_version", DAILY_LIMIT_VERSION)
         return value
 
     @staticmethod
@@ -79,22 +99,134 @@ class CuriosityJournal:
         except ValueError:
             return ""
 
-    def observe_turn(self, user_message, assistant_reply, response_mode):
+    def observe_turn(
+        self,
+        user_message,
+        assistant_reply,
+        response_mode,
+        knowledge_candidates=None,
+        seed_kind="USER_TURN",
+        seed_metadata=None,
+    ):
         """Let AI propose one privacy-safe curiosity; Python checks contract."""
         message = str(user_message or "").strip()
         if not message:
             return {"status": "ignored", "reason": "empty_message"}
+        mode = str(response_mode or "")[:80]
+        evidence_grounded_modes = {
+            "FACT_LOOKUP",
+            "CLAIM_CHECK",
+            "NEWS_FEED",
+            "SOCIAL_RESEARCH",
+            "SHOPPING_RESEARCH",
+            "RECOMMENDATION_RESEARCH",
+            "VERIFIED_KNOWLEDGE",
+        }
+        assistant_grounding = (
+            (
+                "VERIFIED_KNOWLEDGE"
+                if str(seed_kind or "").upper()
+                == "VERIFIED_KNOWLEDGE_IDLE"
+                else "EXTERNAL_EVIDENCE_AVAILABLE"
+            )
+            if mode in evidence_grounded_modes
+            else "UNVERIFIED_ASSISTANT_OUTPUT"
+        )
+        journal_state = self.load()
+        # The Writer receives bounded prior question history so the same AI
+        # call can judge whether this is a first encounter or a topic Bekki has
+        # already explored. Python does not classify topics or choose depth.
+        recent_history = [
+            {
+                "id": str(item.get("id") or "")[:120],
+                "question": str(item.get("question") or "")[:500],
+                "trigger_summary": str(
+                    item.get("trigger_summary") or ""
+                )[:300],
+                "state": str(item.get("state") or "")[:40],
+                "created_at": str(item.get("created_at") or "")[:80],
+                "topic_stage": str(
+                    item.get("topic_stage") or ""
+                )[:40],
+                "question_depth": str(
+                    item.get("question_depth") or ""
+                )[:40],
+                "foundation_facet": str(
+                    item.get("foundation_facet") or ""
+                )[:50],
+                "breadth_relation": str(
+                    item.get("breadth_relation") or ""
+                )[:50],
+            }
+            for item in journal_state.get("items", [])
+            if isinstance(item, dict)
+            and item.get("state") in {
+                "DRAFT", "ASKED", "ANSWERED_UNVERIFIED", "VERIFIED"
+            }
+            and str(item.get("question") or "").strip()
+        ][-20:]
+        topic_knowledge = []
+        for item in knowledge_candidates or []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            curation = item.get("curation")
+            curation = curation if isinstance(curation, dict) else {}
+            topic_knowledge.append({
+                "id": str(item.get("id") or "")[:160],
+                "subject": str(item.get("subject") or "")[:300],
+                "claim": str(item.get("claim") or "")[:1400],
+                "topics": [
+                    str(value)[:80]
+                    for value in item.get("topics", [])[:10]
+                ],
+                "facet": str(curation.get("facet") or "")[:120],
+                "knowledge_type": str(
+                    item.get("knowledge_type") or "stable"
+                )[:30],
+                "temporal_scope": (
+                    item.get("temporal_scope")
+                    if isinstance(item.get("temporal_scope"), dict)
+                    else {}
+                ),
+            })
+            if len(topic_knowledge) >= 10:
+                break
         packet = {
+            "curiosity_seed": {
+                "kind": str(seed_kind or "USER_TURN")[:60],
+                "source_curiosity_id": str(
+                    (seed_metadata or {}).get("source_curiosity_id")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:120],
+                "source_knowledge_id": str(
+                    (seed_metadata or {}).get("source_knowledge_id")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:160],
+                "idle_generation": (
+                    str(seed_kind or "").upper()
+                    == "VERIFIED_KNOWLEDGE_IDLE"
+                ),
+            },
             "completed_turn": {
                 "user_message": message[:2400],
-                "bekki_reply": str(assistant_reply or "")[:2400],
-                "response_mode": str(response_mode or "")[:80],
+                # A LOCAL answer is not evidence and is intentionally omitted.
+                # This prevents Writer from amplifying hallucinated names or
+                # lists into the next External AI question.
+                "bekki_reply": (
+                    str(assistant_reply or "")[:2400]
+                    if mode in evidence_grounded_modes
+                    else ""
+                ),
+                "assistant_grounding": assistant_grounding,
+                "response_mode": mode,
             },
             "existing_draft_questions": [
                 str(item.get("question") or "")[:500]
-                for item in self.load().get("items", [])
+                for item in journal_state.get("items", [])
                 if isinstance(item, dict) and item.get("state") == "DRAFT"
             ][-20:],
+            "recent_curiosity_history": recent_history,
+            "active_topic_knowledge": topic_knowledge,
         }
         try:
             raw = self.model_call(
@@ -104,11 +236,11 @@ class CuriosityJournal:
                 num_ctx=6144,
                 num_predict=700,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
                 json_schema=CURIOSITY_WRITER_SCHEMA,
             )
         finally:
-            self._release("gemma3:12b", "WRITER")
+            self._release("gemma4:12b", "WRITER")
         proposal = raw.get("proposal") if isinstance(raw, dict) else None
         if not isinstance(proposal, dict):
             return {"status": "ignored", "reason": "no_curiosity"}
@@ -118,6 +250,42 @@ class CuriosityJournal:
         risk = str(proposal.get("sharing_risk") or "PROHIBITED").upper()
         interest = self._safe_number(proposal.get("interest_score"))
         confidence = self._safe_number(proposal.get("confidence"))
+        topic_stage = str(
+            proposal.get("topic_stage") or "NEW_OR_SPARSE"
+        ).upper()
+        current_turn_depth = str(
+            proposal.get("current_turn_depth") or "FOUNDATION"
+        ).upper()
+        question_depth = str(
+            proposal.get("question_depth") or "FOUNDATION"
+        ).upper()
+        foundation_facet = str(
+            proposal.get("foundation_facet") or "OTHER_CONCRETE_CONTEXT"
+        ).upper()
+        breadth_relation = str(
+            proposal.get("breadth_relation")
+            or "DISTINCT_FOUNDATION_FACET"
+        ).upper()
+        breadth_fit = proposal.get("breadth_fit", True) is True
+        related_curiosity_ids = []
+        supplied_curiosity_ids = {
+            str(item.get("id") or "")
+            for item in recent_history if str(item.get("id") or "")
+        }
+        for value in proposal.get("related_curiosity_ids") or []:
+            value = str(value or "")[:120]
+            if value and value not in related_curiosity_ids:
+                related_curiosity_ids.append(value)
+        related_knowledge_ids = []
+        supplied_knowledge_ids = {
+            str(item.get("id") or "")
+            for item in topic_knowledge if str(item.get("id") or "")
+        }
+        for value in proposal.get("related_knowledge_ids") or []:
+            value = str(value or "")[:160]
+            if value and value not in related_knowledge_ids:
+                related_knowledge_ids.append(value)
+        depth_fit = proposal.get("depth_fit", True) is True
         message_is_cjk = bool(_CJK_RE.search(message))
         # Only ``question`` leaves Bekki for ChatGPT, so its language remains a
         # hard boundary.  ``reason`` and ``trigger_summary`` are local journal
@@ -129,26 +297,103 @@ class CuriosityJournal:
         language_matches = not message_is_cjk or bool(_CJK_RE.search(question))
         if message_is_cjk and reason and not _CJK_RE.search(reason):
             reason = "这个问题来自刚才的对话，值得进一步了解。"
+        rejection_reasons = []
+        if not question or not reason or not trigger:
+            rejection_reasons.append("invalid_contract")
+        if risk != "NORMAL":
+            rejection_reasons.append("sharing_risk")
+        if confidence < MIN_HARD_CONFIDENCE:
+            rejection_reasons.append("extremely_low_confidence")
+        if not language_matches:
+            rejection_reasons.append("language_mismatch")
+        if topic_stage not in {
+            "NEW_OR_SPARSE", "DEVELOPING", "SUSTAINED"
+        }:
+            rejection_reasons.append("invalid_topic_stage")
+        if current_turn_depth not in {
+            "FOUNDATION", "ADJACENT", "SPECIALIST"
+        } or question_depth not in {
+            "FOUNDATION", "ADJACENT", "SPECIALIST"
+        }:
+            rejection_reasons.append("invalid_question_depth")
+        if foundation_facet not in {
+            "PEOPLE",
+            "HISTORY",
+            "WORKS_OR_PERFORMANCES",
+            "EVENTS_OR_STORIES",
+            "RELATIONSHIPS_OR_CULTURE",
+            "ORDINARY_BEHAVIOR",
+            "STRUCTURE_OR_ROSTER",
+            "OTHER_CONCRETE_CONTEXT",
+            "SPECIALIST_ANALYSIS",
+        }:
+            rejection_reasons.append("invalid_foundation_facet")
+        if breadth_relation not in {
+            "DISTINCT_FOUNDATION_FACET",
+            "SAME_NARROW_FACET",
+            "PROPORTIONATE_DEEPENING",
+        }:
+            rejection_reasons.append("invalid_breadth_relation")
+        if not set(related_curiosity_ids).issubset(supplied_curiosity_ids):
+            rejection_reasons.append("unknown_curiosity_reference")
+        if not set(related_knowledge_ids).issubset(supplied_knowledge_ids):
+            rejection_reasons.append("unknown_knowledge_reference")
+        if not depth_fit:
+            rejection_reasons.append("depth_not_fit")
+        if not breadth_fit:
+            rejection_reasons.append("breadth_not_fit")
         if (
-            not question
-            or not reason
-            or not trigger
-            or risk != "NORMAL"
-            or interest < 0.65
-            or confidence < 0.85
-            or not language_matches
+            topic_stage == "NEW_OR_SPARSE"
+            and current_turn_depth != "SPECIALIST"
+            and question_depth != "FOUNDATION"
         ):
+            rejection_reasons.append("sparse_topic_too_deep")
+        if (
+            topic_stage == "DEVELOPING"
+            and current_turn_depth == "FOUNDATION"
+            and question_depth != "FOUNDATION"
+        ):
+            rejection_reasons.append("foundation_turn_too_deep")
+        elif (
+            topic_stage == "DEVELOPING"
+            and current_turn_depth != "SPECIALIST"
+            and question_depth == "SPECIALIST"
+        ):
+            rejection_reasons.append("developing_topic_too_deep")
+        related_support_count = len(
+            set(related_curiosity_ids + related_knowledge_ids)
+        )
+        if (
+            question_depth == "SPECIALIST"
+            and current_turn_depth != "SPECIALIST"
+            and (
+                topic_stage != "SUSTAINED"
+                or related_support_count < 2
+            )
+        ):
+            rejection_reasons.append("specialist_depth_unsupported")
+        if (
+            topic_stage in {"NEW_OR_SPARSE", "DEVELOPING"}
+            and current_turn_depth == "FOUNDATION"
+            and breadth_relation != "DISTINCT_FOUNDATION_FACET"
+        ):
+            rejection_reasons.append("foundation_breadth_not_expanded")
+        if rejection_reasons:
             governance.append_jsonl(
                 self.audit_path,
                 {
                     "event": "curiosity_proposal_rejected",
+                    "rejection_reasons": rejection_reasons,
                     "sharing_risk": risk,
                     "interest_score": interest,
                     "confidence": confidence,
                     "language_matches": language_matches,
                 },
             )
-            return {"status": "dismissed", "reason": "privacy_or_quality_gate"}
+            return {
+                "status": "dismissed",
+                "reason": ",".join(rejection_reasons),
+            }
 
         state = self.load()
         normalized = question.casefold()
@@ -169,8 +414,26 @@ class CuriosityJournal:
             "interest_score": interest,
             "confidence": confidence,
             "sharing_risk": "NORMAL",
+            "topic_stage": topic_stage,
+            "current_turn_depth": current_turn_depth,
+            "question_depth": question_depth,
+            "foundation_facet": foundation_facet,
+            "breadth_relation": breadth_relation,
+            "breadth_fit": True,
+            "related_curiosity_ids": related_curiosity_ids,
+            "related_knowledge_ids": related_knowledge_ids,
+            "depth_fit": True,
             "created_at": now,
             "source": "nerv_ai_curiosity",
+            "seed_kind": str(seed_kind or "USER_TURN")[:60],
+            "source_curiosity_id": str(
+                (seed_metadata or {}).get("source_curiosity_id")
+                if isinstance(seed_metadata, dict) else ""
+            )[:120] or None,
+            "source_knowledge_id": str(
+                (seed_metadata or {}).get("source_knowledge_id")
+                if isinstance(seed_metadata, dict) else ""
+            )[:160] or None,
         }
         with _LOCK:
             state = self.load()
@@ -183,6 +446,43 @@ class CuriosityJournal:
             {"event": "curiosity_drafted", "id": record["id"]},
         )
         return {"status": "drafted", "id": record["id"]}
+
+    def observe_verified_knowledge(
+        self,
+        knowledge_item,
+        source_curiosity,
+        knowledge_candidates=None,
+    ):
+        """Let the existing Writer continue from newly verified Knowledge."""
+        knowledge_item = (
+            knowledge_item if isinstance(knowledge_item, dict) else {}
+        )
+        source_curiosity = (
+            source_curiosity if isinstance(source_curiosity, dict) else {}
+        )
+        if (
+            knowledge_item.get("status") != "verified"
+            or not str(knowledge_item.get("claim") or "").strip()
+        ):
+            return {"status": "ignored", "reason": "knowledge_not_verified"}
+        seed_message = str(
+            source_curiosity.get("question")
+            or knowledge_item.get("subject")
+            or ""
+        ).strip()
+        if not seed_message:
+            return {"status": "ignored", "reason": "empty_knowledge_seed"}
+        return self.observe_turn(
+            seed_message,
+            str(knowledge_item.get("claim") or ""),
+            "VERIFIED_KNOWLEDGE",
+            knowledge_candidates=knowledge_candidates,
+            seed_kind="VERIFIED_KNOWLEDGE_IDLE",
+            seed_metadata={
+                "source_curiosity_id": source_curiosity.get("id"),
+                "source_knowledge_id": knowledge_item.get("id"),
+            },
+        )
 
     def _release(self, model_name, stage):
         if self.unload_model is None:
@@ -199,9 +499,15 @@ class CuriosityJournal:
             return False
         today = datetime.now().astimezone().date().isoformat()
         try:
-            limit = max(0, min(3, int(state.get("daily_limit", 3))))
+            limit = max(
+                0,
+                min(
+                    MAX_DAILY_LIMIT,
+                    int(state.get("daily_limit", DEFAULT_DAILY_LIMIT)),
+                ),
+            )
         except (TypeError, ValueError):
-            limit = 3
+            limit = DEFAULT_DAILY_LIMIT
         used_today = sum(
             1
             for item in state.get("items", [])
@@ -237,10 +543,29 @@ class CuriosityJournal:
                 "reason": item.get("reason"),
                 "trigger_summary": item.get("trigger_summary"),
                 "interest_score": item.get("interest_score"),
+                "confidence": item.get("confidence"),
+                "topic_stage": item.get("topic_stage"),
+                "current_turn_depth": item.get("current_turn_depth"),
+                "question_depth": item.get("question_depth"),
+                "foundation_facet": item.get("foundation_facet"),
+                "breadth_relation": item.get("breadth_relation"),
+                "breadth_fit": item.get("breadth_fit"),
+                "seed_kind": item.get("seed_kind"),
+                "source_knowledge_id": item.get("source_knowledge_id"),
                 "created_at": item.get("created_at"),
             }
             for item in drafts
         ]
+        draft_ids = {
+            str(item.get("id") or "")
+            for item in drafts
+            if str(item.get("id") or "")
+        }
+        selection_schema = deepcopy(CURIOSITY_SELECTION_SCHEMA)
+        selection_schema["properties"]["candidate_id"] = {
+            "type": "string",
+            "enum": sorted(draft_ids),
+        }
         try:
             raw = self.model_call(
                 "prompts/nerv_curiosity_select.txt",
@@ -253,15 +578,91 @@ class CuriosityJournal:
                 num_ctx=4096,
                 num_predict=350,
                 think=False,
-                model_name="gemma3:12b",
-                json_schema=CURIOSITY_SELECTION_SCHEMA,
+                model_name="gemma4:12b",
+                json_schema=selection_schema,
             )
+            decision = str(raw.get("decision") or "").upper() if isinstance(raw, dict) else ""
+            selected_id = str(raw.get("candidate_id") or "") if isinstance(raw, dict) else ""
+
+            # A SKIP is audited once because small local models can confuse a
+            # named public figure with the user's private identity, or invent a
+            # requirement that curiosity must be general science.  Recovery is
+            # still an AI semantic decision; Python only validates exact IDs.
+            if decision != "ASK" or selected_id not in draft_ids:
+                print(
+                    "[NERV CURIOSITY SELECT RECOVERY]",
+                    "decision=" + (decision or "INVALID"),
+                )
+                raw = self.model_call(
+                    "prompts/nerv_curiosity_select_recovery.txt",
+                    json.dumps(
+                        {
+                            "current_date": datetime.now().date().isoformat(),
+                            "drafts": catalog,
+                            "first_selection": raw if isinstance(raw, dict) else None,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    expect_json=True,
+                    num_ctx=4096,
+                    num_predict=420,
+                    think=False,
+                    model_name="gemma4:12b",
+                    json_schema=selection_schema,
+                )
         finally:
-            self._release("gemma3:12b", "SELECT")
-        if not isinstance(raw, dict) or raw.get("decision") != "ASK":
+            self._release("gemma4:12b", "SELECT")
+
+        if not isinstance(raw, dict):
             return None
+        decision = str(raw.get("decision") or "").upper()
         selected_id = str(raw.get("candidate_id") or "")
-        return next((item for item in drafts if item.get("id") == selected_id), None)
+        selected = next(
+            (item for item in drafts if item.get("id") == selected_id),
+            None,
+        )
+        if selected is None:
+            return None
+        if decision == "ASK":
+            return selected
+        if decision == "SKIP":
+            self._dismiss_selection_candidate(
+                selected_id,
+                raw.get("reason"),
+            )
+        return None
+
+    def _dismiss_selection_candidate(self, candidate_id, reason):
+        """Remove one exact AI-rejected draft so it cannot loop forever."""
+        with _LOCK:
+            state = self.load()
+            item = next(
+                (
+                    value for value in state.get("items", [])
+                    if isinstance(value, dict)
+                    and value.get("id") == candidate_id
+                ),
+                None,
+            )
+            if item is None or item.get("state") != "DRAFT":
+                return
+            item["state"] = "DISMISSED"
+            item["selection_skipped_at"] = governance.now_iso()
+            item["selection_skip_reason"] = governance.compact_text(reason, 600)
+            state["revision"] = int(state.get("revision", 0)) + 1
+            governance.save_json(self.path, state)
+        governance.append_jsonl(
+            self.audit_path,
+            {
+                "event": "curiosity_selection_dismissed",
+                "id": candidate_id,
+            },
+        )
+        print(
+            "[NERV CURIOSITY DISMISSED]",
+            "candidate_id=" + candidate_id,
+        )
 
     def record_external_result(self, candidate_id, result):
         result = result if isinstance(result, dict) else {}

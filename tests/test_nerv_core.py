@@ -177,6 +177,47 @@ class ProfileWriterTests(unittest.TestCase):
             self.assertTrue(core.wait_for_pending_writes(timeout_seconds=2))
             self.assertEqual(len(core.profile.active_items()), 1)
 
+    def test_fact_intake_finishes_before_curiosity_shortlist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            order = []
+            core = NervCore(
+                model_call=mock.Mock(return_value={"proposals": []}),
+                unload_model=mock.Mock(),
+                base_dir=temporary,
+            )
+            with mock.patch(
+                "nerv.external_fact_fallback.intake_audited_fact_lookup",
+                side_effect=lambda *_args, **_kwargs: (
+                    order.append("fact_intake")
+                    or {
+                        "status": "COMPLETED",
+                        "knowledge_ids": ["knowledge-snapshot"],
+                    }
+                ),
+            ), mock.patch(
+                "knowledge_retrieval.shortlist",
+                side_effect=lambda *_args, **_kwargs: (
+                    order.append("shortlist") or []
+                ),
+            ), mock.patch.object(
+                core.curiosity,
+                "observe_turn",
+                return_value={"status": "ignored", "reason": "test"},
+            ):
+                core.observe_completed_turn_async(
+                    "2025年示例球队有哪些球员？",
+                    "FACT_LOOKUP",
+                    assistant_reply="截至2025年11月的阵容。",
+                    fact_knowledge_intake={
+                        "answer": "截至2025年11月的阵容。",
+                        "search_result": {"answers": []},
+                        "risk": "low",
+                    },
+                )
+                self.assertTrue(core.wait_for_pending_writes(timeout_seconds=2))
+
+            self.assertEqual(order, ["fact_intake", "shortlist"])
+
 
 class LearningEngineTests(unittest.TestCase):
     def test_observed_turn_never_becomes_verified_skill(self):

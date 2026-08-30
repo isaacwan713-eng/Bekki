@@ -41,14 +41,54 @@ def _load_runtime():
 class ModelRuntimeBudgetTests(unittest.TestCase):
     def test_large_model_is_remapped_to_12b(self):
         module = _load_runtime()
-        self.assertEqual(module._normalize_model("gpt-oss:20b"), "gemma3:12b")
+        self.assertEqual(module._normalize_model("gpt-oss:20b"), "gemma4:12b")
 
     def test_12b_context_is_bounded(self):
         module = _load_runtime()
         self.assertEqual(
-            module._bounded_options("gemma3:12b", 16384, 9000),
+            module._bounded_options("gemma4:12b", 16384, 9000),
             (8192, 4096),
         )
+
+    def test_gemma4_low_thinking_preserves_fast_existing_behavior(self):
+        module = _load_runtime()
+        self.assertIs(module._normalize_thinking("gemma4:12b", "low"), False)
+        self.assertIs(module._normalize_thinking("gemma4:12b", False), False)
+        self.assertIs(module._normalize_thinking("gemma4:12b", "high"), True)
+        self.assertIs(module._normalize_thinking("gemma4:12b", True), True)
+
+    def test_gemma4_e4b_uses_compact_budget(self):
+        module = _load_runtime()
+        self.assertEqual(
+            module._bounded_options("gemma4:e4b", 16384, 9000),
+            (4096, 2048),
+        )
+
+    def test_native_system_prompt_is_sent_separately(self):
+        module = _load_runtime()
+        payloads = []
+
+        @contextmanager
+        def unlocked():
+            yield
+
+        with patch.object(module, "_serialized_runtime", unlocked), patch.object(
+            module, "_unload_other_models", return_value=None
+        ), patch.object(
+            module,
+            "_request",
+            side_effect=lambda payload: payloads.append(payload) or "ok",
+        ):
+            result = module.generate(
+                "CURRENT REQUEST",
+                model_name="gemma4:12b",
+                system_prompt="SYSTEM RULES",
+                think="low",
+            )
+        self.assertEqual(result, "ok")
+        self.assertEqual(payloads[0]["prompt"], "CURRENT REQUEST")
+        self.assertEqual(payloads[0]["system"], "SYSTEM RULES")
+        self.assertIs(payloads[0]["think"], False)
 
     def test_utf8_compaction_keeps_both_ends(self):
         module = _load_runtime()
@@ -83,7 +123,7 @@ class ModelRuntimeBudgetTests(unittest.TestCase):
                 "x" * 30000,
                 num_ctx=8192,
                 num_predict=3000,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         self.assertEqual(result, "ok")
         self.assertEqual(len(payloads), 2)
@@ -107,7 +147,7 @@ class ModelRuntimeBudgetTests(unittest.TestCase):
             module, "wait_for_model_unloaded", return_value=True
         ), patch.object(module.time, "sleep", return_value=None):
             with self.assertRaises(module.OllamaRuntimeError):
-                module.generate("hello", model_name="gemma3:12b")
+                module.generate("hello", model_name="gemma4:12b")
         self.assertEqual(request.call_count, 2)
 
 

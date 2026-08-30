@@ -1,4 +1,4 @@
-Bekki UI Personalization V1
+Bekki Screenshot Multipass OCR V1.10.27
 
 Recommended installation:
 
@@ -6,20 +6,386 @@ Recommended installation:
 2. Extract the ZIP outside your current AI-Assistant folder.
 3. Run INSTALL_STABLE_V1.bat.
 4. The default target is %USERPROFILE%\AI-Assistant.
-5. Start Bekki from that target with: python main.py
+5. Download the required local models:
+   ollama pull gemma4:12b
+   ollama pull gemma4:e4b
+   ollama pull llama3.2:latest
+6. Start Bekki from that target with: python main.py
 
 The installer preserves your existing `.env`, `data`, `.git`, `.venv`,
 `build`, and `dist`, creates a timestamped backup, validates the new Python
 files, and restores the prior runtime automatically if installation fails.
 
-Expected startup build ID: bekki-ui-personalization-v1-20260826
+Expected startup build ID: bekki-screenshot-multipass-ocr-v1-10-27-20260830
 
-This update adds a top-right appearance settings button. It can change chat
-font family and size, replace Bekki's avatar, preview the result, and restore
-defaults. Preferences and copied custom avatars live in `data`, so they are
-preserved by later stable updates. It also retains the installed ChatGPT
+Screenshot Multipass OCR V1.10.27 reads a short panoramic UI screenshot in
+three local Windows OCR views: the full image and overlapping enlarged left
+and right details. The existing Gemma Vision call compares those independent
+transcriptions with its image tiles; no new AI role or gate is added. Up to 24
+literal UI strings now survive the evidence packet instead of 12, raw local
+OCR observations remain available to the final image answer, and uncertain
+characters or unlabeled metrics must stay uncertain rather than becoming a
+fluent guess.
+
+Screenshot Current Evidence V1.10.26 keeps an attached image as the
+authoritative current-turn evidence through final answer generation. An image
+explanation remains TASK + IMAGE even if the router also emits COMPANION, so
+older screenshots and prior assistant answers are not loaded and cannot
+replace the current image. It also updates the local Windows OCR WinRT awaiter
+and stream type and reports the exact failure stage, exception type, and
+HRESULT if OCR is unavailable. No AI role or semantic routing gate was added.
+
+Screenshot OCR Fusion V1.10.25 adds local Windows.Media.Ocr transcription and
+overlapping enlarged screenshot tiles to the same existing Gemma vision call.
+It does not add another AI role or routing gate. Chinese and other source text
+must remain in the original writing system, while unresolved OCR/image
+conflicts are reported as uncertainty rather than guessed. If Windows OCR is
+unavailable, Bekki safely continues with the enlarged Gemma tiles. For the
+90% clear-UI key-field acceptance target on Simplified Chinese screenshots,
+Windows should have the zh-CN OCR recognizer installed.
+
+Screenshot Local Route Contract V1.10.24 fixes a screenshot-only LOCAL route
+being rejected when MAGI used `local_knowledge_sufficiency=SUFFICIENT` to
+describe the attached image even though the recalled Knowledge packet was
+empty. The runtime now normalizes only that mechanically impossible auxiliary
+value to NONE and keeps the valid AI-selected lane, avoiding an unnecessary
+recovery-model call. No new AI role or routing gate was added.
+
+Completed Historical Milestone Knowledge V1.10.23.2 makes the existing time
+scope and lifecycle AIs treat a request to discover a public debut, founding,
+first release, first appointment, or similar completed milestone as
+EXPLICIT_PERIOD rather than current state. When accepted evidence supports the
+exact date or year, its atomic claim may enter Knowledge as FIXED_HISTORY.
+Retrieval freshness metadata cannot override the completed historical meaning.
+No new AI role or synchronous answer gate was added.
+
+Curiosity Foundation Draft Calibration V1.10.23.1 strengthens the existing
+Writer without adding another AI role or retry gate. A safe FOUNDATION turn
+about an identified public subject now drafts a distinct approachable question
+when an uncovered facet remains. A narrow history of units, terminology, and a
+dated roster no longer becomes proposal=null merely because the packet does
+not already contain a named performance, person, or story. The question may
+ask for such an example without asserting an unsupported answer.
+
+Curiosity Native Knowledge and Idle Exploration V1.10.23 lets the existing
+Curiosity Writer continue from newly verified Knowledge at later idle checks.
+The next draft retains exact source Curiosity/Knowledge IDs and must still pass
+the existing privacy, duplicate, breadth, and gradual-depth contracts.
+Unverified or transient current-state answers cannot seed further exploration.
+The legacy daily default of three is migrated to ten for this test cycle.
+
+Curiosity-verified durable explanations, reviewable maintained structures, and
+exact closed historical snapshots now enter the same Knowledge inbox used by
+ordinary audited FACT_LOOKUP. Current rosters, affiliations, schedules, events,
+and news remain journal-only. A new item created after today's Curator run is
+eligible for another same-day idle curation pass.
+
+Daily curation now stores a presentation-only preferred name form: established
+Chinese public names normally use Chinese, established Japanese public names
+use Japanese, and original English or romanized spellings remain aliases. An
+uncertain conversion remains source-preserved. The authoritative verified
+claim is never rewritten. No new AI role or synchronous reply gate was added.
+
+Historical Snapshot Lifecycle Calibration V1.10.22.1 corrects the existing
+partition/lifecycle contract so an exact completed historical people roster is
+FIXED_HISTORY rather than a current roster. The first AI's persist proposal is
+advisory; the existing lifecycle auditor can correct a false changing decision
+when claim text and temporal metadata preserve the same source-supported closed
+snapshot. Current and open-ended rosters still never enter Knowledge. No AI
+role or model call was added.
+
+Knowledge Intake V1.10.22 processes ordinary low-risk FACT_LOOKUP answers only
+after Casper has accepted them and after the user reply has been returned. The
+existing partition and lifecycle AI roles decide which exact claims can enter
+Knowledge. A source-supported closed historical roster snapshot may be stored
+with its exact period; a current people roster or current affiliation is never
+stored. The background result is visible as `[NERV FACT KNOWLEDGE INTAKE]`.
+
+Curiosity Breadth V1.10.22 requires a new or developing topic to move from a
+foundation list or roster to a genuinely different approachable facet. Member
+roles, newest members, and another status slice remain the same narrow roster
+lane. The existing Writer and Selector own this semantic decision; no new AI
+gate or Python domain classifier was added.
+
+Curiosity Foundation Calibration V1.10.21 makes topic maturity depend on
+distinct, learned foundation coverage instead of the raw number of related
+records. Drafted, asked, or unverified Curiosity cannot by itself make a topic
+mature. A FOUNDATION turn in a NEW_OR_SPARSE or DEVELOPING topic must produce
+a concrete FOUNDATION proposal. A comparison inherits its hardest requested
+knowledge lens, so brand positioning, audience segmentation, promotion
+strategy, contracts, governance, and professional operations remain
+SPECIALIST even when phrased as differences. The existing Writer and Selector
+own these semantic decisions; no new AI model call or Python keyword
+classifier was added.
+
+Knowledge Breadth V1.10.20 strengthens the existing Curiosity Writer rather
+than adding another AI gate. For a new or sparse topic, Bekki first asks an
+approachable foundation question about people, history, works, events,
+relationships, stories, culture, or ordinary behavior. Specialist contracts,
+governance, strategy, or methodology follow only when the user's current turn
+is already specialist or the supplied related history supports that depth.
+The Writer receives bounded active Knowledge plus recent curiosity IDs and
+must declare its topic stage and question depth; Python only validates that
+declared contract.
+
+Historical Snapshot Knowledge V1.10.20 distinguishes a current people roster
+from a completed historical roster. An active/current roster remains SEARCH
+and never enters Knowledge. A roster tied to an exact completed date or closed
+season may enter as FIXED_HISTORY only when its exact period metadata is
+preserved. Different dates or seasons receive distinct knowledge identities,
+are never deduplicated merely for sharing an entity, and can answer only the
+same historical period. The existing MAGI call owns the sufficiency decision;
+no new model call was added.
+
+Knowledge-Aware Routing V1.10.19 moves deterministic active-Knowledge recall
+before MAGI. The existing MAGI call decides whether the recalled claims fully
+cover the exact request. A complete match routes LOCAL and bypasses redundant
+Melchior routing; incomplete, mismatched, expired, or explicitly reverified
+requests still route SEARCH. The same candidates reach the final answer, and
+no new AI gate or model call was added.
+
+Adjacent Curiosity V1.10.19 makes first encounters stay close to the user's
+topic and level before advancing to specialist mechanisms. The existing
+Curiosity Writer receives bounded prior-question history; Python does not
+select topics or semantic depth.
+
+Audit Finding Normalization V1.10.18 keeps the existing Answer Auditor as one
+model call but removes its duplicate global verdict. The model now returns
+semantic findings plus a mandatory canonical answer; the runtime maps those
+findings consistently without deciding factual content. A removable false
+event or justification is deleted while a complete, non-conflicting core is
+returned and stored. No new AI gate or model call was added.
+
+Core Claim Isolation V1.10.17 makes the existing Answer Auditor evaluate a
+complete retained core independently from removable false additions. Latent
+model familiarity and missing web corroboration are not negative evidence;
+only a direct contradiction affecting the retained core or supplied bounded
+web conflict evidence may reject it. No new AI gate or model call was added.
+
+Audited Core Answer V1.10.16 lets the existing Answer Auditor remove
+unnecessary or unreliable adjacent assertions when the remaining core still
+fully answers the exact question. The cleaned core—not the noisy original—is
+returned and stored. The auditor also receives Bekki's host-local current date
+as the authoritative temporal reference. No new AI gate or model call was
+added, and Python does not decide which facts to keep.
+
+Answer Audit Scope Anchor V1.10.15 keeps the exact user question and the
+External-AI candidate answer as the binding final-audit pair. Web material is
+limited to six compact conflict excerpts and cannot redefine the request,
+completion target, or entity relationship. The exact request is repeated at
+the end of the audit packet, while page bodies and large prior certification
+text are excluded. This prevents an adjacent member-list page from turning a
+formal-Team question into a request for every member. No AI role, gate,
+arbiter, external request, keyword classifier, or domain-specific rule was
+added.
+
+Nonstructural Lifecycle Boundary V1.10.14 gives the standalone fallback's
+transient branch an explicitly nonstructural meaning. Current people, rosters,
+schedules, prices, scores, versions, availability, and events remain
+current-turn-only; a current complete list of formal units remains maintained
+reusable structure. Browser-generated entity facets no longer broaden the
+authoritative question during lifecycle judgment, and the existing second AI
+audits lifecycle without seeing the first AI's lifecycle conclusion. No AI
+role, gate, arbiter, keyword classifier, or model call was added.
+
+Fallback Lifecycle Basis V1.10.13 makes standalone External-AI fallback
+questions choose an explicit semantic basis before a lifecycle label. A
+present list of formal organizational units remains reusable maintained
+structure even when the request says `current` or `目前`; current people,
+individual affiliations, schedules, prices, scores, versions, and events stay
+current-turn-only. This strengthens the existing Governor and independent
+policy auditor without adding another AI call. Python checks contract
+consistency but does not classify subjects or keywords.
+
+Structure Lifecycle Authority V1.10.12 distinguishes a maintained list of
+formal organizational units from a roster of people. The existing lifecycle
+AI may correct the first partitioner's persistence proposal without adding a
+new model call. Python permits storage only for low-impact, directly supported,
+uncontradicted, sufficiently confident claims. Current people and individual
+affiliations remain current-turn-only. Lifecycle audit V7 rechecks older mixed
+claims without silently rewriting them.
+
+Language-Safe Knowledge Review V1.10.11 preserves any meaningful expression
+that has no safe exact equivalent. Ordinary fact lookup may use mixed-language
+queries and still completes bounded 3-5-7 research. Social search keeps all
+meaningful user search terms in their original form on every platform.
+
+Maintained structures may be stable or reviewable according to one lifecycle
+AI. Stable knowledge has no fixed expiry but is eligible for a randomized idle
+review. A supported or inconclusive review never rewrites the claim; strong
+contradiction quarantines it as disputed. The obsolete final lifecycle critic
+is not used.
+
+Semantic Grounding V1.10.10 strengthens existing AI contracts without adding a
+query arbiter, AI role, gate, or normal-path model call. When a source-language
+expression has no reliable exact translation—or its meaning is itself being
+researched—the query keeps that original expression verbatim and may mix
+languages. Lifecycle V5 requires the existing AI to select a semantic basis
+before its label, preventing a durable-definition explanation from being
+stored as reviewable or a maintained official set from becoming permanent.
+Daily curation records the literal claim subject, selected and rejected
+hierarchy IDs, and relationship evidence while keeping related entities in one
+ecosystem JSON without merging them.
+
+Focused Certifier Calibration V1.10.8 strengthens the existing focused audit
+and certification prompts only. It adds no AI role, gate, arbiter, or model
+call. A precise positive entity and source taxonomy can defeat a neighboring
+interpretation without listing every excluded status. The certifier judges the
+literal query's meaning rather than possible irrelevant search results, and
+focused prompts no longer contain prefilled rejection-biased JSON examples.
+
+Query Certifier Calibration V1.10.7 keeps the existing two-role query flow:
+audit, certify, and at most one retry through those same roles. It adds no
+third AI, arbiter, or model call. The certifier now evaluates literal search
+scope rather than requiring impossible guarantees about every returned page.
+Explicit positive identity and adjacent-scope exclusion wording can establish
+the hierarchy boundary. Fixed rejection-biased JSON examples were removed,
+and the original auditor's retry instructions were strengthened.
+
+Focused Query Set V1.10.6 gives focused evidence-gap queries their own AI
+audit and certification contracts. The current candidate, its pre-audit facet,
+and sibling queries are labeled separately. AI must preserve the current
+candidate's facet through rewrites while judging full gap coverage across the
+effective query set. It no longer applies the PRIMARY requirement that every
+single focused query contain every requested facet. Python validates only the
+structured AI decisions and does not classify entity or taxonomy terms.
+
+Recycle Action Arbiter V1.10.5 fixes stale old-chat influence inside Casper's
+Recycle Bin executor. The broad action planner and focused restore-intent AI
+judge independently. A disagreement is resolved by a third AI whose input
+places the current request before old reference context. If arbitration fails,
+Bekki asks what the user means and never enters item restoration. Python
+validates only the closed AI action tokens; it contains no language keyword
+rule for open, list, or restore.
+
+Knowledge Correction V1.10.4 retains `gemma4:12b` for
+primary answers, MAGI, research, vision, learning, verification, and final
+writing, plus `gemma4:e4b` for fast routing and audits. The old Gemma 3 weights
+may remain installed for rollback but are not loaded by this build.
+
+Gemma 4 uses a different prompt and thinking contract. V1.10.4 sends reusable
+instructions through Ollama's native system field and converts thinking to a
+strict Boolean. Existing quick/JSON calls remain thinking-disabled; only an
+explicit high/on/True request enables it. The 12B context remains capped at 8K
+and E4B at 4K for the 16GB GPU stability envelope.
+
+V1.10.4 adds user-triggered Knowledge correction. A local AI decides whether a
+correction concerns a user-authoritative personal fact or an externally
+checkable public fact. Public disputes temporarily deactivate only the exact
+AI-selected records, re-run FACT_LOOKUP without treating the user as evidence,
+and preserve the old claim in `revision_history`. A verified reusable answer
+refreshes or supersedes the record; an inconclusive result remains inactive.
+
+Mixed-answer lifecycle V3 adds a final independent durability critic whenever
+any claim would be permanent `stable`. Maintained official unit sets become
+periodically `reviewable`; durable definitions and mechanisms may remain
+`stable`; current affiliations, rosters, and schedules stay current-turn-only.
+V2 mixed records are automatically re-audited during idle curation.
+
+Objective Fact Verification V1.8 audits an ungrounded LOCAL draft before it is
+shown when the answer contains concrete public-person, organization, team,
+roster, status, version, or date claims. A VERIFY verdict automatically reroutes
+the original request through official-first FACT_LOOKUP. If reliable evidence
+cannot be obtained, Bekki withholds the draft instead of guessing. Greetings,
+creative writing, translation, math, and user-authoritative facts about the
+user, family, devices, and preferences retain the fast local path.
+
+After bounded 3-5-7 FACT_LOOKUP fails to produce a complete answer, Bekki can
+ask ChatGPT Desktop with the exact public question. Permanent stable facts are
+stored after an answer-scope audit. Reviewable structural facts are stored with
+an AI-selected recheck deadline. Fast-changing person/team/status facts answer
+only the current turn and are not stored. High-impact contract, legal, medical,
+financial, safety, and reputational questions require a second certification
+before display and are not automatically stored.
+
+Approved Curiosity facts and low-impact stable/reviewable External-AI facts now
+enter `data\knowledge\inbox.json`. At the first idle opportunity once per local
+day, Gemma 4 organizes them into broad topic-ecosystem JSON documents under
+`data\knowledge\topics`. Related organizations, members, and sister groups can
+share one document while retaining separate entity IDs. Mixed questions are
+partitioned by AI: reusable structure may enter Knowledge, while current
+members, rosters, and schedules remain current-turn-only.
+
+V1.10.4 curates the inbox in complete three-item batches and atomically commits
+each successful batch. It also recognizes newly-created ChatGPT Copy controls
+by UIA runtime identity, so a WebView that replaces one old control with one
+new control cannot hide a completed answer merely because the count stayed the
+same. Timeout logs now state whether the exact prompt, a new Copy control, or a
+still-generating response was observed.
+
+Before browser discovery, local AI now derives the exact entity hierarchy and
+requested facets from the original message. A separate AI audits and may
+rewrite the initial and follow-up search queries. Another independent AI
+adversarially interprets the literal query without hidden runtime assumptions.
+It must construct the strongest excluded-scope reading; a plausible translated
+hierarchy ambiguity is repaired once and challenged again. Distinctive
+source-language taxonomy is preserved when an exact translation is uncertain,
+and focused follow-up queries are judged collectively rather than each being
+forced to repeat every requested facet. A separate
+independent lifecycle auditor also rechecks whether External-AI results should
+be stable, periodically reviewable, or current-turn-only and chooses any
+review interval semantically rather than from a fixed day table. Another AI
+rejects final evidence that answers for a nearby parent, affiliate, sibling,
+category, or other different entity. Missing or wrong-scope evidence is not
+proof that a fact is unavailable; it proceeds to the governed External-AI
+fallback. These are semantic AI decisions, not domain-specific Python keyword
+rules.
+
+Every reusable claim separated from a mixed current answer requires an
+independent local-AI lifecycle judgment before it can be written. The auditor
+distinguishes durable explanations from periodically reviewable active
+structures and complete official sets. If that decision is non-proportional or
+disagrees with the first AI's reusable lifecycle, a third independent AI
+arbitrates. Any resulting permanent claim then receives the separate V3
+durability critique, including cases where earlier judges agreed. Existing
+older-audit mixed claims, including records wrongly
+demoted to current-only, are automatically re-audited during idle curation;
+corrected records are requeued without clearing Knowledge or other user data.
+
+Curiosity now receives no raw LOCAL reply text. This prevents a hallucinated
+team, person, date, or other proper noun from being copied into an External AI
+question. Evidence-backed FACT_LOOKUP and CLAIM_CHECK replies may still inform
+Curiosity.
+
+NERV Curiosity Soft Gate V1.7 treats the writer's interest and confidence
+scores as uncalibrated selector hints instead of normal hard rejection gates.
+Only extremely low confidence below 0.40 is rejected before selection. Privacy,
+language, malformed-contract, and duplicate protections remain enforced, and
+dismissal logs now include the exact reason.
+
+External AI Answer Anchor V1.6 reads only the ChatGPT Desktop response that
+follows the exact prompt sent in the current request. It snapshots off-screen
+UIA text before sending, scrolls the newly-created response control into view,
+and rejects old answers revealed by viewport movement.
+
+Knowledge Clusters V1.5 lets Curiosity investigate stable background knowledge
+and useful current snapshots while enforcing a stable-only Knowledge boundary.
+Current rosters, trades, injuries, prices, schedules, policies, software
+versions, events, and news are never promoted into long-term Knowledge. Basic
+stable facts use external-AI corroboration plus one qualified independent
+source. Medical, legal, and sufficiently technical claims require two sources,
+consensus, and a second certification pass. Verified facts are clustered in
+`data/knowledge_clusters.json` and can be recalled locally for later related
+questions without a new search.
+
+News Feed Reliability V1.4 keeps relative recent-month searches inside a
+bounded current window, retries malformed structured extraction once, and
+fails closed instead of turning an extraction error into "no news".
+
+NERV Context Isolation V1.3 prevents a self-contained current message from
+receiving an older topic during Melchior routing or MAGI lane recovery. Prior
+conversation is exposed only for explicit follow-ups such as "那这个是真的吗".
+
+This update lets an explicitly attached screenshot ground MAGI and Melchior
+before Casper searches. Local Vision extracts exact visible names, model
+numbers, sports entities, claims, and error codes once; only privacy-filtered
+text can reach the search pipeline, and the screenshot itself is not uploaded
+to a search engine. Image explanation remains local, while requested claim
+verification, fact lookup, news, or shopping research reuses Casper's existing
+evidence checks. It retains the top-right appearance settings button, saved
+fonts and custom avatar, and the installed ChatGPT
 Desktop integration instead of browser/CDP control, and supports
-up to three privacy-screened NERV Curiosity Journal questions per local day. Existing
+up to ten privacy-screened NERV Curiosity Journal questions per local day. Existing
 data, memory, environment settings, and verified Casper Skills are preserved.
 The installer adds pywinauto to the existing virtual environment when needed.
 Install and sign in to ChatGPT Desktop before the first live test. No web
@@ -521,6 +887,18 @@ API now receives its canonical `undelete` verb instead of the localized-style
 `RESTORE` text that Windows could silently ignore while returning exit code 0.
 Post-action discovery still verifies that the approved opaque item ID really
 left the Recycle Bin before Bekki reports success.
+
+Phase 15.7 adds independent recycle-action arbitration. The focused
+restore-intent AI can no longer silently override a broad OPEN_RECYCLE_BIN or
+LIST_RECYCLE_BIN judgment because an old chat mentioned restoration. Both AI
+judgments are compared; disagreement invokes a separate Gemma 4 arbiter with
+CURRENT_REQUEST first and old conversation limited to genuine reference
+resolution. Invalid arbitration asks for clarification rather than selecting
+an item. Item selection likewise receives the current request before old
+context.
+
+New file:
+- prompts/casper_recycle_action_arbiter.txt
 
 Phase 16.0 adds the bounded local installation core for Football Manager 2026
 tactics. Casper discovers real .fmf candidates inside the user's actual

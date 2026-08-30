@@ -389,7 +389,7 @@ def select_installed_candidate(target, candidates, candidate_type):
         len(shortlist),
     )
     if not valid_contract:
-        print("[CASPER INSTALLED CANDIDATE AI RETRY] gemma3:12b")
+        print("[CASPER INSTALLED CANDIDATE AI RETRY] gemma4:12b")
         try:
             tools.unload_model("llama3.2:latest")
         except Exception as unload_error:
@@ -405,7 +405,7 @@ def select_installed_candidate(target, candidates, candidate_type):
                 num_ctx=4096,
                 num_predict=500,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
                 json_schema=_CANDIDATE_DECISION_SCHEMA,
             )
         except Exception as error:

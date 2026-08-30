@@ -135,7 +135,7 @@ class MelchiorRecoveryTests(unittest.TestCase):
             )
         self.assertEqual(result, "RECYCLE_BIN_ACTION")
         model.assert_called_once()
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
         self.assertGreaterEqual(model.call_args.kwargs["num_predict"], 256)
 
     def test_referential_follow_up_keeps_recent_context_for_content_gate(self):

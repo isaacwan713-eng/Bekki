@@ -53,13 +53,13 @@ def classify(message, pending_action, recent_context=""):
         attempts = (
             (
                 "prompts/casper_pending_turn_relation.txt",
-                "gemma3:12b",
+                "gemma4:12b",
                 500,
                 3072,
             ),
             (
                 "prompts/casper_pending_turn_relation_retry.txt",
-                "gemma3:4b",
+                "gemma4:e4b",
                 700,
                 4096,
             ),
@@ -74,7 +74,7 @@ def classify(message, pending_action, recent_context=""):
             ),
             (
                 "prompts/casper_pending_turn_relation_retry.txt",
-                "gemma3:12b",
+                "gemma4:12b",
                 700,
                 4096,
             ),

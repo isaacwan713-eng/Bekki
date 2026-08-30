@@ -195,7 +195,7 @@ class ApplicationSkillMemoryTests(unittest.TestCase):
         self.assertEqual(selected["name"], "Genshin Impact")
         self.assertEqual(
             [call[1]["model_name"] for call in calls],
-            ["llama3.2:latest", "gemma3:12b"],
+            ["llama3.2:latest", "gemma4:12b"],
         )
         self.assertTrue(calls[0][1]["json_schema"])
         self.assertIn("recover", calls[1][0])

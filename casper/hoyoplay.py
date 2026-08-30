@@ -11,7 +11,7 @@ import time
 
 
 _UI_VISION_MODEL = (
-    os.getenv("HOYOPLAY_VISION_MODEL", "gemma3:4b").strip() or "gemma3:4b"
+    os.getenv("HOYOPLAY_VISION_MODEL", "gemma4:e4b").strip() or "gemma4:e4b"
 )
 
 

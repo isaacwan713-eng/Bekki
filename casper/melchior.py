@@ -398,19 +398,23 @@ def _classify_content_device_scope(
         "CURRENT_REQUEST (authoritative):\n"
         + str(user_message)[:800]
         + "\nRECENT_CONTEXT (reference resolution only):\n"
-        + str(conversation_context)[-1200:]
+        + _routing_reference_context(
+            user_message,
+            conversation_context,
+            1200,
+        )
     )
     if learning_bootstrap_audit:
         attempts = (
             (
                 "prompts/melchior_content_action_scope.txt",
-                "gemma3:12b",
+                "gemma4:12b",
                 700,
                 3072,
             ),
             (
                 "prompts/melchior_content_action_scope_retry.txt",
-                "gemma3:12b",
+                "gemma4:12b",
                 1000,
                 4096,
             ),
@@ -425,7 +429,7 @@ def _classify_content_device_scope(
             ),
             (
                 "prompts/melchior_content_action_scope_retry.txt",
-                "gemma3:12b",
+                "gemma4:12b",
                 1000,
                 4096,
             ),
@@ -552,7 +556,13 @@ def _normalize_plan(plan):
         interaction_mode = "TASK"
         if context_profile in {"COMPANION", "NERV_LEARNING", "NERV_CURIOSITY"}:
             context_profile = "MINIMAL"
-    if interaction_mode == "COMPANION":
+    # IMAGE and DOCUMENT are concrete current-turn evidence profiles. If the
+    # model simultaneously labels one as COMPANION, preserve its evidence
+    # selection and drop only the inconsistent emotional-mode flag. This is a
+    # contract reconciliation, not a semantic reclassification.
+    if context_profile in {"IMAGE", "DOCUMENT"}:
+        interaction_mode = "TASK"
+    elif interaction_mode == "COMPANION":
         context_profile = "COMPANION"
     elif context_profile == "COMPANION":
         context_profile = "MINIMAL"
@@ -593,15 +603,15 @@ def _audit_nerv_learning_query(user_message):
             num_ctx=2048,
             num_predict=40,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         value = str(raw or "").strip().upper()
     except Exception as error:
         print("[MELCHIOR NERV QUERY AUDIT WARNING]", repr(error))
     finally:
         try:
-            tools.unload_model("gemma3:12b")
-            print("[MELCHIOR NERV AUDIT MODEL RELEASED] gemma3:12b")
+            tools.unload_model("gemma4:12b")
+            print("[MELCHIOR NERV AUDIT MODEL RELEASED] gemma4:12b")
         except Exception as error:
             print("[MELCHIOR NERV AUDIT RELEASE WARNING]", repr(error))
     if value not in {"NERV_LEARNING", "NERV_CURIOSITY", "OTHER"}:
@@ -640,6 +650,33 @@ def _explicit_nerv_curiosity_query(user_message):
     )
 
 
+def _explicit_nerv_learning_query(user_message):
+    """Require an explicit verified-skill inventory request.
+
+    NERV_LEARNING is not general factual learning. It exposes Bekki's local
+    verified-operation inventory, so a surprising fact, public person, or
+    ordinary statement must never open it implicitly.
+    """
+    text = " ".join(str(user_message or "").casefold().split())
+    if not text:
+        return False
+    chinese_patterns = (
+        r"(?:你|bekki).{0,12}(?:学会了|学到了|已经会了).{0,12}(?:什么|哪些)(?:操作|技能|方法)?",
+        r"(?:你|bekki).{0,12}(?:有哪些|有什么).{0,10}(?:已学习|学过|已验证|验证过).{0,6}(?:操作|技能)",
+        r"(?:查看|看看|显示|列出|打开).{0,10}(?:已学习|学过|已验证|验证过).{0,8}(?:操作|技能)(?:列表|清单|记录)?",
+        r"(?:已学习|已验证|验证过).{0,8}(?:操作|技能)(?:有|是).{0,6}(?:什么|哪些)",
+    )
+    english_patterns = (
+        r"\bwhat (?:operations|skills) (?:have you|has bekki) learned\b",
+        r"\bwhat (?:verified|learned) (?:operations|skills) do you have\b",
+        r"\b(?:show|list|view) (?:your |bekki'?s )?(?:verified|learned) (?:operations|skills)\b",
+    )
+    return any(
+        re.search(pattern, text, re.IGNORECASE)
+        for pattern in chinese_patterns + english_patterns
+    )
+
+
 def _audit_command_store_action(user_message):
     """Reliably separate reminder deletion from verified-skill deletion."""
     value = ""
@@ -655,15 +692,15 @@ def _audit_command_store_action(user_message):
             num_ctx=2048,
             num_predict=30,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         value = str(raw or "").strip().upper()
     except Exception as error:
         print("[MELCHIOR COMMAND STORE AUDIT WARNING]", repr(error))
     finally:
         try:
-            tools.unload_model("gemma3:12b")
-            print("[MELCHIOR COMMAND STORE MODEL RELEASED] gemma3:12b")
+            tools.unload_model("gemma4:12b")
+            print("[MELCHIOR COMMAND STORE MODEL RELEASED] gemma4:12b")
         except Exception as error:
             print("[MELCHIOR COMMAND STORE RELEASE WARNING]", repr(error))
     if value not in {"TASK_ACTION", "NERV_SKILL_ACTION"}:
@@ -827,6 +864,46 @@ def _finish_authoritative_recommendation_plan(magi_route):
     return plan
 
 
+def _authoritative_local_knowledge_plan(magi_route):
+    """Honor MAGI's existing AI judgment that recalled Knowledge is complete."""
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "LOCAL":
+        return None
+    if str(
+        magi_route.get("local_knowledge_sufficiency") or "NONE"
+    ).upper().strip() != "SUFFICIENT":
+        return None
+    return _normalize_plan(
+        {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "quick",
+            "social_platforms": [],
+            "recommendation_domain": None,
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MEMORY",
+            "knowledge_route_selected": True,
+            "reason": (
+                "Reliable MAGI judged the active recalled Knowledge complete "
+                "for the exact current request."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_local_knowledge_plan(magi_route):
+    plan = _authoritative_local_knowledge_plan(magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print("[MELCHIOR KNOWLEDGE ROUTE] LOCAL_ANSWER")
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
+    return plan
+
+
 def _router_schema_for_magi(magi_route):
     """Restrict audited replanning to the lane selected by AI MAGI."""
     schema = copy.deepcopy(_ROUTER_PLAN_SCHEMA)
@@ -837,6 +914,30 @@ def _router_schema_for_magi(magi_route):
             MAGI_LANE_MODES[lane]
         )
     return schema
+
+
+def _routing_reference_context(user_message, conversation_context, limit=1600):
+    """Expose prior turns to routing only for an explicit unresolved reference."""
+    message = " ".join(str(user_message or "").split()).casefold()
+    if not message:
+        return ""
+    chinese_patterns = (
+        r"(?:这个|那个|这些|那些|上面|前面|刚才|刚刚|之前说的|上一条)",
+        r"(?:第一个|第二个|第三个|前一个|后一个|另一个)",
+        r"^(?:那|然后|所以)?(?:呢|怎么办|为什么|真的吗|可以吗)[？?。.!！]?$",
+        r"^(?:继续|接着|再来|还有呢|然后呢|那第二个呢)",
+    )
+    english_patterns = (
+        r"\b(?:this|that|these|those|the previous|the above|the first|the second|the third)\b",
+        r"^(?:continue|go on|what about|and then|why|really)\b",
+    )
+    needs_reference = any(
+        re.search(pattern, message, re.IGNORECASE)
+        for pattern in chinese_patterns + english_patterns
+    )
+    if not needs_reference:
+        return ""
+    return str(conversation_context or "")[-max(0, int(limit)):]
 
 
 def _independent_router_schema():
@@ -850,6 +951,7 @@ def _compact_router_input(
     magi_route,
     state,
     memory_data,
+    image_context="",
 ):
     return json.dumps(
         {
@@ -858,27 +960,40 @@ def _compact_router_input(
             "current_user_message": str(user_message or "")[:1600],
             "initial_magi_ai_route_for_independent_review": magi_route,
             "allowed_response_modes": sorted(VALID_MODES),
-            "recent_conversation_for_reference_only": str(
-                conversation_context or ""
-            )[-1600:],
+            "recent_conversation_for_reference_only": _routing_reference_context(
+                user_message,
+                conversation_context,
+                1600,
+            ),
             "conversation_state_available": bool(state),
             "long_term_memory_available": bool(
                 memory.get_long_term_context(memory_data).strip()
             ),
             "active_document": bool(document.has_document()),
             "active_image": bool(vision.has_image()),
+            "active_image_evidence_for_current_request": str(
+                image_context or ""
+            )[:3200],
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def plan_request(user_message, conversation_context="", magi_route=None):
+def plan_request(
+    user_message,
+    conversation_context="",
+    magi_route=None,
+    image_context="",
+):
     """Return a normalized V2 routing plan for one user message."""
 
     memory_data = memory.initialize_memory()
     state = context_manager.load_context()
 
+    knowledge_plan = _finish_authoritative_local_knowledge_plan(magi_route)
+    if knowledge_plan is not None:
+        return knowledge_plan
     social_plan = _finish_authoritative_social_plan(magi_route)
     if social_plan is not None:
         return social_plan
@@ -892,6 +1007,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
         magi_route,
         state,
         memory_data,
+        image_context=image_context,
     )
     # Melchior must be able to disagree with the first MAGI judgment.  Lane
     # restriction is applied only after the reliable 12B MAGI audit below.
@@ -906,7 +1022,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             num_ctx=4096,
             num_predict=1200,
             think=False,
-            model_name="gemma3:4b",
+            model_name="gemma4:e4b",
             json_schema=router_schema,
         )
     except Exception as error:
@@ -915,7 +1031,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
         print("[MELCHIOR ROUTER MODEL ERROR]", repr(error))
         raw_plan = None
         try:
-            tools.unload_model("gemma3:4b")
+            tools.unload_model("gemma4:e4b")
             small_model_unloaded = True
         except Exception as unload_error:
             print(
@@ -931,7 +1047,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
     if not _raw_plan_has_valid_mode(raw_plan):
         if not small_model_unloaded:
             try:
-                tools.unload_model("gemma3:4b")
+                tools.unload_model("gemma4:e4b")
                 small_model_unloaded = True
             except Exception as unload_error:
                 print(
@@ -943,10 +1059,17 @@ def plan_request(user_message, conversation_context="", magi_route=None):
                 "current_date": datetime.now().date().isoformat(),
                 "runtime_localization_defaults": _runtime_profile_context(),
                 "current_conversation_state": state,
-                "recent_conversation": conversation_context[-5000:],
+                "recent_conversation": _routing_reference_context(
+                    user_message,
+                    conversation_context,
+                    5000,
+                ),
                 "current_user_message": user_message,
                 "initial_magi_ai_route_for_independent_review": magi_route,
                 "allowed_response_modes": sorted(VALID_MODES),
+                "active_image_evidence_for_current_request": str(
+                    image_context or ""
+                )[:3200],
             },
             ensure_ascii=False,
             indent=2,
@@ -959,7 +1082,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
                 num_ctx=4096,
                 num_predict=1800,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
                 json_schema=router_schema,
             )
             raw_plan = _repair_raw_plan_format_aliases(raw_plan)
@@ -998,7 +1121,12 @@ def plan_request(user_message, conversation_context="", magi_route=None):
             previous_route=magi_route,
             downstream_mode=plan.get("response_mode"),
             downstream_reason=plan.get("reason", ""),
-            recent_context=conversation_context,
+            recent_context=_routing_reference_context(
+                user_message,
+                conversation_context,
+                1600,
+            ),
+            image_context=image_context,
         )
         social_plan = _finish_authoritative_social_plan(magi_route)
         if social_plan is not None:
@@ -1014,8 +1142,15 @@ def plan_request(user_message, conversation_context="", magi_route=None):
                 "audited_authoritative_magi_ai_route": magi_route,
                 "current_date": datetime.now().date().isoformat(),
                 "current_user_message": user_message,
-                "recent_conversation_for_reference_only": conversation_context[-1600:],
+                "recent_conversation_for_reference_only": _routing_reference_context(
+                    user_message,
+                    conversation_context,
+                    1600,
+                ),
                 "previous_cross_lane_mode": plan.get("response_mode"),
+                "active_image_evidence_for_current_request": str(
+                    image_context or ""
+                )[:3200],
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -1028,7 +1163,7 @@ def plan_request(user_message, conversation_context="", magi_route=None):
                 num_ctx=3072,
                 num_predict=900,
                 think=False,
-                model_name="gemma3:4b",
+                model_name="gemma4:e4b",
                 json_schema=router_schema,
             )
             lane_plan = _repair_raw_plan_format_aliases(lane_plan)
@@ -1193,5 +1328,13 @@ def plan_request(user_message, conversation_context="", magi_route=None):
         plan["interaction_mode"] = "TASK"
         plan["needs_balthasar"] = False
         print("[MELCHIOR NERV QUERY GUARD] NERV_CURIOSITY -> OTHER")
+    if (
+        plan.get("context_profile") == "NERV_LEARNING"
+        and not _explicit_nerv_learning_query(user_message)
+    ):
+        plan["context_profile"] = "MINIMAL"
+        plan["interaction_mode"] = "TASK"
+        plan["needs_balthasar"] = False
+        print("[MELCHIOR NERV QUERY GUARD] NERV_LEARNING -> OTHER")
     print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import types
@@ -35,6 +36,37 @@ def _load_melchior():
 
 
 class MelchiorRecoveryTests(unittest.TestCase):
+    def test_self_contained_message_hides_stale_router_context(self):
+        module = _load_melchior()
+        packet = json.loads(
+            module._compact_router_input(
+                "你知道我以前住在SNH48新梦剧场边上吗？",
+                "上一轮话题：大谷翔平的 sweeper 横向位移约18英寸。",
+                {"lane": "LOCAL", "confidence": 0.95},
+                {},
+                {},
+            )
+        )
+        self.assertIn("SNH48", packet["current_user_message"])
+        self.assertEqual(packet["recent_conversation_for_reference_only"], "")
+        self.assertNotIn("大谷翔平", json.dumps(packet, ensure_ascii=False))
+
+    def test_explicit_followup_can_receive_recent_router_context(self):
+        module = _load_melchior()
+        packet = json.loads(
+            module._compact_router_input(
+                "那这个是真的吗？",
+                "上一轮话题：大谷翔平的 sweeper 横向位移约18英寸。",
+                {"lane": "LOCAL", "confidence": 0.95},
+                {},
+                {},
+            )
+        )
+        self.assertIn(
+            "大谷翔平",
+            packet["recent_conversation_for_reference_only"],
+        )
+
     def test_device_file_scope_is_preserved_only_for_device_actions(self):
         module = _load_melchior()
         device_plan = module._normalize_plan({
@@ -170,6 +202,41 @@ class MelchiorRecoveryTests(unittest.TestCase):
         self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
         self.assertEqual(plan["context_profile"], "MINIMAL")
 
+    def test_surprising_public_fact_cannot_open_learned_skill_inventory(self):
+        module = _load_melchior()
+        routed = {
+            "response_mode": "LOCAL_ANSWER",
+            "risk": "low",
+            "complexity": "low",
+            "reasoning_profile": "analytical",
+            "skill_route": "none",
+            "device_scope": "OTHER",
+            "interaction_mode": "TASK",
+            "context_profile": "NERV_LEARNING",
+            "reason": "incorrectly treated a public fact as learned inventory",
+        }
+        with patch.object(module.tools, "run_ai_prompt", return_value=routed):
+            plan = module.plan_request(
+                "我刚知道大谷翔平的 sweeper 横移约18英寸，感觉特别夸张。",
+                magi_route={"lane": "LOCAL", "confidence": 0.95},
+            )
+        self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
+        self.assertEqual(plan["context_profile"], "MINIMAL")
+
+    def test_explicit_learned_skill_inventory_passes_deterministic_guard(self):
+        module = _load_melchior()
+        self.assertTrue(
+            module._explicit_nerv_learning_query("你目前学会了哪些操作？")
+        )
+        self.assertTrue(
+            module._explicit_nerv_learning_query("列出你已验证的技能清单")
+        )
+        self.assertFalse(
+            module._explicit_nerv_learning_query(
+                "我刚知道大谷的 sweeper 横移18英寸，感觉很夸张。"
+            )
+        )
+
     def test_explicit_curiosity_phrases_pass_deterministic_guard(self):
         module = _load_melchior()
         self.assertTrue(module._explicit_nerv_curiosity_query("你今天在想什么？"))
@@ -254,8 +321,8 @@ class MelchiorRecoveryTests(unittest.TestCase):
             model.call_args_list[1].args[0],
             "prompts/melchior_command_store_scope.txt",
         )
-        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma3:12b")
-        unload.assert_called_once_with("gemma3:12b")
+        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma4:12b")
+        unload.assert_called_once_with("gemma4:12b")
 
     def test_local_skill_lookup_contradiction_gets_reliable_nerv_audit(self):
         module = _load_melchior()
@@ -284,8 +351,8 @@ class MelchiorRecoveryTests(unittest.TestCase):
             model.call_args_list[1].args[0],
             "prompts/melchior_nerv_query_scope.txt",
         )
-        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma3:12b")
-        unload.assert_called_once_with("gemma3:12b")
+        self.assertEqual(model.call_args_list[1].kwargs["model_name"], "gemma4:12b")
+        unload.assert_called_once_with("gemma4:12b")
         self.assertEqual(plan["context_profile"], "NERV_LEARNING")
 
     def test_nonlocal_route_cannot_use_nerv_learning_context(self):
@@ -404,16 +471,16 @@ class MelchiorRecoveryTests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         self.assertEqual(
             model.call_args_list[0].kwargs["model_name"],
-            "gemma3:4b",
+            "gemma4:e4b",
         )
         self.assertEqual(model.call_args_list[0].kwargs["num_ctx"], 4096)
         self.assertTrue(model.call_args_list[0].kwargs["json_schema"])
         self.assertEqual(
             model.call_args_list[1].kwargs["model_name"],
-            "gemma3:12b",
+            "gemma4:12b",
         )
         self.assertTrue(model.call_args_list[1].kwargs["json_schema"])
-        unload.assert_called_once_with("gemma3:4b")
+        unload.assert_called_once_with("gemma4:e4b")
 
     def test_router_prompts_distinguish_content_destinations_from_user_folders(self):
         prompt_root = Path(__file__).resolve().parents[1] / "prompts"
@@ -453,7 +520,7 @@ class MelchiorRecoveryTests(unittest.TestCase):
             model.call_args_list[1].kwargs["num_predict"],
             1000,
         )
-        unload.assert_called_once_with("gemma3:4b")
+        unload.assert_called_once_with("gemma4:e4b")
 
     def test_second_invalid_enum_raises_instead_of_using_stale_context(self):
         module = _load_melchior()
@@ -465,7 +532,7 @@ class MelchiorRecoveryTests(unittest.TestCase):
         ), patch.object(module.tools, "unload_model") as unload:
             with self.assertRaises(RuntimeError):
                 module.plan_request("Downloads 文件夹里有什么？")
-        unload.assert_called_once_with("gemma3:4b")
+        unload.assert_called_once_with("gemma4:e4b")
 
     def test_content_action_gate_preempts_product_recommendation(self):
         module = _load_melchior()
@@ -592,7 +659,7 @@ class MelchiorRecoveryTests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         self.assertEqual(
             model.call_args_list[1].kwargs["model_name"],
-            "gemma3:12b",
+            "gemma4:12b",
         )
         self.assertTrue(plan["content_workflow_selected"])
         self.assertEqual(plan["skill_route"], "lookup")

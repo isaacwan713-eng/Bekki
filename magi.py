@@ -31,6 +31,7 @@ VALID_RECOMMENDATION_DOMAINS = {
     "LOCAL_SERVICE",
     "HEALTHCARE_PROVIDER",
 }
+VALID_LOCAL_KNOWLEDGE_SUFFICIENCY = {"SUFFICIENT", "PARTIAL", "NONE"}
 MIN_ROUTE_CONFIDENCE = 0.65
 
 
@@ -127,6 +128,22 @@ def _valid_ai_route(raw):
             return None
     elif recommendation_domain is not None:
         return None
+    # Older persisted fixtures may omit this V1.10.19 field. Every real model
+    # call receives the required schema below; omission is retained only as a
+    # compatibility path and means that no local Knowledge sufficiency was
+    # asserted.
+    local_knowledge_sufficiency = str(
+        raw.get("local_knowledge_sufficiency") or "NONE"
+    ).upper().strip()
+    if (
+        local_knowledge_sufficiency
+        not in VALID_LOCAL_KNOWLEDGE_SUFFICIENCY
+    ):
+        return None
+    if lane == "COMMAND" and local_knowledge_sufficiency != "NONE":
+        return None
+    if lane == "LOCAL" and local_knowledge_sufficiency == "PARTIAL":
+        return None
     return {
         "lane": lane,
         "confidence": confidence,
@@ -135,6 +152,7 @@ def _valid_ai_route(raw):
         "social_platforms": normalized_platforms,
         "search_scope": search_scope,
         "recommendation_domain": recommendation_domain,
+        "local_knowledge_sufficiency": local_knowledge_sufficiency,
     }
 
 
@@ -175,6 +193,10 @@ def _route_schema():
                     {"type": "null"},
                 ]
             },
+            "local_knowledge_sufficiency": {
+                "type": "string",
+                "enum": sorted(VALID_LOCAL_KNOWLEDGE_SUFFICIENCY),
+            },
         },
         "required": [
             "lane",
@@ -184,6 +206,7 @@ def _route_schema():
             "social_platforms",
             "search_scope",
             "recommendation_domain",
+            "local_knowledge_sufficiency",
         ],
         "additionalProperties": False,
     }
@@ -204,8 +227,8 @@ def _run_gate(prompt_path, packet, source_prefix):
     # lanes for simple Chinese requests. MAGI stays AI-owned, uses the reliable
     # 12B model first, then the installed 4B model for one bounded AI recovery.
     attempts = (
-        ("gemma3:12b", 3072, 320),
-        ("gemma3:4b", 3072, 320),
+        ("gemma4:12b", 4096, 380),
+        ("gemma4:e4b", 4096, 380),
     )
     last_error = None
     previous_raw = None
@@ -220,7 +243,9 @@ def _run_gate(prompt_path, packet, source_prefix):
                 "social_scope to SOCIAL_RESEARCH, search_scope must also be "
                 "SOCIAL_RESEARCH and recommendation_domain must be null, even "
                 "when the posts discuss restaurants, products, or other "
-                "recommendations."
+                "recommendations. Keep local_knowledge_sufficiency consistent "
+                "with both the active candidate packet and the lane: PARTIAL "
+                "cannot choose LOCAL, and COMMAND always uses NONE."
             )
             if isinstance(previous_raw, dict):
                 attempt_packet["previous_rejected_route"] = previous_raw
@@ -247,6 +272,27 @@ def _run_gate(prompt_path, packet, source_prefix):
             _release_router_model(model_name)
         previous_raw = raw
         result = _valid_ai_route(raw)
+        if (
+            result
+            and not packet.get(
+                "active_local_knowledge_candidates_for_current_request"
+            )
+            and result["local_knowledge_sufficiency"] != "NONE"
+        ):
+            # This field describes recalled Knowledge only.  Vision evidence,
+            # an attached document, or the model's own stable knowledge may
+            # still justify the AI-selected LOCAL lane, but none of them can
+            # make an empty recalled-Knowledge packet SUFFICIENT or PARTIAL.
+            # Canonicalize the mechanically impossible auxiliary value rather
+            # than discarding the otherwise valid AI route and spending a
+            # second model call on the same routing decision.
+            print(
+                "[MAGI KNOWLEDGE SUFFICIENCY NORMALIZED]",
+                "from=" + result["local_knowledge_sufficiency"],
+                "to=NONE",
+                "reason=no_candidates",
+            )
+            result["local_knowledge_sufficiency"] = "NONE"
         if result and result["confidence"] >= MIN_ROUTE_CONFIDENCE:
             result["source"] = (
                 source_prefix + "_primary"
@@ -279,14 +325,22 @@ def route_request(
     has_document=False,
     has_image=False,
     nerv_context="",
+    image_context="",
+    knowledge_context="",
 ):
     packet = {
         "current_user_message": _compact(user_message, 1200),
         "recent_context_for_reference_only": _compact(recent_context, 900),
         "active_document": bool(has_document),
         "active_image": bool(has_image),
+        "active_image_evidence_for_current_request": _compact(
+            image_context, 3200
+        ),
         "nerv_profile_context_for_reference_only": _compact(
             nerv_context, 700
+        ),
+        "active_local_knowledge_candidates_for_current_request": _compact(
+            knowledge_context, 3000
         ),
     }
     return _run_gate("prompts/magi_gate.txt", packet, "ai")
@@ -298,6 +352,7 @@ def audit_route(
     downstream_mode,
     downstream_reason="",
     recent_context="",
+    image_context="",
 ):
     """Ask reliable MAGI AI to arbitrate one downstream lane disagreement."""
     packet = {
@@ -306,6 +361,9 @@ def audit_route(
         "downstream_proposed_mode": _compact(downstream_mode, 80),
         "downstream_reason": _compact(downstream_reason, 260),
         "recent_context_for_reference_only": _compact(recent_context, 500),
+        "active_image_evidence_for_current_request": _compact(
+            image_context, 3200
+        ),
         "audit_instruction": (
             "Re-evaluate independently. Keep or revise the lane based only on "
             "the requested outcome; do not automatically agree with either AI."

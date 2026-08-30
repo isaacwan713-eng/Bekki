@@ -154,14 +154,18 @@ class SummaryFirstTests(unittest.TestCase):
         }
         for name in (
             "_plan_fact_intent_scope",
+            "_plan_fact_entity_scope",
+            "_certify_fact_search_query",
+            "_audit_fact_search_query",
             "_try_search_summary_fact_answer",
             "_validate_candidate_answer",
             "_validate_temporal_scope",
+            "_audit_combined_fact_resolution",
             "_resolve_combined_fact",
             "_plan_evidence_gap",
         ):
             with self.subTest(name=name):
-                self.assertIn("model_name='gemma3:12b'", functions[name])
+                self.assertIn("model_name='gemma4:12b'", functions[name])
                 self.assertNotIn("model_name='gpt-oss:20b'", functions[name])
 
 

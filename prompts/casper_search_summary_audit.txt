@@ -6,6 +6,10 @@ rephrase it. Re-read the original request, temporal scope, overview, and every
 indexed snippet. Look specifically for hallucinated details, stale periods,
 contradictory snippets, category/entity mix-ups, overly broad inference, and
 errors copied from Google's summary.
+Treat the original request and the Entity Scope nested in `fact_scope` as
+binding. A parent/child/affiliate/sibling/category substitution fails
+DIRECTLY_ANSWERS even if the supplied snippets accurately describe that
+different scope.
 
 You may correct the answer. ACCEPT only if at least two distinct indexed
 sources directly support the corrected answer, agree on the requested time

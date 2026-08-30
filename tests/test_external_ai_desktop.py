@@ -77,7 +77,7 @@ class ExternalAIDesktopTests(unittest.TestCase):
             result = external_ai_desktop.ask_prompt("为什么猫会呼噜？")
         entered.assert_called_once_with(editor, keyboard, "为什么猫会呼噜？")
         backgrounded.assert_called_once_with(window, 101)
-        self.assertFalse(waited.call_args.kwargs["include_hidden"])
+        self.assertTrue(waited.call_args.kwargs["include_hidden"])
         minimized.assert_called_once_with(window, False)
         self.assertEqual(result["status"], "COMPLETED")
         self.assertEqual(result["provider"], "ChatGPT Desktop")
@@ -161,6 +161,70 @@ class ExternalAIDesktopTests(unittest.TestCase):
             "为什么猫会呼噜？",
         )
         self.assertEqual(answer, "猫呼噜与喉部肌肉的节律活动有关。")
+
+    def test_old_offscreen_answer_is_rejected_without_this_turn_prompt_anchor(self):
+        answer = external_ai_desktop._anchored_text_answer(
+            ["ChatGPT said: 棒球横向位移可能超过本垒板宽度。"],
+            "SNH48的成员是如何分配到各个分队的？",
+        )
+        self.assertEqual(answer, "")
+
+    def test_answer_after_exact_prompt_anchor_is_accepted(self):
+        answer = external_ai_desktop._anchored_text_answer(
+            [
+                "ChatGPT said: 棒球横向位移可能超过本垒板宽度。",
+                "You said: SNH48的成员是如何分配到各个分队的？",
+                "ChatGPT said: SNH48会依据运营安排、成员特点与队伍需求调整分队。",
+            ],
+            "SNH48的成员是如何分配到各个分队的？",
+        )
+        self.assertEqual(
+            answer,
+            "SNH48会依据运营安排、成员特点与队伍需求调整分队。",
+        )
+
+    def test_prompt_anchor_ignores_only_uia_wrapping_artifacts(self):
+        prompt = "SNH48现在有哪些正式分队？成员现在如何分配？"
+        index = external_ai_desktop._prompt_anchor_index(
+            ["You said: SNH48现在有哪些正式分队？\u200b\n成员现在如何分配？"],
+            prompt,
+        )
+        self.assertEqual(index, 0)
+
+    def test_repeated_old_prompt_is_not_a_new_text_answer(self):
+        prompt = "SNH48现在有哪些正式分队？"
+        before = [
+            "You said: " + prompt,
+            "ChatGPT said: 旧回答。",
+        ]
+        self.assertEqual(
+            external_ai_desktop._anchored_text_answer_since(
+                before, list(before), prompt
+            ),
+            "",
+        )
+        current = [
+            *before,
+            "You said: " + prompt,
+            "ChatGPT said: 新回答。",
+        ]
+        self.assertEqual(
+            external_ai_desktop._anchored_text_answer_since(
+                before, current, prompt
+            ),
+            "新回答。",
+        )
+
+    def test_new_copy_control_is_detected_when_virtualization_keeps_same_count(self):
+        old = Mock()
+        old.element_info.runtime_id = (1, 10)
+        new = Mock()
+        new.element_info.runtime_id = (1, 11)
+        snapshot = external_ai_desktop._copy_snapshot([old])
+        self.assertEqual(
+            external_ai_desktop._new_copy_controls([new], snapshot),
+            [new],
+        )
 
     def test_provider_404_message_is_not_returned_as_an_answer(self):
         answer = external_ai_desktop._new_text_answer(

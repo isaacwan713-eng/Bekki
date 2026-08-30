@@ -16,7 +16,7 @@ OLLAMA_URL = os.getenv(
 
 VISION_MODEL = os.getenv(
     "VISION_MODEL",
-    "gemma3:12b",
+    "gemma4:12b",
 )
 
 SUPPORTED_IMAGE_EXTENSIONS = {

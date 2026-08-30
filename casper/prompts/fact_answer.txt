@@ -15,6 +15,8 @@ Rules:
 
 - The supplied fact_intent_scope is binding. Express the result for that exact
   scope and never replace it with a prior period.
+- The original_user_request and nested Entity Scope are binding. Never replace
+  the requested entity hierarchy or relationship with an adjacent one.
 - The answer must directly express the supplied answer_status and reason.
 - For NOT_YET_AVAILABLE, explicitly say that the requested fact is not yet
   available and state the evidence-backed reason.

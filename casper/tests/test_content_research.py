@@ -133,7 +133,7 @@ class ContentResearchTests(unittest.TestCase):
             )
         self.assertEqual(result["queries"], ["FM26 tactics"])
         self.assertTrue(model.call_args.kwargs["expect_json"])
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
         self.assertEqual(model.call_args.kwargs["num_predict"], 700)
 
     def test_research_plan_retries_empty_model_output_compactly(self):

@@ -103,7 +103,7 @@ class HoYoPlayAutomationTests(unittest.TestCase):
             result = hoyoplay._visual_launch_plan(b"valid-png-bytes")
         self.assertEqual(result["game_identity"], "GENSHIN")
         self.assertEqual(len(captured), 2)
-        self.assertEqual(captured[0]["model_name"], "gemma3:4b")
+        self.assertEqual(captured[0]["model_name"], "gemma4:e4b")
         self.assertEqual(captured[0]["num_ctx"], 2048)
         self.assertTrue(captured[0]["response_format"])
         self.assertEqual(len(captured[0]["images"]), 1)

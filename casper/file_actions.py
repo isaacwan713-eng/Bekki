@@ -201,8 +201,8 @@ def _plan(message, recent_context, roots, entries):
     plan_schema = copy.deepcopy(_FILE_PLAN_SCHEMA)
     plan_schema["properties"]["action"]["enum"] = [authoritative_action]
     attempts = (
-        ("gemma3:4b", 4096, 240),
-        ("gemma3:12b", 4096, 280),
+        ("gemma4:e4b", 4096, 240),
+        ("gemma4:12b", 4096, 280),
     )
     raw = None
     for attempt, (model_name, num_ctx, num_predict) in enumerate(attempts):
@@ -256,7 +256,7 @@ def _classify_file_action(message, recent_context):
         + "\nCURRENT_REQUEST:\n"
         + str(message)[:600]
     )
-    for model_name in ("gemma3:12b", "gemma3:4b"):
+    for model_name in ("gemma4:12b", "gemma4:e4b"):
         try:
             raw = tools.run_ai_prompt(
                 "prompts/casper_file_action_gate.txt",

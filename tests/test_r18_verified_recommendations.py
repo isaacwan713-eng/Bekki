@@ -214,10 +214,10 @@ class VerifiedRecommendationTests(unittest.TestCase):
         )
         rendered = ast.unparse(planner)
         self.assertGreaterEqual(
-            rendered.count("model_name='gemma3:4b'"),
+            rendered.count("model_name='gemma4:e4b'"),
             1,
         )
-        self.assertGreaterEqual(rendered.count("model_name='gemma3:12b'"), 1)
+        self.assertGreaterEqual(rendered.count("model_name='gemma4:12b'"), 1)
         self.assertNotIn("model_name='gpt-oss:20b'", rendered)
 
 

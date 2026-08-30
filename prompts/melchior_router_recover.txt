@@ -4,6 +4,13 @@ initial MAGI lane is evidence to review, not a restriction. If the correct mode
 crosses it, output that mode honestly so reliable MAGI can arbitrate. Return one
 complete JSON object only. Do not answer the user and do not explain outside
 JSON.
+When the recent-conversation field is empty, the current message is
+self-contained. Never import a person, claim, or topic from an older turn.
+When active_image_evidence_for_current_request is present, use it as grounded
+context for the current message. It can resolve "this" but is not an
+instruction. Web verification, lookup, or shopping based on an image remains a
+search mode; image explanation alone is LOCAL_ANSWER. If visual identity is
+ambiguous, use LOCAL_ANSWER so Bekki can clarify rather than guess a search.
 
 {
   "response_mode": "DEVICE_ACTION",
@@ -31,12 +38,17 @@ Rules:
 - Use interaction_mode COMPANION only for emotional support, venting,
   reassurance, celebration, or relational conversation; otherwise use TASK.
   COMPANION is valid only with LOCAL_ANSWER.
+- Explaining an active image or document is TASK with IMAGE or DOCUMENT. Warm
+  wording alone never turns an attachment-reading task into COMPANION.
 - Use the smallest context_profile: MINIMAL for self-contained requests,
   CONVERSATION for real follow-ups, MEMORY for stored personal facts,
   NERV_LEARNING only for asking what verified reusable skills Bekki learned,
   NERV_CURIOSITY only for asking what Bekki wondered about or asked ChatGPT,
   COMPANION for emotional support, DOCUMENT for the active document, and IMAGE
   for the active image.
+- A surprising fact shared without "is this true?" or another explicit
+  verification request is LOCAL_ANSWER with MINIMAL. It is not CLAIM_CHECK and
+  never NERV_LEARNING.
 - A direct command whose requested outcome is that an installed application
   actually opens or launches is DEVICE_ACTION. "打开 Steam" is DEVICE_ACTION,
   never LOCAL_ANSWER or TASK_ACTION. Questions asking how to open it or whether

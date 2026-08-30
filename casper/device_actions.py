@@ -512,7 +512,7 @@ def classify_device_action_family(message, recent_context):
         + "\nCURRENT_REQUEST:\n"
         + str(message)[:500]
     )
-    for model_name in ("llama3.2:latest", "gemma3:4b"):
+    for model_name in ("llama3.2:latest", "gemma4:e4b"):
         try:
             raw = tools.run_ai_prompt(
                 "prompts/casper_device_family.txt",

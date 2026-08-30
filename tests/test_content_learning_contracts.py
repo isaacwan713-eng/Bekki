@@ -67,7 +67,7 @@ class ContentLearningContractTests(unittest.TestCase):
         )
         self.assertEqual(model.call_args_list[1].args[2], 3600)
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:12b"
         )
 
     def test_empty_queries_are_repaired_without_regenerating_grounding(self):
@@ -144,9 +144,7 @@ class ContentLearningContractTests(unittest.TestCase):
             side_effect=[
                 draft,
                 {"grounded": True, "reason": "current request supports plan"},
-                {"compliant": False, "reason": "meta-text"},
                 {"installation_queries": [placeholder]},
-                {"compliant": False, "reason": "still meta-text"},
             ],
         ), patch.object(content_learning, "_discover") as discover:
             result = content_learning.execute(
@@ -181,7 +179,6 @@ class ContentLearningContractTests(unittest.TestCase):
             side_effect=[
                 draft,
                 {"grounded": True, "reason": "current request supports plan"},
-                {"compliant": False, "reason": "not executable"},
                 recovered,
                 {"compliant": True, "reason": "grounded and executable"},
             ],
@@ -200,11 +197,34 @@ class ContentLearningContractTests(unittest.TestCase):
             [
                 "prompts/casper_content_learning_plan.txt",
                 "prompts/casper_content_learning_grounding_review.txt",
-                "prompts/casper_content_learning_query_review.txt",
                 "prompts/casper_content_learning_query_retry.txt",
                 "prompts/casper_content_learning_query_review.txt",
             ],
         )
+
+    def test_placeholder_query_is_rejected_without_calling_ai(self):
+        plan = {
+            "installation_queries": ["one complete documentation search"],
+        }
+        with patch.object(content_learning, "_ai") as model:
+            compliant, reason = content_learning._review_documentation_queries(
+                "打开 FM26 战术文件夹", plan
+            )
+        self.assertFalse(compliant)
+        self.assertIn("Placeholder", reason)
+        model.assert_not_called()
+
+    def test_template_query_is_rejected_without_calling_ai(self):
+        plan = {
+            "installation_queries": ["<target app> folder documentation"],
+        }
+        with patch.object(content_learning, "_ai") as model:
+            compliant, reason = content_learning._review_documentation_queries(
+                "打开 FM26 战术文件夹", plan
+            )
+        self.assertFalse(compliant)
+        self.assertIn("Template", reason)
+        model.assert_not_called()
 
     def test_learning_plan_prompts_do_not_embed_old_schema_sentinels(self):
         project_root = Path(content_learning.__file__).resolve().parent.parent
@@ -294,10 +314,10 @@ class ContentLearningContractTests(unittest.TestCase):
             "prompts/casper_content_learning_grounding_review_retry.txt",
         )
         self.assertEqual(
-            model.call_args_list[0].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[0].kwargs["model_name"], "gemma4:12b"
         )
         self.assertEqual(
-            model.call_args_list[1].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[1].kwargs["model_name"], "gemma4:12b"
         )
         self.assertGreater(
             model.call_args_list[1].args[2],

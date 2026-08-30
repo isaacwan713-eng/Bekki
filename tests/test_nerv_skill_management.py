@@ -32,8 +32,8 @@ class NervSkillManagementTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "MATCHED")
         self.assertEqual(result["skill"]["id"], SKILL["id"])
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
-        unload.assert_called_once_with("gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
+        unload.assert_called_once_with("gemma4:12b")
 
     def test_resolver_rejects_invented_id(self):
         model = mock.Mock(
@@ -59,7 +59,7 @@ class NervSkillManagementTests(unittest.TestCase):
             unload,
         )
         self.assertEqual(verdict, "CONFIRM")
-        unload.assert_called_once_with("gemma3:12b")
+        unload.assert_called_once_with("gemma4:12b")
 
     def test_invalid_confirmation_fails_closed(self):
         verdict = skill_management.classify_forget_confirmation(

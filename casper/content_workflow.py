@@ -17,13 +17,13 @@ def _classify_context_scope(message, recent_context):
     attempts = (
         (
             "prompts/casper_content_context_scope.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             700,
             4096,
         ),
         (
             "prompts/casper_content_context_scope_retry.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             1400,
             8192,
         ),
@@ -140,7 +140,7 @@ def _classify_stage(message, recent_context):
         ),
         (
             "prompts/casper_content_stage_retry.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             900,
             4096,
         ),
@@ -185,7 +185,7 @@ def _classify_authorized_stage(message, recent_context):
         ),
         (
             "prompts/casper_content_authorized_stage_retry.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             900,
             4096,
         ),

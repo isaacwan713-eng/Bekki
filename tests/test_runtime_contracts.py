@@ -43,7 +43,12 @@ class RuntimeTopologyTests(unittest.TestCase):
         )
 
     def test_router_and_tools_mirrors_have_no_behavior_drift(self):
-        for relative in ("melchior.py", "tools.py"):
+        for relative in (
+            "melchior.py",
+            "tools.py",
+            "knowledge.py",
+            "knowledge_retrieval.py",
+        ):
             with self.subTest(relative=relative):
                 root_tree = ast.parse(
                     (PROJECT_ROOT / relative).read_text(encoding="utf-8")
@@ -58,13 +63,207 @@ class RuntimeTopologyTests(unittest.TestCase):
                     ast.dump(mirror_tree, include_attributes=False),
                 )
 
-    def test_runtime_build_id_is_ui_personalization_v1(self):
+    def test_verified_knowledge_reaches_magi_without_extra_retrieval_model(self):
         source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        retrieval = (PROJECT_ROOT / "knowledge_retrieval.py").read_text(
+            encoding="utf-8"
+        )
+        recall_call = (
+            "local_knowledge_candidates = knowledge_retrieval.fast_candidates("
+        )
+        self.assertIn(recall_call, source)
+        self.assertIn("knowledge_context=magi_knowledge_context", source)
+        self.assertLess(
+            source.index(recall_call),
+            source.index("magi_route = magi.route_request("),
+        )
+        self.assertIn("NERV Verified Stable Knowledge Context", source)
+        for function_name in (
+            "fast_candidates", "format_fast_context", "routing_context"
+        ):
+            fast_source = ast.unparse(next(
+                node
+                for node in ast.parse(retrieval).body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == function_name
+            ))
+            self.assertNotIn("run_ai_prompt", fast_source)
+
+    def test_daily_knowledge_curator_is_wired_to_idle_runtime(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        core = (PROJECT_ROOT / "nerv" / "core.py").read_text(encoding="utf-8")
+        self.assertIn("self.knowledge_curator = KnowledgeCurator", core)
+        self.assertIn("def check_daily_knowledge_curator", source)
+        self.assertIn("nerv_core.knowledge_curator.run_once()", source)
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-ui-personalization-v1-20260826"',
+            "knowledge_curator_timer.timeout.connect(check_daily_knowledge_curator)",
+            source,
+        )
+        for name in (
+            "nerv_daily_knowledge_curator.txt",
+            "nerv_daily_knowledge_curator_recovery.txt",
+            "external_fact_fallback_partition.txt",
+            "external_fact_fallback_partition_lifecycle_audit.txt",
+            "external_fact_fallback_partition_lifecycle_audit_recovery.txt",
+        ):
+            self.assertTrue((PROJECT_ROOT / "prompts" / name).is_file())
+
+    def test_verified_curiosity_knowledge_can_seed_idle_continuation(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        curiosity = (
+            PROJECT_ROOT / "nerv" / "curiosity.py"
+        ).read_text(encoding="utf-8")
+        writer = (
+            PROJECT_ROOT / "prompts" / "nerv_curiosity_writer.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "nerv_core.curiosity.observe_verified_knowledge(",
+            source,
+        )
+        self.assertIn("def observe_verified_knowledge(", curiosity)
+        self.assertIn("DEFAULT_DAILY_LIMIT = 10", curiosity)
+        self.assertIn("MAX_DAILY_LIMIT = 10", curiosity)
+        self.assertIn("VERIFIED_KNOWLEDGE_IDLE", writer)
+
+    def test_stable_knowledge_review_is_wired_to_idle_runtime(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        core = (PROJECT_ROOT / "nerv" / "core.py").read_text(encoding="utf-8")
+        fallback = (
+            PROJECT_ROOT / "nerv" / "external_fact_fallback.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self.stable_knowledge_review = StableKnowledgeReviewer", core)
+        self.assertIn("def check_daily_stable_knowledge_review", source)
+        self.assertIn("nerv_core.stable_knowledge_review.run_once()", source)
+        self.assertIn(
+            "stable_knowledge_review_timer.timeout.connect(",
+            source,
+        )
+        self.assertNotIn("lifecycle_stability_critic", fallback)
+        self.assertFalse(
+            (
+                PROJECT_ROOT
+                / "prompts"
+                / "external_fact_fallback_partition_lifecycle_stability_critic.txt"
+            ).exists()
+        )
+
+    def test_runtime_build_id_is_screenshot_multipass_ocr_v1_10_27(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        manifest = json.loads(
+            (PROJECT_ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8")
+        )
+        self.assertIn(
+            'BEKKI_BUILD_ID = "bekki-screenshot-multipass-ocr-v1-10-27-20260830"',
             source,
         )
         self.assertIn('print("[BEKKI BUILD]", BEKKI_BUILD_ID', source)
+        self.assertEqual(
+            manifest["build_id"],
+            "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
+        )
+        self.assertEqual(manifest["package_id"], manifest["build_id"])
+
+    def test_audited_fact_lookup_knowledge_intake_is_async_and_internal(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        core_source = (PROJECT_ROOT / "nerv" / "core.py").read_text(
+            encoding="utf-8"
+        )
+        fallback_source = (
+            PROJECT_ROOT / "nerv" / "external_fact_fallback.py"
+        ).read_text(encoding="utf-8")
+        prompt = (
+            PROJECT_ROOT
+            / "prompts"
+            / "nerv_fact_lookup_knowledge_partition.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"_fact_knowledge_intake": fact_knowledge_intake', source)
+        self.assertIn(
+            'result.pop("_fact_knowledge_intake", None)',
+            source,
+        )
+        self.assertIn("fact_knowledge_intake=fact_knowledge_intake", source)
+        self.assertIn("intake_audited_fact_lookup(", core_source)
+        self.assertLess(
+            core_source.index("intake_audited_fact_lookup("),
+            core_source.index("curiosity.observe_turn("),
+        )
+        self.assertIn("strict_source_temporal_scope", fallback_source)
+        self.assertIn("source_supported_periods", fallback_source)
+        self.assertIn("A completed roster with an exact closed snapshot", prompt)
+        self.assertIn("Do not call it changing", prompt)
+
+    def test_recycle_action_disagreement_uses_ai_arbiter(self):
+        source = (PROJECT_ROOT / "casper" / "recycle_bin.py").read_text(
+            encoding="utf-8"
+        )
+        tree = ast.parse(source)
+        resolver = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_resolve_action"
+        )
+        resolver_source = ast.unparse(resolver)
+        self.assertIn("_plan(message, recent_context)", resolver_source)
+        self.assertIn(
+            "_classify_restore_intent(message, recent_context)",
+            resolver_source,
+        )
+        self.assertIn("_arbitrate_action(", resolver_source)
+        self.assertIn("return arbitrated or 'CLARIFY'", resolver_source)
+        self.assertTrue(
+            (
+                PROJECT_ROOT
+                / "prompts"
+                / "casper_recycle_action_arbiter.txt"
+            ).is_file()
+        )
+
+    def test_local_objective_draft_is_audited_before_return(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        audit_index = source.index("objective_fact.should_audit(")
+        reroute_index = source.index("[NERV OBJECTIVE FACT REROUTE]")
+        return_index = source.index(
+            'return {\n        "reply": reply,',
+            reroute_index,
+        )
+        self.assertLess(audit_index, reroute_index)
+        self.assertLess(reroute_index, return_index)
+        self.assertIn("objective_fact.has_usable_fact_answer", source)
+        self.assertIn("objective_fact.unavailable_reply(message)", source)
+
+    def test_user_correction_reverification_is_wired_without_domain_rules(self):
+        source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        objective_source = (
+            PROJECT_ROOT / "nerv" / "objective_fact.py"
+        ).read_text(encoding="utf-8")
+        knowledge_source = (PROJECT_ROOT / "knowledge.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("objective_fact.audit_knowledge_correction(", source)
+        self.assertIn("knowledge.mark_user_disputed_items(", source)
+        self.assertIn(
+            "external_fact_fallback.partition_verified_correction_answer(",
+            source,
+        )
+        self.assertIn(
+            "knowledge.apply_verified_correction_partitioned_claim(",
+            source,
+        )
+        self.assertIn("knowledge.resolve_user_dispute(", source)
+        self.assertIn("[NERV KNOWLEDGE CORRECTION REROUTE]", source)
+        self.assertIn("def audit_correction_replacements", objective_source)
+        self.assertIn("def mark_user_disputed_items", knowledge_source)
+        self.assertIn("revision_history", knowledge_source)
+        for name in (
+            "nerv_knowledge_correction_audit.txt",
+            "nerv_knowledge_correction_partition.txt",
+            "nerv_knowledge_correction_resolution.txt",
+        ):
+            self.assertTrue((PROJECT_ROOT / "prompts" / name).is_file())
+        for forbidden in ("SNH48", "李艺彤"):
+            self.assertNotIn(forbidden, objective_source)
+            self.assertNotIn(forbidden, knowledge_source)
 
 
 class MainExactResumeContractTests(unittest.TestCase):
@@ -247,6 +446,8 @@ class WindowsUpdateInstallerContractTests(unittest.TestCase):
             self.assertIn(value, source)
         self.assertIn("Restore-StableRuntime", source)
         self.assertIn("_bekki_stable_v1_backup_", source)
+        self.assertIn("nerv\\external_fact_fallback.py", source)
+        self.assertIn("nerv\\knowledge_curator.py", source)
         self.assertNotIn("[IO.Path]::GetRelativePath", source)
 
 
@@ -353,6 +554,44 @@ class ShoppingRecoveryContractTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertTrue((PROJECT_ROOT / "prompts" / name).is_file())
+
+    def test_fact_entity_scope_prompts_are_part_of_the_runtime(self):
+        for name in (
+            "fact_entity_scope.txt",
+            "fact_entity_scope_retry.txt",
+            "fact_query_scope_audit.txt",
+            "fact_query_scope_audit_retry.txt",
+            "fact_query_scope_certify.txt",
+            "fact_query_scope_audit_focused.txt",
+            "fact_query_scope_audit_focused_retry.txt",
+            "fact_query_scope_certify_focused.txt",
+            "fact_resolution_audit.txt",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue((PROJECT_ROOT / "prompts" / name).is_file())
+                self.assertTrue(
+                    (PROJECT_ROOT / "casper" / "prompts" / name).is_file()
+                )
+        self.assertTrue(
+            (
+                PROJECT_ROOT
+                / "prompts"
+                / "external_fact_fallback_policy_audit.txt"
+            ).is_file()
+        )
+        preflight = (
+            PROJECT_ROOT / "prompts" / "external_fact_fallback_preflight.txt"
+        ).read_text(encoding="utf-8")
+        audit = (
+            PROJECT_ROOT / "prompts" / "external_fact_fallback_policy_audit.txt"
+        ).read_text(encoding="utf-8")
+        for prompt in (preflight, audit):
+            self.assertIn("MAINTAINED_SET_OR_STRUCTURE", prompt)
+            self.assertIn(
+                "TRANSIENT_NONSTRUCTURAL_STATE_OR_EVENT",
+                prompt,
+            )
+            self.assertIn("formal unit", prompt)
 
     def test_engine_policy_is_fixed_without_a_model_call(self):
         tree = ast.parse(
@@ -558,7 +797,7 @@ class DependencyDocumentationTests(unittest.TestCase):
         tags = {item["tag"] for item in manifest["models"]}
         self.assertEqual(
             tags,
-            {"gemma3:12b", "gemma3:4b", "llama3.2:latest"},
+            {"gemma4:12b", "gemma4:e4b", "llama3.2:latest"},
         )
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         for tag in tags:

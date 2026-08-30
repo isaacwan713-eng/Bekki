@@ -39,7 +39,7 @@ class ContentLearningTests(unittest.TestCase):
         self.assertEqual(model.call_args_list[0].args[2], 2200)
         self.assertEqual(model.call_args_list[0].kwargs["num_ctx"], 8192)
         self.assertEqual(
-            model.call_args_list[0].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[0].kwargs["model_name"], "gemma4:12b"
         )
 
         prompt_path = (

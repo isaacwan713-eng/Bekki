@@ -31,7 +31,7 @@ class ContentContextIsolationTests(unittest.TestCase):
             "prompts/casper_content_context_scope_retry.txt",
         )
         self.assertEqual(
-            model.call_args_list[0].kwargs["model_name"], "gemma3:12b"
+            model.call_args_list[0].kwargs["model_name"], "gemma4:12b"
         )
         self.assertEqual(model.call_args_list[0].kwargs["num_predict"], 700)
         self.assertEqual(model.call_args_list[0].kwargs["num_ctx"], 4096)

@@ -1,0 +1,26 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+Re-read the authoritative original user message and rebuild the Entity Scope.
+The previous result violated the structural or translation-boundary contract.
+Do not copy it, and never let the proposed retrieval query override the user's
+meaning.
+
+Judge entity hierarchy, relationships, facets, and translation uncertainty
+semantically rather than by keyword. Translation protection works between any
+two languages. Every source_expression must be copied verbatim from the
+original message.
+
+If the user explicitly gave an exact equivalent, use USER_ESTABLISHED,
+EXACT_EQUIVALENT_ALLOWED, that non-empty established_equivalent, and
+USER_PROVIDED_EXACT_EQUIVALENT. Otherwise, whenever meaning or contrast is
+being researched or no safely exact equivalent is known, use
+OPEN_RESEARCH_TARGET, PRESERVE_SOURCE_EXPRESSION, null
+established_equivalent, and the appropriate open boundary_reason.
+
+For an open expression, do not insert any asserted translation or gloss in any
+field. Use the original expression itself when naming the requested facet.
+Mixed-language retrieval is valid.
+
+Return exactly the schema requested by the caller. Do not answer the factual
+question.
+

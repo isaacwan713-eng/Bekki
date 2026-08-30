@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 
 from . import browser
@@ -37,7 +38,7 @@ def _ai(
     payload,
     num_predict,
     num_ctx=8192,
-    model_name="gemma3:12b",
+    model_name="gemma4:12b",
 ):
     import tools
 
@@ -60,6 +61,39 @@ def _strings(values, maximum, length):
         for value in values
         if isinstance(value, str) and value.strip()
     ][:maximum]
+
+
+_PLACEHOLDER_QUERY_EXACT = frozenset({
+    "one complete documentation search",
+    "complete documentation search",
+    "documentation search",
+    "one complete search query",
+    "complete search query",
+    "search query",
+    "search query here",
+    "query here",
+    "example query",
+})
+
+
+def _placeholder_documentation_query(queries):
+    """Reject obvious schema/example text without model judgment."""
+    normalized = _strings(queries, 3, 240)
+    if not normalized:
+        return "No executable documentation query was provided."
+    for query in normalized:
+        folded = " ".join(query.casefold().split())
+        if folded in _PLACEHOLDER_QUERY_EXACT:
+            return f"Placeholder documentation query rejected: {query}"
+        if re.search(r"(?:<[^>]+>|\{[^}]+\}|\[[^]]+\])", query):
+            return f"Template documentation query rejected: {query}"
+        if "placeholder" in folded or re.search(
+            r"\b(?:insert|replace|write|provide)\s+(?:the\s+)?"
+            r"(?:search\s+)?query\b",
+            folded,
+        ):
+            return f"Meta-text documentation query rejected: {query}"
+    return ""
 
 
 def _normalize_learning_plan(result, requested_skill_scope):
@@ -134,7 +168,7 @@ def _review_learning_plan_grounding(message, recent_context, plan):
             payload,
             output_budget,
             num_ctx=context_budget,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         if isinstance(result, dict) and isinstance(
             result.get("grounded"), bool
@@ -188,7 +222,7 @@ def _repair_documentation_queries(
             payload,
             output_budget,
             num_ctx=context_budget,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         queries = _strings(
             result.get("installation_queries")
@@ -204,7 +238,12 @@ def _repair_documentation_queries(
 
 
 def _review_documentation_queries(message, plan):
-    """Let focused AI review query meaning; Python accepts only its bool."""
+    """Reject placeholders in Python, then let focused AI review meaning."""
+    placeholder_reason = _placeholder_documentation_query(
+        plan.get("installation_queries") if isinstance(plan, dict) else None
+    )
+    if placeholder_reason:
+        return False, placeholder_reason
     payload = {
         "CURRENT_REQUEST": str(message)[:900],
         "PROPOSED_PLAN": plan,
@@ -227,7 +266,7 @@ def _review_documentation_queries(message, plan):
             payload,
             output_budget,
             num_ctx=context_budget,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         if isinstance(result, dict) and isinstance(
             result.get("compliant"), bool
@@ -265,7 +304,7 @@ def _plan(message, recent_context, requested_skill_scope=""):
             payload,
             output_budget,
             num_ctx=context_budget,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         draft = _normalize_learning_plan(result, requested_skill_scope)
         if draft:
@@ -557,7 +596,7 @@ def _review_local_binding(plan, procedure, adapter, destination):
             payload,
             output_budget,
             num_ctx=4096,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         if isinstance(result, dict) and isinstance(
             result.get("compatible"), bool

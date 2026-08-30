@@ -4,6 +4,9 @@ Output only the query.
 
 Rules:
 - Preserve the exact claim being checked.
+- Translation protection applies between any languages. Preserve every
+  distinctive expression verbatim when no safely exact equivalent is certain;
+  mixed-language queries are valid and preferable to a lossy translation.
 - Prefer the named person/team/company and primary or official sources.
 - Do NOT add the current date unless the user explicitly mentioned a relative
   date such as today, yesterday, this week, or last night.

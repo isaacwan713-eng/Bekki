@@ -73,7 +73,7 @@ def _select_link(
             num_ctx=8192,
             num_predict=output_budget,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         selected_id = (
             str(result.get("link_id") or "")
@@ -194,7 +194,7 @@ def _select_recovery_source(
     }
     attempts = (
         ("llama3.2:latest", 600),
-        ("gemma3:12b", 1200),
+        ("gemma4:12b", 1200),
     )
     for model_name, output_budget in attempts:
         result = tools.run_ai_prompt(

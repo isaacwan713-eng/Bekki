@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "provider": "ollama",
   "models": [
     {
@@ -8,14 +8,14 @@
       "required": true
     },
     {
-      "role": "reliable_magi_chat_reasoning_vision_and_research",
-      "tag": "gemma3:12b",
+      "role": "gemma4_primary_chat_magi_reasoning_vision_and_research",
+      "tag": "gemma4:12b",
       "required": true,
       "environment_override": "VISION_MODEL"
     },
     {
-      "role": "melchior_routing_and_bounded_launcher_ui_vision",
-      "tag": "gemma3:4b",
+      "role": "gemma4_fast_routing_audit_and_bounded_launcher_ui_vision",
+      "tag": "gemma4:e4b",
       "required": true,
       "environment_override": "HOYOPLAY_VISION_MODEL"
     }

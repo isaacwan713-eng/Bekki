@@ -280,8 +280,8 @@ class FileActionTests(unittest.TestCase):
             )
 
         self.assertEqual(plan["action"], "SEARCH_FILES")
-        self.assertEqual(calls[0][1]["model_name"], "gemma3:12b")
-        self.assertEqual(calls[1][1]["model_name"], "gemma3:4b")
+        self.assertEqual(calls[0][1]["model_name"], "gemma4:12b")
+        self.assertEqual(calls[1][1]["model_name"], "gemma4:e4b")
         action_enum = calls[1][1]["json_schema"]["properties"]["action"]["enum"]
         self.assertEqual(action_enum, ["SEARCH_FILES"])
 

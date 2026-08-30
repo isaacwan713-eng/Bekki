@@ -5,6 +5,22 @@ Rules:
 - Output only the search query.
 - Do not explain anything.
 - Preserve the user's exact intent.
+- Preserve the exact entity hierarchy and relationship being asked about.
+  Do not silently broaden an internal unit into a parent organization,
+  affiliate, sibling organization, brand family, or other adjacent scope.
+- Translation is language-neutral. Translate only wording with a safely exact
+  equivalent in the intended retrieval language. Preserve every uncertain
+  expression verbatim; translate surrounding wording only when doing so does
+  not change the request.
+- Never invent an equivalence for a source-language taxonomy, role, status, or
+  organizational term. If the user is asking what that term means or how it
+  differs from another concept, its meaning is part of the research target:
+  preserve the original term verbatim and do not pre-answer the question with
+  a guessed equivalent in any language. A draft query may mix languages.
+- Add an equivalent only when the user's own message or resolved conversation
+  context establishes it exactly. Otherwise preserve the original expression
+  without a gloss. Parentheses do not make an unestablished equivalent safe.
+- Keep every independently requested facet in the standalone query.
 - Convert relative dates such as today, yesterday, tomorrow, last night, and this weekend into explicit calendar dates when the current date is available in the prompt.
 - Include the relevant league, competition, team, player, season, date, and requested statistic when applicable.
 - Distinguish clearly between:
@@ -30,6 +46,7 @@ Use the recent conversation to resolve references such as:
 Rewrite the user's request into a fully standalone search query.
 
 Do not invent missing entities if the recent conversation already identifies them.
+Do not add related entities that the user did not ask about.
 
 Examples:
 

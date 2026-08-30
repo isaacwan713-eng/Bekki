@@ -12,10 +12,21 @@ Allowed scope_type values:
   as yesterday, today before now, last night, August 19, or the 2025 season.
 
 Rules:
+- requested_period must always be a non-empty JSON string. For
+  CURRENT_ACTIVE_STATE, write "current active state as of <current_date>";
+  never return null.
 - "yesterday" is always EXPLICIT_PERIOD. Convert it to the date immediately
   before current_date in requested_period.
 - A completed game on a named or relative day is never CURRENT_ACTIVE_STATE.
 - CURRENT_ACTIVE_STATE is only for present state or an ongoing event.
+- A question asking when, on what date, or in which year an already completed
+  named milestone happened is EXPLICIT_PERIOD even when the user is asking the
+  system to discover the date. This includes a public subject's debut,
+  founding, first release, first appointment, or another one-time completed
+  milestone. In requested_period, name that milestone and the requested date
+  field; do not replace it with the current date and do not call it current
+  state. For example, "TWICE是哪一年正式出道的？" targets the completed TWICE
+  official debut event and is EXPLICIT_PERIOD.
 - allow_previous_period is false when the user specified a period.
 
 Required shape:

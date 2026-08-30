@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import types
@@ -58,6 +59,133 @@ def _load_melchior():
 
 
 class MagiLaneTests(unittest.TestCase):
+    def test_active_knowledge_is_judged_by_existing_magi_call(self):
+        module = _load_magi([{
+            "lane": "LOCAL",
+            "confidence": 0.98,
+            "reason": "Active local Knowledge completely answers the Team list.",
+            "social_scope": "OTHER",
+            "social_platforms": [],
+            "search_scope": "OTHER",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "SUFFICIENT",
+        }])
+        knowledge_context = (
+            '[{"id":"knowledge_snh48_teams","subject":"SNH48 teams",'
+            '"claim":"SNH48目前有四个正式Team：Team SII、Team NII、'
+            'Team HII和Team X。","knowledge_type":"reviewable"}]'
+        )
+        result = module.route_request(
+            "SNH48目前有哪些正式Team？",
+            knowledge_context=knowledge_context,
+        )
+        self.assertEqual(result["lane"], "LOCAL")
+        self.assertEqual(
+            result["local_knowledge_sufficiency"], "SUFFICIENT"
+        )
+        packet = __import__("json").loads(module._test_ai_calls[0][0][1])
+        self.assertEqual(
+            packet["active_local_knowledge_candidates_for_current_request"],
+            knowledge_context,
+        )
+        schema = module._test_ai_calls[0][1]["json_schema"]
+        self.assertIn("local_knowledge_sufficiency", schema["required"])
+
+    def test_matching_historical_roster_snapshot_can_route_local(self):
+        module = _load_magi([{
+            "lane": "LOCAL",
+            "confidence": 0.98,
+            "reason": "The exact completed 2025 roster snapshot is recalled.",
+            "social_scope": "OTHER",
+            "social_platforms": [],
+            "search_scope": "OTHER",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "SUFFICIENT",
+        }])
+        candidates = json.dumps([{
+            "id": "knowledge_mufc_2025_roster",
+            "subject": "Manchester United 2025 roster",
+            "claim": "The completed 2025 roster is the recorded list.",
+            "knowledge_type": "stable",
+            "temporal_scope": {
+                "scope_type": "EXPLICIT_PERIOD",
+                "requested_period": "completed 2025 season",
+                "allow_previous_period": False,
+            },
+        }])
+
+        result = module.route_request(
+            "曼联2025赛季结束时的一线队阵容有哪些球员？",
+            knowledge_context=candidates,
+        )
+
+        self.assertEqual(result["lane"], "LOCAL")
+        self.assertEqual(result["local_knowledge_sufficiency"], "SUFFICIENT")
+
+    def test_historical_roster_snapshot_cannot_answer_current_roster(self):
+        module = _load_magi([{
+            "lane": "SEARCH",
+            "confidence": 0.99,
+            "reason": "A closed 2025 snapshot cannot answer the active roster.",
+            "social_scope": "OTHER",
+            "social_platforms": [],
+            "search_scope": "FACT_LOOKUP",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "PARTIAL",
+        }])
+        candidates = json.dumps([{
+            "id": "knowledge_mufc_2025_roster",
+            "subject": "Manchester United 2025 roster",
+            "claim": "The completed 2025 roster is the recorded list.",
+            "knowledge_type": "stable",
+            "temporal_scope": {
+                "scope_type": "EXPLICIT_PERIOD",
+                "requested_period": "completed 2025 season",
+                "allow_previous_period": False,
+            },
+        }])
+
+        result = module.route_request(
+            "曼联目前的一线队阵容有哪些球员？",
+            knowledge_context=candidates,
+        )
+
+        self.assertEqual(result["lane"], "SEARCH")
+        self.assertEqual(result["search_scope"], "FACT_LOOKUP")
+        self.assertEqual(result["local_knowledge_sufficiency"], "PARTIAL")
+
+    def test_magi_prompt_preserves_closed_period_roster_boundary(self):
+        prompt = (PROJECT_ROOT / "prompts" / "magi_gate.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("same closed period", prompt)
+        self.assertIn("always choose", prompt)
+        self.assertIn("older roster", prompt)
+
+    def test_empty_candidate_sufficiency_is_normalized_without_recovery(self):
+        module = _load_magi([{
+            "lane": "LOCAL",
+            "confidence": 0.98,
+            "reason": "Stable knowledge can be answered locally.",
+            "social_scope": "OTHER",
+            "social_platforms": [],
+            "search_scope": "OTHER",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "SUFFICIENT",
+        }])
+        result = module.route_request("美国第一任总统是谁？")
+        self.assertEqual(result["source"], "ai_primary")
+        self.assertEqual(result["local_knowledge_sufficiency"], "NONE")
+        self.assertEqual(len(module._test_ai_calls), 1)
+
+    def test_magi_prompt_separates_visual_evidence_from_knowledge_sufficiency(self):
+        prompt = (PROJECT_ROOT / "prompts" / "magi_gate.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("refers only to", prompt)
+        self.assertIn("attached image", prompt)
+        self.assertIn("LOCAL with local_knowledge_sufficiency NONE", prompt)
+
     def test_gate_contract_routes_reminder_listing_to_command(self):
         prompt = (PROJECT_ROOT / "prompts" / "magi_gate.txt").read_text(
             encoding="utf-8"
@@ -218,15 +346,42 @@ class MagiLaneTests(unittest.TestCase):
         self.assertEqual(result["source"], "ai_recovery")
         self.assertEqual(
             module._test_ai_calls[0][1]["model_name"],
-            "gemma3:12b",
+            "gemma4:12b",
         )
         self.assertEqual(
             module._test_ai_calls[1][1]["model_name"],
-            "gemma3:4b",
+            "gemma4:e4b",
         )
 
 
 class MagiBoundaryTests(unittest.TestCase):
+    def test_sufficient_knowledge_route_bypasses_compact_melchior(self):
+        module = _load_melchior()
+        with patch.object(
+            module.tools,
+            "run_ai_prompt",
+            side_effect=AssertionError(
+                "Sufficient Knowledge route must bypass compact Melchior"
+            ),
+        ) as model:
+            plan = module.plan_request(
+                "SNH48目前有哪些正式Team？",
+                magi_route={
+                    "lane": "LOCAL",
+                    "confidence": 0.98,
+                    "reason": "Active Knowledge completely answers it.",
+                    "social_scope": "OTHER",
+                    "social_platforms": [],
+                    "search_scope": "OTHER",
+                    "recommendation_domain": None,
+                    "local_knowledge_sufficiency": "SUFFICIENT",
+                },
+            )
+        model.assert_not_called()
+        self.assertEqual(plan["response_mode"], "LOCAL_ANSWER")
+        self.assertFalse(plan["needs_search"])
+        self.assertTrue(plan["knowledge_route_selected"])
+
     def test_reliable_magi_restaurant_route_bypasses_compact_melchior(self):
         module = _load_melchior()
         with patch.object(

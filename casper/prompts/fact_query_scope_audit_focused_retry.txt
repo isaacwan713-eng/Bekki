@@ -1,0 +1,42 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+Redo a failed Focused Follow-up Search Query audit. The prior audit may have
+been malformed, may have switched to a sibling query's facet, or may have
+failed independent certification.
+
+focused_candidate_before_audit is the fixed semantic assignment for this
+query slot. Infer its intended focused facet and keep that facet through every
+rewrite. sibling_queries exist only to cover other evidence gaps. Never replace
+the focused candidate with a sibling, and never force this candidate to include
+all facets of the original request.
+
+Address independent_certification_failure when supplied. The rewritten query
+must make the exact entity and hierarchy visible to the search engine, preserve
+the focused source-language taxonomy and temporal meaning, and remain
+standalone. Evaluate collective evidence-gap coverage using
+effective_candidate_query_set, where the approved current candidate replaces
+its pre-audit version.
+
+Do not copy an overbroad demand from the failed certification. Independently
+decide whether an exact entity name and a precise positive source-language
+taxonomy already defeat the proposed adjacent interpretation. Do not require
+explicit exclusion of every neighboring status or a guarantee of perfectly
+filtered search results.
+
+Do not copy a draft-generated translation either. When the original question
+asks for a source taxonomy's meaning or contrast, preserve that expression as
+the research target and remove an unestablished gloss even if the source term
+also appears in parentheses. source_language_boundaries remains binding.
+
+For every OPEN_RESEARCH_TARGET belonging to this focused facet, retain
+source_expression verbatim, allow mixed-language search wording, and avoid an
+asserted equivalent. Set source_language_boundaries_respected true only after
+that literal check; do not charge this query for a boundary assigned to a
+sibling facet.
+
+Return one object matching the supplied JSON schema. Choose USE or REWRITE and
+all Boolean values from the corrected semantic judgment; do not copy a
+prefilled decision. All string fields must be non-empty.
+
+Do not return a valid-looking object if the approved query changed to a
+sibling's facet or the effective query set leaves an evidence gap.

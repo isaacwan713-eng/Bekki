@@ -65,7 +65,7 @@ def resolve_forget_request(message, skills, model_call, unload_model=None):
             num_ctx=3072,
             num_predict=260,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
             json_schema=RESOLUTION_SCHEMA,
         )
     except Exception as error:
@@ -73,8 +73,8 @@ def resolve_forget_request(message, skills, model_call, unload_model=None):
     finally:
         if unload_model is not None:
             try:
-                unload_model("gemma3:12b")
-                print("[NERV SKILL MANAGER MODEL RELEASED] gemma3:12b")
+                unload_model("gemma4:12b")
+                print("[NERV SKILL MANAGER MODEL RELEASED] gemma4:12b")
             except Exception as error:
                 print("[NERV SKILL MANAGER RELEASE WARNING]", repr(error))
 
@@ -112,15 +112,15 @@ def classify_forget_confirmation(message, pending_action, model_call, unload_mod
             num_ctx=2048,
             num_predict=30,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[NERV SKILL CONFIRM WARNING]", repr(error))
     finally:
         if unload_model is not None:
             try:
-                unload_model("gemma3:12b")
-                print("[NERV SKILL CONFIRM MODEL RELEASED] gemma3:12b")
+                unload_model("gemma4:12b")
+                print("[NERV SKILL CONFIRM MODEL RELEASED] gemma4:12b")
             except Exception as error:
                 print("[NERV SKILL CONFIRM RELEASE WARNING]", repr(error))
     value = str(raw or "").strip().upper()

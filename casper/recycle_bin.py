@@ -44,7 +44,7 @@ def _plan(message, recent_context):
             # gpt-oss may reason before emitting the one-token contract.
             num_predict=256,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         value = str(raw or "").strip().upper()
         if value in valid:
@@ -60,10 +60,10 @@ def _classify_restore_intent(message, recent_context):
     except (ImportError, ModuleNotFoundError):
         return None
     prompt_input = (
-        "RECENT_CONTEXT:\n"
-        + str(recent_context)[-500:]
-        + "\nCURRENT_REQUEST:\n"
+        "CURRENT_REQUEST (authoritative):\n"
         + str(message)[:500]
+        + "\nRECENT_CONTEXT (reference resolution only):\n"
+        + str(recent_context)[-500:]
     )
     for _attempt in range(2):
         try:
@@ -86,6 +86,92 @@ def _classify_restore_intent(message, recent_context):
     return ""
 
 
+def _arbitrate_action(
+    message,
+    recent_context,
+    broad_action,
+    restore_intent,
+):
+    """Use an independent AI only when recycle action judges disagree."""
+    try:
+        import tools
+    except (ImportError, ModuleNotFoundError):
+        return ""
+    prompt_input = (
+        "CURRENT_REQUEST (authoritative):\n"
+        + str(message)[:500]
+        + "\nBROAD_ACTION_JUDGMENT:\n"
+        + str(broad_action or "INVALID")[:80]
+        + "\nRESTORE_INTENT_JUDGMENT:\n"
+        + str(restore_intent or "INVALID")[:80]
+        + "\nRECENT_CONTEXT (reference resolution only):\n"
+        + str(recent_context)[-500:]
+    )
+    valid = {
+        "LIST_RECYCLE_BIN",
+        "OPEN_RECYCLE_BIN",
+        "RESTORE_RECYCLE_ITEM",
+        "UNSUPPORTED",
+        "CLARIFY",
+    }
+    for _attempt in range(2):
+        try:
+            raw = tools.run_ai_prompt(
+                "prompts/casper_recycle_action_arbiter.txt",
+                prompt_input,
+                expect_json=False,
+                num_ctx=2048,
+                num_predict=128,
+                think=False,
+                model_name="gemma4:12b",
+            )
+        except Exception as error:
+            print("[RECYCLE ACTION ARBITER FALLBACK]", repr(error))
+            return ""
+        value = str(raw or "").strip().upper()
+        if value in valid:
+            return value
+        prompt_input += "\nINVALID_PREVIOUS_OUTPUT:\n" + value[:80]
+    return ""
+
+
+def _resolve_action(message, recent_context):
+    """Combine two AI judgments; a restore disagreement needs arbitration."""
+    broad_action = str(_plan(message, recent_context) or "").strip().upper()
+    restore_intent = _classify_restore_intent(message, recent_context)
+    if restore_intent is None:
+        return broad_action or "CLARIFY"
+    valid_broad = {
+        "LIST_RECYCLE_BIN",
+        "OPEN_RECYCLE_BIN",
+        "RESTORE_RECYCLE_ITEM",
+        "UNSUPPORTED",
+        "CLARIFY",
+    }
+    valid_restore = {"RESTORE_ITEM", "NOT_RESTORE"}
+    broad_restore = broad_action == "RESTORE_RECYCLE_ITEM"
+    focused_restore = restore_intent == "RESTORE_ITEM"
+    if (
+        broad_action in valid_broad
+        and restore_intent in valid_restore
+        and broad_restore == focused_restore
+    ):
+        return broad_action
+    print(
+        "[RECYCLE ACTION DISAGREEMENT]",
+        "broad=" + (broad_action or "INVALID"),
+        "restore=" + str(restore_intent or "INVALID"),
+    )
+    arbitrated = _arbitrate_action(
+        message,
+        recent_context,
+        broad_action,
+        restore_intent,
+    )
+    print("[RECYCLE ACTION ARBITER]", arbitrated or "INVALID")
+    return arbitrated or "CLARIFY"
+
+
 def _select_item_id(message, recent_context, items):
     import tools
 
@@ -100,9 +186,9 @@ def _select_item_id(message, recent_context, items):
     ]
     prompt_input = json.dumps(
         {
+            "request": str(message)[:500],
             "items": catalog,
             "recent_context": str(recent_context)[-600:],
-            "request": str(message)[:500],
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -245,18 +331,7 @@ def execute(message, recent_context, approval=None):
     ):
         action = "RESTORE_RECYCLE_ITEM"
     else:
-        restore_intent = _classify_restore_intent(message, recent_context)
-        if restore_intent == "RESTORE_ITEM":
-            action = "RESTORE_RECYCLE_ITEM"
-        elif restore_intent in {"NOT_RESTORE", None}:
-            action = str(_plan(message, recent_context) or "").strip().upper()
-        else:
-            return {
-                "success": False,
-                "needs_clarification": True,
-                "clarification": "你是想恢复回收站中的一个项目吗？",
-                "reason": "Focused restore-intent AI returned invalid output twice.",
-            }
+        action = _resolve_action(message, recent_context)
     if action == "LIST_RECYCLE_BIN":
         try:
             items = _discover_items()

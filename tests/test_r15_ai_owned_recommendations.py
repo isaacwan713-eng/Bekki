@@ -43,7 +43,7 @@ class AIOwnedRecommendationTests(unittest.TestCase):
         self.assertEqual(model.call_count, 1)
         packet = json.loads(model.call_args.args[1])
         self.assertEqual(packet["current_user_request"], "给我推荐几个吸管杯")
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
 
     def test_ai_reason_reconciles_explicit_adult_scope_without_an_extra_call(self):
         raw = {
@@ -182,7 +182,7 @@ class AIOwnedRecommendationTests(unittest.TestCase):
         self.assertEqual(result["requirements"], [])
         self.assertEqual(
             [call.args[0] for call in unload.call_args_list],
-            ["gemma3:12b", "llama3.2:latest", "gemma3:12b"],
+            ["gemma4:12b", "llama3.2:latest", "gemma4:12b"],
         )
 
     def test_python_binding_does_not_semantically_rejudge_ai_choice(self):

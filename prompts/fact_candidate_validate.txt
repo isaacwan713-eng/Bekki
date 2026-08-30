@@ -7,6 +7,10 @@ Return JSON only:
 
 {
   "accepted": true,
+  "directly_answers": true,
+  "complete_for_request": true,
+  "source_supported": true,
+  "no_unsupported_additions": true,
   "reason": "brief validation reason"
 }
 
@@ -14,12 +18,25 @@ Rules:
 
 - Judge semantic relevance, exact entity, season, date, competition, version,
   office term, and requested value type.
+- Treat original_user_request and the Entity Scope nested in fact_intent_scope
+  as authoritative. Reject a candidate about a related parent, child,
+  affiliate, sibling, brand, product, person, event, or historical entity when
+  it is not the requested scope.
 - A team name alone does not answer a ranking question.
 - A record alone does not answer a rank question unless the query asks for the
   record.
 - Data from another season or date is not an answer.
 - The candidate must be explicitly supported by the supplied source evidence.
+- Evaluate every requested part. If the user asks for teams, member assignment,
+  and performance organization, a candidate covering only members or one
+  concert is incomplete.
+- A statement that the source does not provide a full list, schedule, or other
+  requested value is an admission of missing evidence, not a direct answer. In
+  that case directly_answers=false, complete_for_request=false, and
+  accepted=false.
+- A partial answer, limitation notice, recommendation to check a website, or
+  description of what the page contains is not a complete factual answer.
+- accepted may be true only when all four boolean checks are true.
 - Do not repair or rewrite the candidate.
 - Do not use outside knowledge.
 - Output JSON only.
-

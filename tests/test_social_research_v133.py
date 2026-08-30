@@ -1,6 +1,7 @@
 import base64
 from datetime import date
 import json
+from pathlib import Path
 import sys
 import types
 import unittest
@@ -11,24 +12,27 @@ import tools
 
 
 class SocialResearchV133Tests(unittest.TestCase):
-    def test_xiaohongshu_query_retries_all_english_output_with_reliable_model(self):
+    def test_social_query_preserves_user_language_without_platform_rewrite(self):
         with patch.object(
             tools,
             "run_ai_prompt",
-            side_effect=[
-                {"query": "Arcadia restaurants for toddlers"},
-                {"query": "Arcadia 两岁小朋友 亲子餐厅"},
-            ],
+            return_value={"query": "Arcadia 两岁小朋友 亲子餐厅"},
         ) as model:
             query = tools.build_social_query(
                 "去小红书搜索 Arcadia 适合两岁小朋友的餐厅",
                 ["xiaohongshu"],
             )
         self.assertEqual(query, "Arcadia 两岁小朋友 亲子餐厅")
-        self.assertEqual(model.call_count, 2)
+        self.assertEqual(model.call_count, 1)
         for call in model.call_args_list:
-            self.assertEqual(call.kwargs["model_name"], "gemma3:12b")
+            self.assertEqual(call.kwargs["model_name"], "gemma4:12b")
             self.assertIsNotNone(call.kwargs["json_schema"])
+        prompt = (
+            Path(__file__).resolve().parents[1]
+            / "prompts" / "social_query.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("strict no-translation policy", prompt)
+        self.assertIn("deadline 管理技巧", prompt)
 
     def test_strict_recency_filter_rejects_live_log_old_and_ambiguous_items(self):
         raw = {
@@ -115,7 +119,7 @@ class SocialResearchV133Tests(unittest.TestCase):
             "两天前的家常餐馆",
         )
         self.assertEqual(model.call_args.kwargs["images"], ["frame-one", "frame-two"])
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
         self.assertGreaterEqual(model.call_args.kwargs["num_predict"], 1200)
         schema = model.call_args.kwargs["json_schema"]
         observations = schema["properties"]["observations"]

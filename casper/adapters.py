@@ -1334,9 +1334,9 @@ def execute_mode(
 
     if mode in {"NEWS_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH"}:
         try:
-            tools.unload_model("gemma3:12b")
+            tools.unload_model("gemma4:12b")
         except Exception as error:
-            print("[CASPER MODEL UNLOAD SKIPPED] gemma3:12b", repr(error))
+            print("[CASPER MODEL UNLOAD SKIPPED] gemma4:12b", repr(error))
 
     if mode == "SOCIAL_RESEARCH":
         search_result = tools.social_research_controller(

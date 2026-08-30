@@ -102,7 +102,7 @@ def plan_response(user_message, conversation_context, emotion_context):
     raw_plan = None
     for prompt_path, model_name, output_budget, context_budget in (
         ("prompts/balthasar_router.txt", "llama3.2:latest", 700, 4096),
-        ("prompts/balthasar_router_retry.txt", "gemma3:12b", 1800, 6144),
+        ("prompts/balthasar_router_retry.txt", "gemma4:12b", 1800, 6144),
     ):
         raw_plan = tools.run_ai_prompt(
             prompt_path,
@@ -148,7 +148,7 @@ def calibrate_execution(
     raw = None
     for prompt_path, model_name, output_budget, context_budget in (
         ("prompts/balthasar_calibrate.txt", "llama3.2:latest", 700, 4096),
-        ("prompts/balthasar_calibrate_retry.txt", "gemma3:12b", 1600, 6144),
+        ("prompts/balthasar_calibrate_retry.txt", "gemma4:12b", 1600, 6144),
     ):
         raw = tools.run_ai_prompt(
             prompt_path,

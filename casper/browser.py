@@ -436,47 +436,124 @@ def _unwrap_google_url(url):
     return target if urlparse(target).scheme in {"http", "https"} else raw
 
 
+def _accepted_answer_text(answers):
+    """Return only one non-empty answer that passed every fact check."""
+    for item in answers or []:
+        if not isinstance(item, dict) or item.get("accepted") is not True:
+            continue
+        answer = item.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            return answer.strip()
+    return ""
+
+
 def _has_answer(answers):
     """Keep browser result validation inside Casper, not private V1 tools."""
-    return any(
-        isinstance(item, dict)
-        and item.get("accepted", True) is True
-        and item.get("answer") not in (None, "", [], {})
-        for item in (answers or [])
-    )
+    return bool(_accepted_answer_text(answers))
 
 
-def _validate_candidate_answer(query, source, answer):
+def _validate_candidate_answer(
+    query,
+    source,
+    answer,
+    user_request="",
+    fact_scope=None,
+):
     """Ask AI whether one extracted value actually answers the query."""
     import tools
 
+    validation_schema = {
+        "type": "object",
+        "properties": {
+            "accepted": {
+                "type": "boolean",
+                "description": (
+                    "Whether the literal query clearly communicates the "
+                    "requested scope; this is not a guarantee about every "
+                    "search result."
+                ),
+            },
+            "directly_answers": {"type": "boolean"},
+            "complete_for_request": {"type": "boolean"},
+            "source_supported": {"type": "boolean"},
+            "no_unsupported_additions": {"type": "boolean"},
+            "reason": {"type": "string"},
+        },
+        "required": [
+            "accepted",
+            "directly_answers",
+            "complete_for_request",
+            "source_supported",
+            "no_unsupported_additions",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
+
+    packet = {
+        "original_user_request": str(user_request or query),
+        "query": query,
+        "fact_intent_scope": fact_scope,
+        "candidate_answer": answer,
+        "source": {
+            "title": source.get("title", ""),
+            "description": source.get("description", ""),
+            "domain": source.get("domain", ""),
+            "url": source.get("url", ""),
+            "page_content": str(source.get("page_content", ""))[:5000],
+        },
+    }
+
     result = tools.run_ai_prompt(
         "prompts/fact_candidate_validate.txt",
-        json.dumps(
-            {
-                "query": query,
-                "candidate_answer": answer,
-                "source": {
-                    "title": source.get("title", ""),
-                    "description": source.get("description", ""),
-                    "domain": source.get("domain", ""),
-                    "url": source.get("url", ""),
-                    "page_content": str(source.get("page_content", ""))[:5000],
-                },
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(packet, ensure_ascii=False, indent=2),
         expect_json=True,
         num_ctx=8192,
         num_predict=220,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
+        json_schema=validation_schema,
     )
-    if not isinstance(result, dict) or not isinstance(result.get("accepted"), bool):
+    checks = (
+        "directly_answers",
+        "complete_for_request",
+        "source_supported",
+        "no_unsupported_additions",
+    )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("accepted"), bool)
+        or any(not isinstance(result.get(name), bool) for name in checks)
+    ):
         return None
+    accepted = result["accepted"] is True and all(
+        result[name] is True for name in checks
+    )
+    if accepted:
+        audit_packet = dict(packet)
+        audit_packet["first_validator_verdict"] = result
+        audit = tools.run_ai_prompt(
+            "prompts/fact_candidate_validate_audit.txt",
+            json.dumps(audit_packet, ensure_ascii=False, indent=2),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=300,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=validation_schema,
+        )
+        if (
+            not isinstance(audit, dict)
+            or not isinstance(audit.get("accepted"), bool)
+            or any(not isinstance(audit.get(name), bool) for name in checks)
+        ):
+            return None
+        accepted = audit["accepted"] is True and all(
+            audit[name] is True for name in checks
+        )
+        result = audit
     return {
-        "accepted": result["accepted"],
+        "accepted": accepted,
         "reason": str(result.get("reason", ""))[:400],
     }
 
@@ -484,6 +561,30 @@ def _validate_candidate_answer(query, source, answer):
 def _plan_fact_intent_scope(user_request, query):
     """Let AI bind the original request to one temporal intent contract."""
     import tools
+
+    scope_schema = {
+        "type": "object",
+        "properties": {
+            "scope_type": {
+                "type": "string",
+                "enum": [
+                    "CURRENT_ACTIVE_STATE",
+                    "LATEST_COMPLETED_PERIOD",
+                    "EXPLICIT_PERIOD",
+                ],
+            },
+            "requested_period": {"type": "string", "minLength": 1},
+            "allow_previous_period": {"type": "boolean"},
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "scope_type",
+            "requested_period",
+            "allow_previous_period",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
 
     packet = {
         "current_date": datetime.now().date().isoformat(),
@@ -502,8 +603,24 @@ def _plan_fact_intent_scope(user_request, query):
             num_ctx=4096,
             num_predict=260,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
+            json_schema=scope_schema,
         )
+
+    def complete_current_period(value):
+        if not isinstance(value, dict):
+            return value
+        if (
+            str(value.get("scope_type") or "").upper().strip()
+            == "CURRENT_ACTIVE_STATE"
+            and not str(value.get("requested_period") or "").strip()
+        ):
+            value = dict(value)
+            value["requested_period"] = (
+                "current active state as of "
+                + packet["current_date"]
+            )
+        return value
 
     def valid(value):
         return (
@@ -521,9 +638,11 @@ def _plan_fact_intent_scope(user_request, query):
             and bool(value["reason"].strip())
         )
 
-    result = run("prompts/fact_intent_scope.txt")
+    result = complete_current_period(run("prompts/fact_intent_scope.txt"))
     if not valid(result):
-        result = run("prompts/fact_intent_scope_retry.txt", result)
+        result = complete_current_period(
+            run("prompts/fact_intent_scope_retry.txt", result)
+        )
     if not valid(result):
         return None
     normalized = {
@@ -532,6 +651,16 @@ def _plan_fact_intent_scope(user_request, query):
         "allow_previous_period": result["allow_previous_period"],
         "reason": result["reason"].strip()[:400],
     }
+    if (
+        normalized["scope_type"] == "CURRENT_ACTIVE_STATE"
+        and normalized["allow_previous_period"] is not False
+    ):
+        normalized["allow_previous_period"] = False
+        normalized["reason"] = (
+            normalized["reason"]
+            + " Current-state lookup cannot substitute a previous period."
+        )[:400]
+        print("[CASPER FACT CURRENT SCOPE LOCKED] allow_previous_period=false")
     period_key = normalized["requested_period"].casefold()
     if (
         normalized["scope_type"] == "CURRENT_ACTIVE_STATE"
@@ -551,6 +680,672 @@ def _plan_fact_intent_scope(user_request, query):
             normalized["requested_period"],
         )
     return normalized
+
+
+def _plan_fact_entity_scope(user_request, query):
+    """Let AI bind the original request to one semantic entity contract."""
+    import tools
+
+    scope_schema = {
+        "type": "object",
+        "properties": {
+            "target_entity": {"type": "string", "minLength": 1},
+            "requested_relation": {"type": "string", "minLength": 1},
+            "required_facets": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
+            },
+            "included_scope": {"type": "string", "minLength": 1},
+            "excluded_adjacent_scopes": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+            },
+            "source_language_boundaries": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source_expression": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                        "established_equivalent": {
+                            "anyOf": [
+                                {"type": "string", "minLength": 1},
+                                {"type": "null"},
+                            ],
+                            "description": (
+                                "Null unless the user's own message gives "
+                                "one exact equivalent."
+                            ),
+                        },
+                        "meaning_status": {
+                            "type": "string",
+                            "enum": [
+                                "USER_ESTABLISHED",
+                                "OPEN_RESEARCH_TARGET",
+                            ],
+                            "description": (
+                                "OPEN_RESEARCH_TARGET whenever the user's "
+                                "question asks what the expression means or "
+                                "how it differs; model background knowledge "
+                                "does not establish an equivalence."
+                            ),
+                        },
+                        "translation_policy": {
+                            "type": "string",
+                            "enum": [
+                                "EXACT_EQUIVALENT_ALLOWED",
+                                "PRESERVE_SOURCE_EXPRESSION",
+                            ],
+                            "description": (
+                                "Preserve the source expression when its "
+                                "meaning remains a research target or an "
+                                "exact translation is uncertain."
+                            ),
+                        },
+                        "boundary_reason": {
+                            "type": "string",
+                            "enum": [
+                                "USER_PROVIDED_EXACT_EQUIVALENT",
+                                "MEANING_OR_RELATION_IS_RESEARCH_TARGET",
+                                "NO_SAFE_EXACT_EQUIVALENT",
+                            ],
+                        },
+                        "excluded_conflations": {
+                            "type": "array",
+                            "maxItems": 8,
+                            "items": {
+                                "type": "string",
+                                "minLength": 1,
+                            },
+                        },
+                    },
+                    "required": [
+                        "source_expression",
+                        "established_equivalent",
+                        "meaning_status",
+                        "translation_policy",
+                        "boundary_reason",
+                        "excluded_conflations",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "target_entity",
+            "requested_relation",
+            "required_facets",
+            "included_scope",
+            "excluded_adjacent_scopes",
+            "source_language_boundaries",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
+    packet = {
+        "original_user_message": str(user_request),
+        "proposed_retrieval_query": str(query),
+    }
+
+    def run(prompt, previous=None):
+        value = dict(packet)
+        if previous is not None:
+            value["previous_incomplete_scope"] = previous
+        return tools.run_ai_prompt(
+            prompt,
+            json.dumps(value, ensure_ascii=False, indent=2),
+            expect_json=True,
+            num_ctx=4096,
+            num_predict=520,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=scope_schema,
+        )
+
+    def valid(value):
+        return (
+            isinstance(value, dict)
+            and isinstance(value.get("target_entity"), str)
+            and bool(value["target_entity"].strip())
+            and isinstance(value.get("requested_relation"), str)
+            and bool(value["requested_relation"].strip())
+            and isinstance(value.get("required_facets"), list)
+            and bool(value["required_facets"])
+            and all(
+                isinstance(item, str) and bool(item.strip())
+                for item in value["required_facets"]
+            )
+            and isinstance(value.get("included_scope"), str)
+            and bool(value["included_scope"].strip())
+            and isinstance(value.get("excluded_adjacent_scopes"), list)
+            and all(
+                isinstance(item, str) and bool(item.strip())
+                for item in value["excluded_adjacent_scopes"]
+            )
+            and isinstance(value.get("source_language_boundaries"), list)
+            and all(
+                isinstance(item, dict)
+                and isinstance(item.get("source_expression"), str)
+                and bool(item["source_expression"].strip())
+                and item["source_expression"].strip() in str(user_request)
+                and item.get("meaning_status") in {
+                    "USER_ESTABLISHED",
+                    "OPEN_RESEARCH_TARGET",
+                }
+                and item.get("translation_policy") in {
+                    "EXACT_EQUIVALENT_ALLOWED",
+                    "PRESERVE_SOURCE_EXPRESSION",
+                }
+                and not (
+                    item.get("meaning_status") == "OPEN_RESEARCH_TARGET"
+                    and (
+                        item.get("translation_policy")
+                        != "PRESERVE_SOURCE_EXPRESSION"
+                        or item.get("established_equivalent") is not None
+                        or item.get("boundary_reason")
+                        == "USER_PROVIDED_EXACT_EQUIVALENT"
+                    )
+                )
+                and not (
+                    item.get("meaning_status") == "USER_ESTABLISHED"
+                    and (
+                        item.get("translation_policy")
+                        != "EXACT_EQUIVALENT_ALLOWED"
+                        or not isinstance(
+                            item.get("established_equivalent"), str
+                        )
+                        or not item["established_equivalent"].strip()
+                        or item.get("boundary_reason")
+                        != "USER_PROVIDED_EXACT_EQUIVALENT"
+                    )
+                )
+                and item.get("boundary_reason") in {
+                    "USER_PROVIDED_EXACT_EQUIVALENT",
+                    "MEANING_OR_RELATION_IS_RESEARCH_TARGET",
+                    "NO_SAFE_EXACT_EQUIVALENT",
+                }
+                and isinstance(item.get("excluded_conflations"), list)
+                and all(
+                    isinstance(adjacent, str) and bool(adjacent.strip())
+                    for adjacent in item["excluded_conflations"]
+                )
+                for item in value["source_language_boundaries"]
+            )
+            and isinstance(value.get("reason"), str)
+            and bool(value["reason"].strip())
+        )
+
+    result = run("prompts/fact_entity_scope.txt")
+    if not valid(result):
+        result = run("prompts/fact_entity_scope_retry.txt", result)
+    if not valid(result):
+        return None
+    return {
+        "target_entity": result["target_entity"].strip()[:240],
+        "requested_relation": result["requested_relation"].strip()[:300],
+        "required_facets": [
+            item.strip()[:240] for item in result["required_facets"][:8]
+        ],
+        "included_scope": result["included_scope"].strip()[:500],
+        "excluded_adjacent_scopes": [
+            item.strip()[:300]
+            for item in result["excluded_adjacent_scopes"][:8]
+        ],
+        "source_language_boundaries": [
+            {
+                "source_expression": item["source_expression"].strip()[:120],
+                "established_equivalent": (
+                    item["established_equivalent"].strip()[:300]
+                    if isinstance(item.get("established_equivalent"), str)
+                    else None
+                ),
+                "meaning_status": item["meaning_status"],
+                "translation_policy": item["translation_policy"],
+                "boundary_reason": item["boundary_reason"],
+                "excluded_conflations": [
+                    adjacent.strip()[:200]
+                    for adjacent in item["excluded_conflations"][:8]
+                ],
+            }
+            for item in result["source_language_boundaries"][:8]
+        ],
+        "reason": result["reason"].strip()[:500],
+    }
+
+
+def _focused_query_context(
+    current_query,
+    query_set,
+    original_focused_query=None,
+):
+    """Label one focused candidate and its siblings without judging meaning."""
+    candidate = str(current_query or "").strip()[:500]
+    original = str(original_focused_query or current_query or "").strip()[:500]
+    values = [
+        str(value).strip()[:500]
+        for value in (query_set or [])[:2]
+        if str(value).strip()
+    ]
+    original_index = next(
+        (index for index, value in enumerate(values) if value == original),
+        None,
+    )
+    siblings = [
+        value
+        for index, value in enumerate(values)
+        if index != original_index
+    ] if original_index is not None else values
+    return {
+        "focused_candidate_before_audit": original,
+        "focused_candidate_under_review": candidate,
+        "sibling_queries": siblings[:1],
+        "effective_candidate_query_set": [candidate, *siblings[:1]],
+    }
+
+
+def _certify_fact_search_query(
+    user_request,
+    query,
+    entity_scope,
+    query_role="PRIMARY",
+    query_set=None,
+    gap_plan=None,
+    original_focused_query=None,
+):
+    """Ask an independent AI if the literal query exposes the bound scope."""
+    import tools
+
+    role = str(query_role or "PRIMARY").upper().strip()
+    focused_mode = role == "FOCUSED_FOLLOW_UP"
+    certification_schema = {
+        "type": "object",
+        "properties": {
+            "accepted": {"type": "boolean"},
+            "literal_scope_paraphrase": {
+                "type": "string",
+                "minLength": 1,
+            },
+            "strongest_adjacent_interpretation": {
+                "type": "string",
+                "minLength": 1,
+            },
+            "adjacent_interpretation_plausible": {
+                "type": "boolean",
+                "description": (
+                    "True only if the query itself could reasonably request "
+                    "the adjacent scope; irrelevant results do not count."
+                ),
+            },
+            "hierarchy_boundary_explicit": {
+                "type": "boolean",
+                "description": (
+                    "True when literal positive identity, relationship, or "
+                    "exclusion wording communicates the hierarchy boundary."
+                ),
+            },
+            "exact_entity_scope": {"type": "boolean"},
+            "translation_boundary_clear": {
+                "type": "boolean",
+                "description": (
+                    "Judge taxonomy translation independently from entity "
+                    "hierarchy concerns."
+                ),
+            },
+            "source_language_boundaries_respected": {
+                "type": "boolean",
+                "description": (
+                    "True only when every OPEN_RESEARCH_TARGET remains "
+                    "verbatim and the query asserts no unestablished "
+                    "equivalence for it."
+                ),
+            },
+            "standalone_for_search_engine": {"type": "boolean"},
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "accepted",
+            "literal_scope_paraphrase",
+            "strongest_adjacent_interpretation",
+            "adjacent_interpretation_plausible",
+            "hierarchy_boundary_explicit",
+            "exact_entity_scope",
+            "translation_boundary_clear",
+            "source_language_boundaries_respected",
+            "standalone_for_search_engine",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
+    if focused_mode:
+        certification_schema["properties"].update({
+            "focused_facet": {"type": "string", "minLength": 1},
+            "focused_facet_preserved": {
+                "type": "boolean",
+                "description": (
+                    "Whether the candidate keeps the same semantic facet; "
+                    "exact wording and explicit negative exclusions are not "
+                    "required when positive taxonomy is precise."
+                ),
+            },
+            "query_set_collectively_covers_gaps": {
+                "type": "boolean",
+                "description": (
+                    "Whether the effective candidate plus labeled siblings "
+                    "cover the gap; do not require one query to cover all."
+                ),
+            },
+        })
+        certification_schema["required"].extend([
+            "focused_facet",
+            "focused_facet_preserved",
+            "query_set_collectively_covers_gaps",
+        ])
+        prompt = "prompts/fact_query_scope_certify_focused.txt"
+        positive_checks = (
+            "hierarchy_boundary_explicit",
+            "exact_entity_scope",
+            "focused_facet_preserved",
+            "query_set_collectively_covers_gaps",
+            "translation_boundary_clear",
+            "source_language_boundaries_respected",
+            "standalone_for_search_engine",
+        )
+    else:
+        certification_schema["properties"]["all_facets_preserved"] = {
+            "type": "boolean"
+        }
+        certification_schema["required"].append("all_facets_preserved")
+        prompt = "prompts/fact_query_scope_certify.txt"
+        positive_checks = (
+            "hierarchy_boundary_explicit",
+            "exact_entity_scope",
+            "all_facets_preserved",
+            "translation_boundary_clear",
+            "source_language_boundaries_respected",
+            "standalone_for_search_engine",
+        )
+    packet = {
+        "original_user_message": str(user_request),
+        "entity_scope": entity_scope,
+        "literal_candidate_search_query": str(query),
+        "query_role": role,
+        "candidate_query_set": [
+            str(value)[:500]
+            for value in (query_set or [])[:2]
+            if str(value).strip()
+        ],
+        "evidence_gap_plan": (
+            gap_plan if isinstance(gap_plan, dict) else None
+        ),
+    }
+    if focused_mode:
+        packet.update(
+            _focused_query_context(
+                query,
+                query_set,
+                original_focused_query=original_focused_query,
+            )
+        )
+    result = tools.run_ai_prompt(
+        prompt,
+        json.dumps(packet, ensure_ascii=False, indent=2),
+        expect_json=True,
+        num_ctx=4096,
+        num_predict=520,
+        think=False,
+        model_name="gemma4:12b",
+        json_schema=certification_schema,
+    )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("accepted"), bool)
+        or not isinstance(result.get("literal_scope_paraphrase"), str)
+        or not result["literal_scope_paraphrase"].strip()
+        or not isinstance(
+            result.get("strongest_adjacent_interpretation"),
+            str,
+        )
+        or not result["strongest_adjacent_interpretation"].strip()
+        or not isinstance(
+            result.get("adjacent_interpretation_plausible"),
+            bool,
+        )
+        or any(
+            not isinstance(result.get(name), bool)
+            for name in positive_checks
+        )
+        or (
+            focused_mode
+            and (
+                not isinstance(result.get("focused_facet"), str)
+                or not result["focused_facet"].strip()
+            )
+        )
+        or not isinstance(result.get("reason"), str)
+        or not result["reason"].strip()
+    ):
+        return None
+    accepted = result["accepted"] is True and all(
+        result[name] is True for name in positive_checks
+    ) and result["adjacent_interpretation_plausible"] is False
+    normalized = {
+        "accepted": accepted,
+        "literal_scope_paraphrase": result[
+            "literal_scope_paraphrase"
+        ].strip()[:500],
+        "strongest_adjacent_interpretation": result[
+            "strongest_adjacent_interpretation"
+        ].strip()[:500],
+        "adjacent_interpretation_plausible": result[
+            "adjacent_interpretation_plausible"
+        ],
+        **{name: result[name] for name in positive_checks},
+        "reason": result["reason"].strip()[:500],
+    }
+    if focused_mode:
+        normalized["focused_facet"] = result["focused_facet"].strip()[:300]
+        normalized["all_facets_preserved"] = (
+            result["focused_facet_preserved"] is True
+            and result["query_set_collectively_covers_gaps"] is True
+        )
+    return normalized
+
+
+def _audit_fact_search_query(
+    user_request,
+    query,
+    entity_scope,
+    query_role="PRIMARY",
+    query_set=None,
+    gap_plan=None,
+):
+    """Let a separate AI approve or rewrite a query to the bound entity scope."""
+    import tools
+
+    role = str(query_role or "PRIMARY").upper().strip()
+    focused_mode = role == "FOCUSED_FOLLOW_UP"
+    audit_schema = {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": ["USE", "REWRITE"]},
+            "proposed_query_scope_match": {"type": "boolean"},
+            "approved_query_scope_match": {
+                "type": "boolean",
+                "description": (
+                    "Whether the approved query communicates the exact "
+                    "search intent, not whether results can be guaranteed."
+                ),
+            },
+            "approved_search_query": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "A literal standalone query with the intended entity and "
+                    "any necessary adjacent-scope exclusion."
+                ),
+            },
+            "source_language_boundaries_respected": {
+                "type": "boolean",
+                "description": (
+                    "True only when the approved query preserves every open "
+                    "source expression without asserting an unestablished "
+                    "translation."
+                ),
+            },
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "decision",
+            "proposed_query_scope_match",
+            "approved_query_scope_match",
+            "approved_search_query",
+            "source_language_boundaries_respected",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
+    if focused_mode:
+        audit_schema["properties"].update({
+            "focused_facet": {"type": "string", "minLength": 1},
+            "proposed_focused_facet_preserved": {"type": "boolean"},
+            "approved_focused_facet_preserved": {
+                "type": "boolean",
+                "description": (
+                    "Whether the approved query preserves this query slot's "
+                    "positive semantic taxonomy rather than a sibling facet."
+                ),
+            },
+            "query_set_collectively_covers_gaps": {
+                "type": "boolean",
+                "description": (
+                    "Judge collective coverage across the effective query "
+                    "set, not full coverage by this candidate alone."
+                ),
+            },
+        })
+        audit_schema["required"].extend([
+            "focused_facet",
+            "proposed_focused_facet_preserved",
+            "approved_focused_facet_preserved",
+            "query_set_collectively_covers_gaps",
+        ])
+        audit_prompt = "prompts/fact_query_scope_audit_focused.txt"
+        retry_prompt = "prompts/fact_query_scope_audit_focused_retry.txt"
+    else:
+        audit_prompt = "prompts/fact_query_scope_audit.txt"
+        retry_prompt = "prompts/fact_query_scope_audit_retry.txt"
+    packet = {
+        "original_user_message": str(user_request),
+        "entity_scope": entity_scope,
+        "proposed_search_query": str(query),
+        "query_role": role,
+        "candidate_query_set": [
+            str(value)[:500]
+            for value in (query_set or [])[:2]
+            if str(value).strip()
+        ],
+        "evidence_gap_plan": (
+            gap_plan if isinstance(gap_plan, dict) else None
+        ),
+    }
+    if focused_mode:
+        packet.update(_focused_query_context(query, query_set))
+
+    def run(prompt, previous=None, certification=None):
+        value = dict(packet)
+        if previous is not None:
+            value["previous_incomplete_audit"] = previous
+        if certification is not None:
+            value["independent_certification_failure"] = certification
+        return tools.run_ai_prompt(
+            prompt,
+            json.dumps(value, ensure_ascii=False, indent=2),
+            expect_json=True,
+            num_ctx=4096,
+            num_predict=520,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=audit_schema,
+        )
+
+    def valid(value):
+        base_valid = (
+            isinstance(value, dict)
+            and str(value.get("decision", "")).upper().strip()
+            in {"USE", "REWRITE"}
+            and isinstance(value.get("proposed_query_scope_match"), bool)
+            and value.get("approved_query_scope_match") is True
+            and isinstance(value.get("approved_search_query"), str)
+            and bool(value["approved_search_query"].strip())
+            and value.get("source_language_boundaries_respected") is True
+            and isinstance(value.get("reason"), str)
+            and bool(value["reason"].strip())
+        )
+        if not base_valid or not focused_mode:
+            return base_valid
+        return (
+            isinstance(value.get("focused_facet"), str)
+            and bool(value["focused_facet"].strip())
+            and isinstance(
+                value.get("proposed_focused_facet_preserved"),
+                bool,
+            )
+            and value.get("approved_focused_facet_preserved") is True
+            and value.get("query_set_collectively_covers_gaps") is True
+        )
+
+    result = run(audit_prompt)
+    if not valid(result):
+        result = run(retry_prompt, result)
+    if not valid(result):
+        return None
+    certification = _certify_fact_search_query(
+        user_request,
+        result["approved_search_query"],
+        entity_scope,
+        query_role=query_role,
+        query_set=query_set,
+        gap_plan=gap_plan,
+        original_focused_query=query if focused_mode else None,
+    )
+    if (
+        not isinstance(certification, dict)
+        or certification.get("accepted") is not True
+    ):
+        result = run(
+            retry_prompt,
+            result,
+            certification,
+        )
+        if not valid(result):
+            return None
+        certification = _certify_fact_search_query(
+            user_request,
+            result["approved_search_query"],
+            entity_scope,
+            query_role=query_role,
+            query_set=query_set,
+            gap_plan=gap_plan,
+            original_focused_query=query if focused_mode else None,
+        )
+    if (
+        not isinstance(certification, dict)
+        or certification.get("accepted") is not True
+    ):
+        return None
+    return {
+        "decision": str(result["decision"]).upper().strip(),
+        "proposed_query_scope_match": result["proposed_query_scope_match"],
+        "approved_query_scope_match": True,
+        "approved_search_query": result["approved_search_query"].strip()[:500],
+        "reason": result["reason"].strip()[:500],
+        "certification": certification,
+    }
 
 
 def _validate_temporal_scope(query, source, answer, fact_scope):
@@ -580,7 +1375,7 @@ def _validate_temporal_scope(query, source, answer, fact_scope):
         num_ctx=8192,
         num_predict=260,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     if (
         not isinstance(result, dict)
@@ -595,7 +1390,92 @@ def _validate_temporal_scope(query, source, answer, fact_scope):
     }
 
 
-def _resolve_combined_fact(query, read_results, answers, fact_scope):
+def _audit_combined_fact_resolution(
+    user_request,
+    query,
+    fact_scope,
+    judgment,
+    browser_sources,
+    answers,
+):
+    """Ask an independent AI whether the resolver kept scope and evidence."""
+    import tools
+
+    audit_schema = {
+        "type": "object",
+        "properties": {
+            "accepted": {"type": "boolean"},
+            "exact_entity_scope": {"type": "boolean"},
+            "exact_temporal_scope": {"type": "boolean"},
+            "status_supported_by_evidence": {"type": "boolean"},
+            "not_missing_evidence_mislabeled_unavailable": {
+                "type": "boolean"
+            },
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "accepted",
+            "exact_entity_scope",
+            "exact_temporal_scope",
+            "status_supported_by_evidence",
+            "not_missing_evidence_mislabeled_unavailable",
+            "reason",
+        ],
+        "additionalProperties": False,
+    }
+    result = tools.run_ai_prompt(
+        "prompts/fact_resolution_audit.txt",
+        json.dumps(
+            {
+                "current_date": datetime.now().date().isoformat(),
+                "original_user_request": str(user_request or query),
+                "retrieval_query": query,
+                "fact_intent_scope": fact_scope,
+                "resolver_judgment": judgment,
+                "single_source_answers": answers,
+                "browser_sources": browser_sources,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        expect_json=True,
+        num_ctx=8192,
+        num_predict=420,
+        think=False,
+        model_name="gemma4:12b",
+        json_schema=audit_schema,
+    )
+    checks = (
+        "exact_entity_scope",
+        "exact_temporal_scope",
+        "status_supported_by_evidence",
+        "not_missing_evidence_mislabeled_unavailable",
+    )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("accepted"), bool)
+        or any(not isinstance(result.get(name), bool) for name in checks)
+        or not isinstance(result.get("reason"), str)
+        or not result["reason"].strip()
+    ):
+        return None
+    accepted = result["accepted"] is True and all(
+        result[name] is True for name in checks
+    )
+    return {
+        "accepted": accepted,
+        **{name: result[name] for name in checks},
+        "reason": result["reason"].strip()[:500],
+    }
+
+
+def _resolve_combined_fact(
+    query,
+    read_results,
+    answers,
+    fact_scope,
+    user_request="",
+):
     """Let AI distinguish a missing value from a value not produced yet."""
     import tools
 
@@ -615,6 +1495,7 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
 
     evidence_packet = {
         "current_date": datetime.now().date().isoformat(),
+        "original_user_request": str(user_request or query),
         "query": query,
         "fact_intent_scope": fact_scope,
         "single_source_answers": answers,
@@ -627,7 +1508,7 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
         num_ctx=8192,
         num_predict=420,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     if not isinstance(result, dict):
         result = {}
@@ -658,7 +1539,7 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
             num_ctx=8192,
             num_predict=420,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
 
     if not judgment_contract_complete(result):
@@ -669,7 +1550,42 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
         "answer_status": status,
         "reason": str(result["reason"]).strip()[:500],
     }
+    if status == "INSUFFICIENT":
+        return {
+            **judgment,
+            "accepted": False,
+            "resolution_audit": None,
+        }
+
+    resolution_audit = _audit_combined_fact_resolution(
+        user_request or query,
+        query,
+        fact_scope,
+        judgment,
+        compact_sources,
+        answers,
+    )
+    if (
+        not isinstance(resolution_audit, dict)
+        or resolution_audit.get("accepted") is not True
+    ):
+        return {
+            "answer_status": "INSUFFICIENT",
+            "resolver_answer_status": status,
+            "reason": (
+                "The independent AI rejected the combined-evidence outcome: "
+                + str(
+                    (resolution_audit or {}).get(
+                        "reason", "invalid resolution-audit contract"
+                    )
+                )
+            )[:500],
+            "accepted": False,
+            "resolution_audit": resolution_audit,
+        }
+
     answer_input = {
+        "original_user_request": str(user_request or query),
         "query": query,
         "fact_intent_scope": fact_scope,
         "evidence_judgment": judgment,
@@ -681,7 +1597,7 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
         num_ctx=4096,
         num_predict=300,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
 
     def answer_contract_complete(value):
@@ -708,7 +1624,7 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
             num_ctx=4096,
             num_predict=300,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
 
     if not answer_contract_complete(answer_result):
@@ -718,13 +1634,21 @@ def _resolve_combined_fact(query, read_results, answers, fact_scope):
         "answer_status": status,
         "answer": answer_result["answer"].strip()[:1000],
         "reason": judgment["reason"],
+        "accepted": True,
+        "resolution_audit": resolution_audit,
         "response_instruction": answer_result[
             "response_instruction"
         ].strip()[:500],
     }
 
 
-def _plan_evidence_gap(query, read_results, answers, fact_scope):
+def _plan_evidence_gap(
+    query,
+    read_results,
+    answers,
+    fact_scope,
+    user_request="",
+):
     """Ask AI whether one bounded follow-up browser pass is worthwhile."""
     import tools
 
@@ -746,6 +1670,7 @@ def _plan_evidence_gap(query, read_results, answers, fact_scope):
         json.dumps(
             {
                 "current_date": datetime.now().date().isoformat(),
+                "original_user_request": str(user_request or query),
                 "original_query": query,
                 "fact_intent_scope": fact_scope,
                 "candidate_answers": answers,
@@ -758,7 +1683,7 @@ def _plan_evidence_gap(query, read_results, answers, fact_scope):
         num_ctx=6144,
         num_predict=500,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     if not isinstance(result, dict):
         return None
@@ -1521,11 +2446,66 @@ def _extract_news_events(user_request, articles):
         num_ctx=12288,
         num_predict=1600,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     items = result.get("items") if isinstance(result, dict) else None
     if not isinstance(items, list):
-        return None
+        recovery_packet = dict(packet)
+        recovery_packet["articles"] = [
+            {
+                **item,
+                "page_content": str(item.get("page_content", ""))[:1800],
+            }
+            for item in packet["articles"]
+        ]
+        print("[CASPER NEWS EXTRACT RECOVERY] invalid_json_contract")
+        result = tools.run_ai_prompt(
+            "prompts/casper_news_extract_retry.txt",
+            json.dumps(
+                recovery_packet,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=1600,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "index": {"type": "integer"},
+                                "is_concrete_news": {"type": "boolean"},
+                                "content_type": {"type": "string"},
+                                "event_title": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "published_at": {"type": "string"},
+                                "event_date": {"type": "string"},
+                                "event_key": {"type": "string"},
+                                "uncertainty": {"type": "string"},
+                                "relevance_score": {"type": "integer"},
+                                "reason": {"type": "string"},
+                            },
+                            "required": [
+                                "index", "is_concrete_news", "content_type",
+                                "event_title", "summary", "published_at",
+                                "event_date", "event_key", "uncertainty",
+                                "relevance_score", "reason",
+                            ],
+                        },
+                    },
+                },
+                "required": ["items"],
+            },
+        )
+        items = result.get("items") if isinstance(result, dict) else None
+        if not isinstance(items, list):
+            return None
     decisions = {}
     for value in items:
         if not isinstance(value, dict):
@@ -1617,7 +2597,7 @@ def _curate_news_feed(user_request, articles):
         num_ctx=4096,
         num_predict=700,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     selected = result.get("selected") if isinstance(result, dict) else None
     if not isinstance(selected, list):
@@ -1883,7 +2863,7 @@ def _extract_shopping_products_batch(user_request, plan, region, candidates):
         num_ctx=8192,
         num_predict=2200,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     items = result.get("items") if isinstance(result, dict) else None
     if not isinstance(items, list):
@@ -2641,7 +3621,7 @@ def _build_ai_recommendation_plan(user_request, recent_context, region):
                 num_ctx=4096,
                 num_predict=1800,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         except Exception as error:
             print(
@@ -2954,7 +3934,7 @@ def _ask_ai_for_recommendation_options(packet):
                 num_ctx=6144,
                 num_predict=1800,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         except Exception as error:
             print(
@@ -3282,7 +4262,7 @@ def _run_recommendation_audit(candidates, user_request, plan):
                 num_ctx=6144,
                 num_predict=1800,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         except Exception as error:
             print(
@@ -3408,7 +4388,7 @@ def _build_ai_recommendation_recovery_queries(
             num_ctx=4096,
             num_predict=1200,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[CASPER RECOMMENDATION RECOVERY ERROR]", repr(error))
@@ -3460,7 +4440,7 @@ def _build_ai_verified_recommendation_reply(user_request, plan, verified):
                 num_ctx=4096,
                 num_predict=1200,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         except Exception as error:
             print(
@@ -3495,7 +4475,7 @@ def product_recommendation_controller(
     # terminate llama-server with CUDA shared-object initialization failure.
     # Release both routing residents before loading the already-required 12B
     # AI that owns recommendation planning and synthesis.
-    for model_name in ("gemma3:12b", "llama3.2:latest"):
+    for model_name in ("gemma4:12b", "llama3.2:latest"):
         try:
             tools.unload_model(model_name)
         except Exception as error:
@@ -3529,7 +4509,7 @@ def product_recommendation_controller(
     plan = _build_ai_recommendation_plan(user_request, recent_context, region)
     if not plan:
         try:
-            tools.unload_model("gemma3:12b")
+            tools.unload_model("gemma4:12b")
         except Exception as error:
             print("[CASPER RECOMMENDATION MODEL CLEANUP SKIPPED]", repr(error))
         return {
@@ -3550,7 +4530,7 @@ def product_recommendation_controller(
     )
     if not sources:
         try:
-            tools.unload_model("gemma3:12b")
+            tools.unload_model("gemma4:12b")
         except Exception as error:
             print("[CASPER RECOMMENDATION MODEL CLEANUP SKIPPED]", repr(error))
         return {
@@ -3654,7 +4634,7 @@ def product_recommendation_controller(
         options,
     )
     try:
-        tools.unload_model("gemma3:12b")
+        tools.unload_model("gemma4:12b")
     except Exception as error:
         print("[CASPER RECOMMENDATION MODEL CLEANUP SKIPPED]", repr(error))
     print(
@@ -4278,7 +5258,7 @@ def _plan_exact_purchase_lookup(user_request, recent_context, region):
                 num_ctx=4096,
                 num_predict=600,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             )
         except Exception as error:
             print("[CASPER EXACT PURCHASE PLAN ERROR]", "attempt=" + str(attempt), repr(error))
@@ -4516,7 +5496,7 @@ def _audit_exact_purchase_candidates(
             num_ctx=8192,
             num_predict=1400,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[CASPER EXACT PURCHASE AUDIT ERROR]", repr(error))
@@ -4623,7 +5603,7 @@ def _exact_purchase_lookup_controller(
             num_ctx=6144,
             num_predict=800,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[CASPER EXACT PURCHASE CANDIDATES ERROR]", repr(error))
@@ -4785,9 +5765,9 @@ def shopping_research_controller(
     try:
         # Routing just used gpt-oss. Free it before the compact llama planning
         # phase so both models do not compete for the 16 GB GPU.
-        tools.unload_model("gemma3:12b")
+        tools.unload_model("gemma4:12b")
     except Exception as error:
-        print("[CASPER MODEL UNLOAD SKIPPED] gemma3:12b", repr(error))
+        print("[CASPER MODEL UNLOAD SKIPPED] gemma4:12b", repr(error))
     region = shopping_region.detect_shopping_region()
     lookup_plan = _plan_exact_purchase_lookup(
         user_request,
@@ -4805,9 +5785,9 @@ def shopping_research_controller(
             )
         finally:
             try:
-                tools.unload_model("gemma3:12b")
+                tools.unload_model("gemma4:12b")
             except Exception as error:
-                print("[CASPER MODEL UNLOAD SKIPPED] gemma3:12b", repr(error))
+                print("[CASPER MODEL UNLOAD SKIPPED] gemma4:12b", repr(error))
     if lookup_mode == "UNRESOLVED_REFERENCE":
         try:
             return {
@@ -4825,13 +5805,13 @@ def shopping_research_controller(
             }
         finally:
             try:
-                tools.unload_model("gemma3:12b")
+                tools.unload_model("gemma4:12b")
             except Exception as error:
-                print("[CASPER MODEL UNLOAD SKIPPED] gemma3:12b", repr(error))
+                print("[CASPER MODEL UNLOAD SKIPPED] gemma4:12b", repr(error))
     try:
-        tools.unload_model("gemma3:12b")
+        tools.unload_model("gemma4:12b")
     except Exception as error:
-        print("[CASPER MODEL UNLOAD SKIPPED] gemma3:12b", repr(error))
+        print("[CASPER MODEL UNLOAD SKIPPED] gemma4:12b", repr(error))
     plan = tools.build_shopping_plan(
         user_request,
         recent_context,
@@ -5304,7 +6284,7 @@ def shopping_research_controller(
                 num_ctx=6144,
                 num_predict=900,
                 think=False,
-                model_name="gemma3:12b",
+                model_name="gemma4:12b",
             ),
             preference_profile=plan.get("preference_profile", {}),
         )
@@ -5405,7 +6385,7 @@ def _try_search_summary_fact_answer(
             num_ctx=4096,
             num_predict=900,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[CASPER SEARCH SUMMARY PROPOSAL ERROR]", repr(error))
@@ -5428,7 +6408,7 @@ def _try_search_summary_fact_answer(
             num_ctx=4096,
             num_predict=1000,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
     except Exception as error:
         print("[CASPER SEARCH SUMMARY AUDIT ERROR]", repr(error))
@@ -5511,7 +6491,82 @@ def fact_lookup_controller(
                 "Do not guess or substitute a historical period."
             ),
         }
+    entity_scope = _plan_fact_entity_scope(user_request or query, query)
+    if entity_scope is None:
+        return {
+            "status": "LIMITED_EVIDENCE",
+            "query": query,
+            "results": [],
+            "answers": [],
+            "fact_scope": fact_scope,
+            "entity_scope": None,
+            "context": (
+                "Casper could not obtain a valid AI entity-scope contract. "
+                "Do not broaden, narrow, or translate the request by guess."
+            ),
+        }
+    fact_scope = dict(fact_scope)
+    fact_scope["entity_scope"] = entity_scope
+    query_scope_audit = _audit_fact_search_query(
+        user_request or query,
+        query,
+        entity_scope,
+    )
+    if query_scope_audit is None:
+        return {
+            "status": "LIMITED_EVIDENCE",
+            "query": query,
+            "results": [],
+            "answers": [],
+            "fact_scope": fact_scope,
+            "entity_scope": entity_scope,
+            "query_scope_audit": None,
+            "context": (
+                "Casper could not obtain a valid independent AI search-query "
+                "scope audit. The unreviewed query was not executed."
+            ),
+        }
+    proposed_query = query
+    query = query_scope_audit["approved_search_query"]
+    print(
+        "[CASPER FACT ENTITY SCOPE]",
+        json.dumps(entity_scope, ensure_ascii=False),
+    )
+    print(
+        "[CASPER FACT QUERY SCOPE AUDIT]",
+        json.dumps(query_scope_audit, ensure_ascii=False),
+    )
+    if query != proposed_query:
+        print(
+            "[CASPER FACT QUERY REWRITTEN]",
+            repr(proposed_query),
+            "->",
+            repr(query),
+        )
     print("[CASPER FACT SCOPE]", json.dumps(fact_scope, ensure_ascii=False))
+
+    def run_external_fallback(results, answers, resolution=None, gap_plan=None):
+        """Ask External AI only after bounded browser evidence is incomplete."""
+        from nerv import external_fact_fallback
+
+        snapshot = {
+            "status": "LIMITED_EVIDENCE",
+            "query": query,
+            "results": results if isinstance(results, list) else [],
+            "answers": answers if isinstance(answers, list) else [],
+            "resolution": resolution,
+            "gap_plan": gap_plan,
+            "fact_scope": fact_scope,
+            "query_scope_audit": query_scope_audit,
+        }
+        return external_fact_fallback.attempt(
+            user_request=user_request or query,
+            query=query,
+            search_result=snapshot,
+            fact_scope=fact_scope,
+            risk=risk,
+            status_callback=status_callback,
+        )
 
     _status(status_callback, "Casper 正在后台浏览器中搜索… 🌐")
     discovery = discover_web(
@@ -5532,7 +6587,56 @@ def fact_lookup_controller(
         }
     candidates = discovery.get("results", [])
     if not candidates:
-        return {"status": "NO_RESULTS", "query": query, "results": []}
+        fallback = run_external_fallback([], [])
+        if fallback.get("status") == "HUMAN_HANDOFF":
+            return {
+                "status": "HUMAN_HANDOFF",
+                "query": query,
+                "pending_approval": fallback.get("pending_approval"),
+                "results": [],
+                "answers": [],
+                "external_ai_fallback": fallback,
+                "context": "External AI fallback requires user login.",
+            }
+        if fallback.get("status") in {
+            "VERIFIED", "CURRENT_REFERENCE", "CERTIFIED"
+        }:
+            answer = str(fallback.get("answer") or "").strip()
+            answer_status = {
+                "VERIFIED": "EXTERNAL_AI_POLICY_VERIFIED",
+                "CURRENT_REFERENCE": "EXTERNAL_AI_CURRENT_REFERENCE",
+                "CERTIFIED": "EXTERNAL_AI_HIGH_IMPACT_CERTIFIED",
+            }[fallback["status"]]
+            return {
+                "status": "OK",
+                "query": query,
+                "results": [],
+                "answers": [
+                    {
+                        "index": 0,
+                        "answer": answer,
+                        "accepted": True,
+                        "answer_status": answer_status,
+                    }
+                ],
+                "fact_scope": fact_scope,
+                "direct_reply": answer,
+                "external_ai_fallback": fallback,
+                "discovery_type": "external_ai_fact_fallback",
+                "context": (
+                    "Bounded web discovery returned no usable result. "
+                    "A locally governed low-impact External-AI fallback was "
+                    "accepted and persisted with explicit provenance."
+                ),
+            }
+        return {
+            "status": "NO_RESULTS",
+            "query": query,
+            "results": [],
+            "answers": [],
+            "fact_scope": fact_scope,
+            "external_ai_fallback": fallback,
+        }
 
     if str(risk or "low").casefold() != "high":
         _status(status_callback, "Casper 正在让独立 AI 检查搜索总结… 🧠")
@@ -5633,6 +6737,8 @@ def fact_lookup_controller(
                         query,
                         enriched,
                         answer,
+                        user_request=user_request or query,
+                        fact_scope=fact_scope,
                     )
             accepted = bool(
                 temporal_validation
@@ -5664,14 +6770,43 @@ def fact_lookup_controller(
     gap_plan = None
     if not _has_answer(answers) and read_results:
         _status(status_callback, "Casper 正在分析证据缺口… 🧩")
-        gap_plan = _plan_evidence_gap(query, read_results, answers, fact_scope)
+        gap_plan = _plan_evidence_gap(
+            query,
+            read_results,
+            answers,
+            fact_scope,
+            user_request=user_request or query,
+        )
 
     if (
         isinstance(gap_plan, dict)
         and gap_plan.get("action") == "RESEARCH_AGAIN"
     ):
         _status(status_callback, "Casper 正在进行一次补充调查… 🔎")
-        for follow_up_query in gap_plan.get("follow_up_queries", [])[:2]:
+        follow_up_query_set = gap_plan.get("follow_up_queries", [])[:2]
+        for follow_up_query in follow_up_query_set:
+            follow_up_audit = _audit_fact_search_query(
+                user_request or query,
+                follow_up_query,
+                entity_scope,
+                query_role="FOCUSED_FOLLOW_UP",
+                query_set=follow_up_query_set,
+                gap_plan=gap_plan,
+            )
+            if follow_up_audit is None:
+                print("[CASPER FACT FOLLOW-UP QUERY REJECTED] invalid_audit")
+                continue
+            reviewed_follow_up_query = follow_up_audit[
+                "approved_search_query"
+            ]
+            if reviewed_follow_up_query != follow_up_query:
+                print(
+                    "[CASPER FACT FOLLOW-UP QUERY REWRITTEN]",
+                    repr(follow_up_query),
+                    "->",
+                    repr(reviewed_follow_up_query),
+                )
+            follow_up_query = reviewed_follow_up_query
             follow_up_discovery = discover_web(
                 follow_up_query,
                 count=5,
@@ -5710,8 +6845,13 @@ def fact_lookup_controller(
             read_results,
             answers,
             fact_scope,
+            user_request=user_request or query,
         )
-        if isinstance(resolution, dict) and resolution.get("answer"):
+        if (
+            isinstance(resolution, dict)
+            and resolution.get("accepted") is True
+            and resolution.get("answer")
+        ):
             answers.append(
                 {
                     "index": 0,
@@ -5721,7 +6861,45 @@ def fact_lookup_controller(
                 }
             )
 
+    external_fallback = None
+    if not _has_answer(answers):
+        external_fallback = run_external_fallback(
+            read_results,
+            answers,
+            resolution=resolution,
+            gap_plan=gap_plan,
+        )
+        if external_fallback.get("status") == "HUMAN_HANDOFF":
+            return {
+                "status": "HUMAN_HANDOFF",
+                "query": query,
+                "pending_approval": external_fallback.get("pending_approval"),
+                "results": read_results,
+                "answers": answers,
+                "fact_scope": fact_scope,
+                "external_ai_fallback": external_fallback,
+                "context": "External AI fallback requires user login.",
+            }
+        if external_fallback.get("status") in {
+            "VERIFIED", "CURRENT_REFERENCE", "CERTIFIED"
+        }:
+            answer_status = {
+                "VERIFIED": "EXTERNAL_AI_POLICY_VERIFIED",
+                "CURRENT_REFERENCE": "EXTERNAL_AI_CURRENT_REFERENCE",
+                "CERTIFIED": "EXTERNAL_AI_HIGH_IMPACT_CERTIFIED",
+            }[external_fallback["status"]]
+            answers.append(
+                {
+                    "index": 0,
+                    "answer": str(external_fallback.get("answer") or "").strip(),
+                    "accepted": True,
+                    "answer_status": answer_status,
+                    "knowledge_id": external_fallback.get("knowledge_id"),
+                }
+            )
+
     has_answer = _has_answer(answers)
+    accepted_answer = _accepted_answer_text(answers)
     context = (
         "melchior response mode: FACT_LOOKUP\n"
         "Casper used its managed background browser for discovery and rendered "
@@ -5729,6 +6907,8 @@ def fact_lookup_controller(
         "response_instruction exactly.\n\n"
         "Binding fact intent scope:\n"
         + json.dumps(fact_scope, ensure_ascii=False, indent=2)
+        + "\n\nBinding entity-scope search audit:\n"
+        + json.dumps(query_scope_audit, ensure_ascii=False, indent=2)
         + "\n\n"
         "Extracted answers:\n"
         + json.dumps(answers, ensure_ascii=False, indent=2)
@@ -5736,6 +6916,8 @@ def fact_lookup_controller(
         + json.dumps(resolution, ensure_ascii=False, indent=2)
         + "\n\nEvidence gap plan:\n"
         + json.dumps(gap_plan, ensure_ascii=False, indent=2)
+        + "\n\nExternal AI fallback:\n"
+        + json.dumps(external_fallback, ensure_ascii=False, indent=2)
         + "\n\nBrowser sources:\n"
         + json.dumps(tools._source_summary(read_results), ensure_ascii=False, indent=2)
     )
@@ -5747,6 +6929,10 @@ def fact_lookup_controller(
         "resolution": resolution,
         "gap_plan": gap_plan,
         "fact_scope": fact_scope,
+        "entity_scope": entity_scope,
+        "query_scope_audit": query_scope_audit,
+        "external_ai_fallback": external_fallback,
         "context": context,
+        "direct_reply": accepted_answer,
         "discovery_type": "casper_browser",
     }

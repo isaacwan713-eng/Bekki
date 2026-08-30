@@ -51,13 +51,13 @@ def build_explicit_request(user_message):
             num_ctx=4096,
             num_predict=650,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
             json_schema=EXTERNAL_AI_REQUEST_SCHEMA,
         )
     finally:
         try:
-            tools.unload_model("gemma3:12b")
-            print("[EXTERNAL AI REQUEST MODEL RELEASED] gemma3:12b")
+            tools.unload_model("gemma4:12b")
+            print("[EXTERNAL AI REQUEST MODEL RELEASED] gemma4:12b")
         except Exception as error:
             print("[EXTERNAL AI REQUEST RELEASE WARNING]", repr(error))
     if not isinstance(result, dict):

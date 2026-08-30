@@ -13,6 +13,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -56,6 +57,7 @@ PROVIDER_ERROR_PREFIXES = (
     "请求失败", "网络错误", "網絡錯誤",
 )
 MIN_SUBSTANTIVE_ANSWER_CHARS = 4
+_UIA_IGNORED_CODEPOINTS = "\u200b\u200c\u200d\ufeff"
 
 
 def _load_uia():
@@ -118,6 +120,50 @@ def _automation_id(control):
         return str(control.element_info.automation_id or "").strip()
     except Exception:
         return ""
+
+
+def _runtime_id(control):
+    """Return a stable UIA identity when the provider exposes one."""
+    try:
+        value = control.element_info.runtime_id
+        value = value() if callable(value) else value
+        if isinstance(value, (list, tuple)) and value:
+            return tuple(str(part) for part in value)
+    except Exception:
+        pass
+    return ()
+
+
+def _copy_snapshot(controls):
+    """Remember Copy controls by identity, with count as a safe fallback."""
+    controls = list(controls or [])
+    return {
+        "count": len(controls),
+        "runtime_ids": {
+            value for value in (_runtime_id(control) for control in controls)
+            if value
+        },
+    }
+
+
+def _new_copy_controls(controls, before_snapshot):
+    """Find newly-created Copy controls without trusting list length alone."""
+    controls = list(controls or [])
+    snapshot = before_snapshot if isinstance(before_snapshot, dict) else {
+        "count": int(before_snapshot or 0),
+        "runtime_ids": set(),
+    }
+    previous_ids = set(snapshot.get("runtime_ids") or [])
+    if previous_ids:
+        fresh = [
+            control for control in controls
+            if _runtime_id(control) and _runtime_id(control) not in previous_ids
+        ]
+        if fresh:
+            return fresh
+    if len(controls) > int(snapshot.get("count") or 0):
+        return controls[int(snapshot.get("count") or 0):]
+    return []
 
 
 def _is_usable(control):
@@ -302,7 +348,7 @@ def _find_prompt_control(window):
     scored.sort(key=lambda item: (item[0], item[1]))
     selected = scored[-1][2]
     print(
-        "[EXTERNAL AI DESKTOP INPUT]",
+        "[EXTERNAL AI DESKTOP INPUT CONTROL]",
         _control_name(selected)[:120] or _automation_id(selected)[:120],
     )
     return selected
@@ -663,6 +709,63 @@ def _new_text_answer(before, current, prompt):
     return answer[:MAX_EXTERNAL_ANSWER]
 
 
+def _uia_text_key(value):
+    """Normalize only accessibility wrapping artifacts, never semantics."""
+    text = str(value or "")
+    for codepoint in _UIA_IGNORED_CODEPOINTS:
+        text = text.replace(codepoint, "")
+    text = " ".join(text.split())
+    # WebView can insert a line-wrap space between Chinese text and adjacent
+    # punctuation/text even though the actual composer value had no space.
+    cjk_or_punctuation = r"\u3400-\u9fff，。！？；：、"
+    text = re.sub(r"(?<=[" + cjk_or_punctuation + r"])[ \t]+", "", text)
+    text = re.sub(r"[ \t]+(?=[" + cjk_or_punctuation + r"])", "", text)
+    return text
+
+
+def _prompt_anchor_indices(texts, prompt):
+    target = _uia_text_key(prompt)
+    if not target:
+        return []
+    matches = []
+    for index, raw in enumerate(texts):
+        value = _uia_text_key(raw)
+        if value == target:
+            matches.append(index)
+            continue
+        folded = value.casefold()
+        for prefix in USER_MESSAGE_PREFIXES:
+            if folded.startswith(prefix) and value[len(prefix):].strip() == target:
+                matches.append(index)
+                break
+    return matches
+
+
+def _prompt_anchor_index(texts, prompt):
+    """Find this turn's exact user message in UIA document order."""
+    matches = _prompt_anchor_indices(texts, prompt)
+    return matches[-1] if matches else -1
+
+
+def _anchored_text_answer(current, prompt):
+    """Accept text only after the exact prompt sent in this request."""
+    anchor_index = _prompt_anchor_index(current, prompt)
+    if anchor_index < 0:
+        return ""
+    return _new_text_answer([], current[anchor_index + 1:], prompt)
+
+
+def _anchored_text_answer_since(before, current, prompt):
+    """Use text fallback only after a newly-added exact prompt occurrence."""
+    before_count = len(_prompt_anchor_indices(before, prompt))
+    current_matches = _prompt_anchor_indices(current, prompt)
+    if len(current_matches) <= before_count:
+        return ""
+    return _new_text_answer(
+        [], current[current_matches[-1] + 1:], prompt
+    )
+
+
 def _invoke_copy_and_read(control):
     try:
         previous = _read_clipboard_text()
@@ -678,6 +781,10 @@ def _invoke_copy_and_read(control):
     if not sentinel_written:
         return ""
     try:
+        # ChatGPT can leave the conversation viewport above the newly-created
+        # response. UIA's ScrollItem pattern moves the exact new Copy control
+        # into view without coordinates or mouse-wheel guessing.
+        _safe_call(control, "scroll_into_view", None)
         try:
             control.invoke()
         except Exception:
@@ -791,29 +898,50 @@ def _wait_for_answer(
     window,
     prompt,
     before_texts,
-    before_copy_count,
+    before_copy_snapshot,
     timeout_seconds,
     include_hidden=False,
 ):
     deadline = time.time() + max(15, int(timeout_seconds))
     last_text = ""
     stable_rounds = 0
+    last_prompt_seen = False
+    last_copy_count = int(
+        before_copy_snapshot.get("count")
+        if isinstance(before_copy_snapshot, dict)
+        else before_copy_snapshot or 0
+    )
+    last_new_copy_count = 0
+    last_generating = False
     while time.time() < deadline:
+        current_texts = _accessible_texts(
+            window, include_hidden=include_hidden
+        )
+        prompt_seen = _prompt_anchor_index(current_texts, prompt) >= 0
         copy_controls = _buttons_named(
             window, COPY_LABELS, include_hidden=include_hidden
+        )
+        new_copy_controls = _new_copy_controls(
+            copy_controls, before_copy_snapshot
         )
         generating = bool(
             _buttons_named(window, STOP_LABELS, include_hidden=include_hidden)
         )
-        if len(copy_controls) > before_copy_count and not generating:
-            copied = _invoke_copy_and_read(copy_controls[-1])
+        last_prompt_seen = prompt_seen
+        last_copy_count = len(copy_controls)
+        last_new_copy_count = len(new_copy_controls)
+        last_generating = generating
+        if (
+            prompt_seen
+            and new_copy_controls
+            and not generating
+        ):
+            copied = _invoke_copy_and_read(new_copy_controls[-1])
             copied = _clean_answer_candidate(copied, prompt)
             if copied:
                 return copied
-        current = _new_text_answer(
-            before_texts,
-            _accessible_texts(window, include_hidden=include_hidden),
-            prompt,
+        current = _anchored_text_answer_since(
+            before_texts, current_texts, prompt
         )
         if current and current == last_text:
             stable_rounds += 1
@@ -823,6 +951,14 @@ def _wait_for_answer(
         if last_text and stable_rounds >= 3 and not generating:
             return last_text
         time.sleep(1)
+    print(
+        "[EXTERNAL AI DESKTOP RESPONSE TIMEOUT]",
+        "prompt_seen=" + str(last_prompt_seen),
+        "copy_controls=" + str(last_copy_count),
+        "new_copy_controls=" + str(last_new_copy_count),
+        "generating=" + str(last_generating),
+        "candidate_chars=" + str(len(last_text)),
+    )
     return ""
 
 
@@ -911,8 +1047,13 @@ def ask_prompt(outbound_prompt, source_kind="user_explicit", timeout_seconds=180
             "prompt_sent": False,
         }
 
-    before_texts = _accessible_texts(window)
-    before_copy_count = len(_buttons_named(window, COPY_LABELS))
+    # Snapshot the full UIA conversation tree, not only the current viewport.
+    # Otherwise an older off-screen response can become visible after sending
+    # and be mistaken for the new answer.
+    before_texts = _accessible_texts(window, include_hidden=True)
+    before_copy_snapshot = _copy_snapshot(
+        _buttons_named(window, COPY_LABELS, include_hidden=True)
+    )
     if focused_companion:
         send_status = (
             "FOCUSED_SENT"
@@ -948,9 +1089,9 @@ def ask_prompt(outbound_prompt, source_kind="user_explicit", timeout_seconds=180
             window,
             prompt,
             before_texts,
-            before_copy_count,
+            before_copy_snapshot,
             timeout_seconds,
-            include_hidden=minimized,
+            include_hidden=True,
         )
     finally:
         _minimize_after_read(window, minimized)

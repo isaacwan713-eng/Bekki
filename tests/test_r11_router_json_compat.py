@@ -15,6 +15,8 @@ class RouterJsonCompatibilityTests(unittest.TestCase):
             )
         self.assertEqual(result, {"ok": True})
         self.assertIsNone(call.call_args.kwargs["response_format"])
+        self.assertEqual(call.call_args.args[0], "{}")
+        self.assertIn("Melchior", call.call_args.kwargs["system_prompt"])
 
     def test_schema_bound_shopping_json_still_forwards_schema(self):
         schema = {"type": "object", "required": ["source_indexes"]}

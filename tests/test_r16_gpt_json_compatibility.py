@@ -34,7 +34,7 @@ class GPTJSONCompatibilityTests(unittest.TestCase):
         ):
             with self.subTest(function=name):
                 rendered = ast.unparse(functions[name])
-                self.assertIn("model_name='gemma3:12b'", rendered)
+                self.assertIn("model_name='gemma4:12b'", rendered)
                 self.assertNotIn("json_schema=", rendered)
 
     def test_empty_plain_json_output_retries_without_format_forcing(self):
@@ -62,7 +62,7 @@ class GPTJSONCompatibilityTests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         for call in model.call_args_list:
             self.assertNotIn("json_schema", call.kwargs)
-            self.assertEqual(call.kwargs["model_name"], "gemma3:12b")
+            self.assertEqual(call.kwargs["model_name"], "gemma4:12b")
             self.assertEqual(call.kwargs["num_predict"], 1800)
         retry_packet = json.loads(model.call_args_list[1].args[1])
         self.assertIn("retry_instruction", retry_packet)
@@ -108,7 +108,7 @@ class GPTJSONCompatibilityTests(unittest.TestCase):
         self.assertEqual(reply, valid["reply"])
         for call in model.call_args_list:
             self.assertNotIn("json_schema", call.kwargs)
-            self.assertEqual(call.kwargs["model_name"], "gemma3:12b")
+            self.assertEqual(call.kwargs["model_name"], "gemma4:12b")
             self.assertEqual(call.kwargs["num_predict"], 1800)
 
 

@@ -65,6 +65,13 @@ def execute(
                 result["pending_approval"] = search_result.get(
                     "pending_approval"
                 )
+            elif search_result.get("status") in {
+                "LIMITED_EVIDENCE",
+                "BROWSER_UNAVAILABLE",
+                "NO_RESULT",
+                "NO_RESULTS",
+            }:
+                result["status"] = "limited_evidence"
         result["audit_log"].append(
             {
                 "event": "casper_completed",

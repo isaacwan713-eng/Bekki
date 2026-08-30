@@ -16,3 +16,7 @@ Return JSON only:
 Current/now/today/现在/当前/目前 means CURRENT_ACTIVE_STATE. It must not be
 silently converted into the most recently completed season or historical
 period. Complete every field and output JSON only.
+A request to discover the date or year of an already completed named milestone
+such as a debut, founding, first release, or first appointment is
+EXPLICIT_PERIOD, not CURRENT_ACTIVE_STATE. The user need not already know the
+date for the completed milestone to be explicit.

@@ -18,6 +18,13 @@ Rules:
 
 - The supplied fact_intent_scope is binding. Never investigate a prior period
   as a substitute when allow_previous_period is false.
+- The original_user_request and nested Entity Scope are binding. Every
+  follow-up query must preserve the exact target hierarchy, time scope, and
+  the specific requested facet it investigates. When there are multiple
+  missing facets, the one or two follow-up queries may divide them between
+  focused searches; the set must collectively cover the remaining gaps. Do
+  not expand into related entities or force every focused query to repeat the
+  entire multi-part request.
 - For CURRENT_ACTIVE_STATE, investigate whether the current value exists yet,
   including season/start/status evidence, instead of seeking historical data.
 - If the requested current ranking, standings, score, schedule, release, or
@@ -30,6 +37,9 @@ Rules:
   already establishes FOUND, NOT_YET_AVAILABLE, or a genuinely unresolvable
   evidence state. Otherwise choose RESEARCH_AGAIN to investigate availability.
 - You own the semantic decision and the follow-up search wording.
+- If translation risks losing a meaningful entity relationship or taxonomy,
+  retain the distinctive original term and use any gloss only as a description,
+  never as a replacement with an adjacent role or status.
 - RESEARCH_AGAIN only when a new, materially different query can investigate
   the missing fact, its availability, effective date, season state, release
   state, schedule state, or another specific evidence gap.

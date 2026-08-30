@@ -12,4 +12,9 @@ in-app loading documentation. Reject generic meta-text, schema or prompt labels,
 placeholders, unrelated identities, URLs, invented paths, particular artifact
 searches, recommendations, teams, rosters, and play styles.
 
+Judge each literal query without borrowing missing application, content, or
+action words from other plan fields. "one complete documentation search",
+"complete search query", "search query here", and "example query" are explicit
+placeholders and must return compliant false.
+
 Do not rewrite the queries. Return no prose or Markdown outside the JSON object.

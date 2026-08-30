@@ -52,7 +52,7 @@ class ExactPurchaseLookupTests(unittest.TestCase):
         self.assertEqual(plan["lookup_mode"], "EXACT_PRODUCT")
         self.assertEqual(plan["resolved_title"], "Simple Modern Classic Tumbler")
         kwargs = fake_tools.run_ai_prompt.call_args.kwargs
-        self.assertEqual(kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(kwargs["model_name"], "gemma4:12b")
 
     def test_ungrounded_exact_identity_is_retried_then_stopped(self):
         hallucination = {
@@ -354,7 +354,7 @@ class ExactPurchaseLookupTests(unittest.TestCase):
         )
         rendered = ast.unparse(function)
         self.assertIn("research_final_model", rendered)
-        self.assertIn("'gemma3:12b'", rendered)
+        self.assertIn("'gemma4:12b'", rendered)
         self.assertIn("'SHOPPING_RESEARCH'", rendered)
         self.assertIn("model_name=research_final_model", rendered)
         self.assertIn("False if research_final_model else 'low'", rendered)

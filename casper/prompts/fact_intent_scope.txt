@@ -15,6 +15,10 @@ Return JSON only:
 
 Rules:
 
+- requested_period must always be a non-empty JSON string. For
+  CURRENT_ACTIVE_STATE, write "current active state as of <current_date>";
+  never return null.
+
 - Words such as now, current, currently, today, 现在, 当前, and 目前 normally
   mean CURRENT_ACTIVE_STATE.
 - CURRENT_ACTIVE_STATE does not silently mean the last completed season,
@@ -25,8 +29,12 @@ Rules:
   equivalent completed period.
 - Use EXPLICIT_PERIOD when the user names a specific season, date range,
   version, term, or historical date.
+- Use EXPLICIT_PERIOD when the user asks when, on what date, or in which year
+  an already completed named milestone happened, even though discovering that
+  date is the question. A public subject's debut, founding, first release,
+  first appointment, or another one-time completed milestone is not current
+  state. Name the milestone and requested date field in requested_period.
 - allow_previous_period must be false for CURRENT_ACTIVE_STATE unless the user
   explicitly requests comparison with a previous period.
 - Do not answer the factual question and do not use outside knowledge.
 - Output JSON only.
-

@@ -1185,7 +1185,7 @@ def match_verified(message, recent_context=""):
         num_ctx=4096,
         num_predict=500,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     if not isinstance(result, dict) or str(result.get("decision", "")).upper() != "USE":
         return None
@@ -1253,7 +1253,7 @@ def match_pending_resume(
             num_ctx=8192,
             num_predict=output_budget,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
         if not isinstance(result, dict):
             payload["retry_instruction"] = (
@@ -1298,13 +1298,13 @@ def classify_user_verification(message, pending_action, recent_context=""):
     attempts = (
         (
             "prompts/casper_skill_user_verification.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             4096,
             900,
         ),
         (
             "prompts/casper_skill_user_verification_retry.txt",
-            "gemma3:4b",
+            "gemma4:e4b",
             4096,
             1200,
         ),
@@ -1345,7 +1345,7 @@ def classify_learning_checkpoint(message, pending_action, recent_context=""):
         ),
         (
             "prompts/casper_skill_learning_checkpoint_retry.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             8192,
             2400,
         ),
@@ -1385,7 +1385,7 @@ def resolve_resume_request(message, pending_action, recent_context=""):
         ),
         (
             "prompts/casper_skill_resume_request_retry.txt",
-            "gemma3:12b",
+            "gemma4:12b",
             8192,
             3600,
         ),

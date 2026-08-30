@@ -14,6 +14,8 @@ Rules:
 
 - Preserve the requested entity, location, topic, and explicit date window.
 - Resolve relative dates from Current date.
+- The supplied Authoritative resolved news window is binding. Never expand a
+  relative request such as "这几个月" or "recent months" to an earlier year.
 - Query 1 should discover individual recent articles and concrete events.
 - Query 2 should favor authoritative reporting and official announcements.
 - Do not add words such as "official website" to both queries.

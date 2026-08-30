@@ -16,9 +16,9 @@ class RecommendationModelHandoffTests(unittest.TestCase):
             and node.name == "product_recommendation_controller"
         )
         rendered = ast.unparse(controller)
-        self.assertIn("('gemma3:12b', 'llama3.2:latest')", rendered)
+        self.assertIn("('gemma4:12b', 'llama3.2:latest')", rendered)
         self.assertIn("unload_model(model_name)", rendered)
-        self.assertIn("unload_model('gemma3:12b')", rendered)
+        self.assertIn("unload_model('gemma4:12b')", rendered)
         self.assertNotIn("model_name='gpt-oss:20b'", rendered)
         self.assertIn("_ask_ai_for_recommendation_options", rendered)
         self.assertIn("_verify_ai_recommendation_options", rendered)
@@ -33,7 +33,7 @@ class RecommendationModelHandoffTests(unittest.TestCase):
             and node.name == "_build_ai_recommendation_plan"
         )
         rendered = ast.unparse(planner)
-        self.assertIn("model_name='gemma3:12b'", rendered)
+        self.assertIn("model_name='gemma4:12b'", rendered)
         self.assertNotIn("llama3.2:latest", rendered)
         self.assertNotIn("gpt-oss:20b", rendered)
         self.assertNotIn("json_schema=", rendered)

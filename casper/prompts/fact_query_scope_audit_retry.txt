@@ -1,0 +1,51 @@
+Return one compact JSON object only. No Markdown or extra prose.
+
+The previous query audit was structurally invalid, did not produce a usable
+scope-faithful query, or failed an independent certification. Re-evaluate the
+authoritative original user message, the Entity Scope contract, the proposed
+query, and any supplied certification failure yourself.
+
+When certification includes a strongest adjacent interpretation, repair the
+literal query so its relationship wording defeats that exact interpretation.
+Do not merely add authority, freshness, source-quality, or broad topic words;
+those do not establish an entity hierarchy.
+
+If the certifier attacked a parent umbrella, affiliate, or sister scope, make
+the approved literal query state both the intended entity relationship and the
+excluded adjacent relationship explicitly. The goal is an unambiguous search
+intent, not a guarantee that every returned page will be relevant.
+
+Judge semantics rather than keywords. Preserve the exact entity hierarchy,
+relationship, time meaning, and all requested facets. If translation could
+erase a meaningful distinction, retain enough original wording to keep the
+boundary explicit. The search engine sees only approved_search_query, so that
+literal query must expose the semantic boundary without relying on hidden
+scope fields. Never broaden to adjacent related entities.
+
+Preserve distinctive original taxonomy expressions verbatim whenever an
+equivalent in the intended retrieval language is uncertain. For an open
+expression, do not attach a gloss at all; keep the expression as the research
+target rather than redefining it as a neighboring concept.
+
+When the original request asks what a source term means or how it differs,
+remove any draft-generated equivalence that pre-answers that question. Use
+source_language_boundaries as an explicit repair target. Parenthesizing the
+original expression after a wrong or unverified gloss is still a translation
+failure.
+
+For each OPEN_RESEARCH_TARGET whose policy is PRESERVE_SOURCE_EXPRESSION,
+copy source_expression verbatim into the approved query and express the open
+task as meaning, relationship, or contrast research rather than an asserted
+translation. Mixed-language queries are valid. Set
+source_language_boundaries_respected true only after checking every boundary.
+
+This retry contract is for PRIMARY queries. Preserve all independently
+requested facets in the one query. Focused follow-up repair uses a separate
+contract and never enters this prompt.
+
+Return one object matching the supplied JSON schema. Choose USE or REWRITE and
+the Boolean values from the corrected semantic judgment; do not copy a
+prefilled decision. approved_search_query and reason must be non-empty.
+
+Use the correct boolean value for proposed_query_scope_match. Do not answer
+the factual question.

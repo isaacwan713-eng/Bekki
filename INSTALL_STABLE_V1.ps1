@@ -20,13 +20,16 @@ if (
     $sourceRoot.TrimEnd($rootTrimCharacters) -eq
     $targetRoot.TrimEnd($rootTrimCharacters)
 ) {
-    throw "Extract External AI Desktop V1 outside the installed AI-Assistant folder."
+    throw "Extract Bekki Screenshot Multipass OCR V1.10.27 outside the installed AI-Assistant folder."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "main.py"))) {
-    throw "Invalid External AI Desktop V1 package: main.py is missing."
+    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: main.py is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "BEKKI_BUILD.json"))) {
-    throw "Invalid External AI Desktop V1 package: BEKKI_BUILD.json is missing."
+    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: BEKKI_BUILD.json is missing."
+}
+if (-not (Test-Path (Join-Path $sourceRoot "WINDOWS_OCR.ps1"))) {
+    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: WINDOWS_OCR.ps1 is missing."
 }
 if (Test-Path $targetRoot) {
     if (-not (Test-Path (Join-Path $targetRoot "main.py"))) {
@@ -190,10 +193,14 @@ try {
     }
     $compileFiles = @(
         "main.py", "magi.py", "melchior.py", "model_runtime.py",
-        "tools.py", "vision.py", "worker.py", "casper\core.py",
+        "knowledge.py", "knowledge_retrieval.py",
+        "tools.py", "vision.py", "windows_ocr.py", "worker.py", "casper\core.py",
         "casper\adapters.py", "casper\browser.py", "casper\external_ai.py",
+        "casper\knowledge.py", "casper\knowledge_retrieval.py",
         "casper\external_ai_desktop.py",
-        "nerv\core.py", "nerv\curiosity.py",
+        "nerv\core.py", "nerv\curiosity.py", "nerv\objective_fact.py",
+        "nerv\external_fact_fallback.py", "nerv\knowledge_curator.py",
+        "nerv\knowledge_verification.py",
         "nerv\governance.py", "nerv\profile_store.py",
         "nerv\profile_writer.py", "nerv\context_selector.py",
         "nerv\learning_engine.py", "nerv\schemas.py"
@@ -216,13 +223,13 @@ try {
 } catch {
     Restore-StableRuntime
     throw (
-        "Bekki External AI Desktop V1 installation failed and the previous runtime was " +
+        "Bekki Screenshot Multipass OCR V1.10.27 installation failed and the previous runtime was " +
         "restored. Backup retained at: " + $backupRoot +
         [Environment]::NewLine + $_.Exception.Message
     )
 }
 
-Write-Host "Bekki UI Personalization V1 installed successfully."
+Write-Host "Bekki Screenshot Multipass OCR V1.10.27 installed successfully."
 Write-Host "Target: $targetRoot"
 Write-Host "Backup: $backupRoot"
 Write-Host "Preserved: data, .env, .git, .venv, build, dist"

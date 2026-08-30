@@ -21,10 +21,10 @@ OLLAMA_URL = os.getenv(
     "http://localhost:11434/api/generate",
 ).strip()
 OLLAMA_PS_URL = OLLAMA_URL.rsplit("/", 1)[0] + "/ps"
-DEFAULT_MODEL = "gemma3:12b"
+DEFAULT_MODEL = "gemma4:12b"
 KNOWN_MODELS = {
-    "gemma3:12b",
-    "gemma3:4b",
+    "gemma4:12b",
+    "gemma4:e4b",
     "llama3.2:latest",
 }
 
@@ -56,7 +56,7 @@ def _normalize_model(model_name):
 
 def _bounded_options(model_name, num_ctx, num_predict, retry=False):
     compact_model = str(model_name).casefold().startswith(
-        ("gemma3:4b", "llama3.2:")
+        ("gemma4:e2b", "gemma4:e4b", "llama3.2:")
     )
     max_ctx = 4096 if compact_model else 8192
     max_predict = 2048 if compact_model else 4096
@@ -74,6 +74,24 @@ def _bounded_options(model_name, num_ctx, num_predict, retry=False):
         context_size = min(context_size, 4096)
         prediction_size = min(prediction_size, 1024)
     return context_size, prediction_size
+
+
+def _normalize_thinking(model_name, think):
+    """Map Bekki's legacy levels onto each Ollama model's real contract.
+
+    Gemma 4 exposes thinking as an on/off capability.  Existing Bekki call
+    sites use ``"low"`` to mean a quick response, so treating that string as
+    enabled would unexpectedly add latency and consume the JSON output budget.
+    Only an explicit True, ``high``, or ``on`` enables Gemma 4 thinking.
+    """
+    model = str(model_name or "").casefold()
+    if model.startswith("gemma4:"):
+        if think is True:
+            return True
+        return str(think or "").casefold().strip() in {"true", "high", "on"}
+    if model.startswith(("gemma3:", "llama3.2:")):
+        return False
+    return think
 
 
 def _truncate_utf8_middle(value, maximum_bytes):
@@ -288,13 +306,10 @@ def generate(
     images=None,
     keep_alive=None,
     stage=None,
+    system_prompt=None,
 ):
     selected_model = _normalize_model(model_name)
-    if (
-        selected_model.casefold().startswith(("gemma3:", "llama3.2:"))
-        and think not in {False, None}
-    ):
-        think = False
+    think = _normalize_thinking(selected_model, think)
 
     try:
         with _serialized_runtime():
@@ -323,6 +338,8 @@ def generate(
                         "num_predict": prediction_size,
                     },
                 }
+                if str(system_prompt or "").strip():
+                    payload["system"] = str(system_prompt).strip()
                 if response_format is not None:
                     payload["format"] = response_format
                 if images:
@@ -353,7 +370,9 @@ def generate(
                     time.sleep(0.5)
             raise OllamaRuntimeError(
                 "Bekki 的本地模型暂时不可用。已自动清理显存并重试；"
-                "请确认 Ollama 正在运行后再试。"
+                "请确认 Ollama 正在运行，并已安装 "
+                + selected_model
+                + " 后再试。"
             ) from last_error
     except TimeoutError as exc:
         raise OllamaRuntimeError(
@@ -371,7 +390,11 @@ def unload_model(model_name=DEFAULT_MODEL):
 def runtime_snapshot():
     return {
         "loaded_models": loaded_models(),
+        "primary_model": "gemma4:12b",
+        "fast_model": "gemma4:e4b",
         "max_12b_context": 8192,
+        "gemma4_thinking_default": False,
+        "native_system_prompt": True,
         "retry_limit": 1,
         "cross_process_lock": True,
     }

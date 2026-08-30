@@ -31,7 +31,7 @@ class CompactModelRuntimeTests(unittest.TestCase):
     def test_default_model_is_12b_in_both_tools_mirrors(self):
         for relative in ("tools.py", "casper/tools.py"):
             source = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
-            self.assertIn('MODEL_NAME = "gemma3:12b"', source)
+            self.assertIn('MODEL_NAME = "gemma4:12b"', source)
 
     def test_tools_mirrors_are_ast_identical(self):
         left = ast.dump(
@@ -51,22 +51,24 @@ class CompactModelRuntimeTests(unittest.TestCase):
         tags = {item["tag"] for item in manifest["models"] if item["required"]}
         self.assertEqual(
             tags,
-            {"gemma3:12b", "gemma3:4b", "llama3.2:latest"},
+            {"gemma4:12b", "gemma4:e4b", "llama3.2:latest"},
         )
 
-    def test_call_model_disables_unsupported_thinking_for_gemma(self):
+    def test_runtime_normalizes_gemma4_thinking_to_boolean(self):
         runtime_source = (PROJECT_ROOT / "model_runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('startswith(("gemma3:", "llama3.2:"))', runtime_source)
-        self.assertIn("think = False", runtime_source)
+        self.assertIn("def _normalize_thinking", runtime_source)
+        self.assertIn('model.startswith("gemma4:")', runtime_source)
+        self.assertIn("think = _normalize_thinking", runtime_source)
         tools_source = (PROJECT_ROOT / "tools.py").read_text(encoding="utf-8")
         self.assertIn("return model_runtime.generate(", tools_source)
         self.assertIn("images=images", tools_source)
+        self.assertIn("system_prompt=system_prompt", tools_source)
 
-    def test_call_model_keeps_small_model_thinking_disabled(self):
+    def test_call_model_keeps_llama_thinking_disabled(self):
         source = (PROJECT_ROOT / "model_runtime.py").read_text(encoding="utf-8")
-        self.assertIn('startswith(("gemma3:", "llama3.2:"))', source)
+        self.assertIn('model.startswith(("gemma3:", "llama3.2:"))', source)
 
     def test_final_persona_prompts_are_split_from_compact_core(self):
         core = (PROJECT_ROOT / "prompts/system_light.txt").read_text(

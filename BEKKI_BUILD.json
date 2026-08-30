@@ -1,8 +1,8 @@
 {
-  "build_id": "bekki-ui-personalization-v1-20260826",
-  "package_id": "bekki-ui-personalization-v1-20260826",
-  "release_date": "2026-08-26",
+  "build_id": "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
+  "package_id": "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
+  "release_date": "2026-08-30",
   "runtime_entry": "main.py",
-  "update_kind": "UI Personalization V1 with persistent chat font and Bekki avatar settings",
-  "baseline": "Bekki NERV Knowledge Verification V1.4 runtime"
+  "update_kind": "Screenshot Multipass OCR V1.10.27 without additional AI gates",
+  "baseline": "Screenshot Current Evidence Anchor V1.10.26"
 }

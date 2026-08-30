@@ -51,7 +51,7 @@ class PendingContextTests(unittest.TestCase):
         with patch.dict(sys.modules, {"tools": tools_stub}):
             result = pending_context.classify("对了", pending, "")
         self.assertEqual(result, "CHECKPOINT_REPLY")
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
         self.assertIn('"current_request":"对了"', model.call_args.args[1])
 
     def test_external_ai_login_continue_uses_reliable_checkpoint_boundary(self):
@@ -65,7 +65,7 @@ class PendingContextTests(unittest.TestCase):
         with patch.dict(sys.modules, {"tools": tools_stub}):
             result = pending_context.classify("继续", pending, "")
         self.assertEqual(result, "CHECKPOINT_REPLY")
-        self.assertEqual(model.call_args.kwargs["model_name"], "gemma3:12b")
+        self.assertEqual(model.call_args.kwargs["model_name"], "gemma4:12b")
         self.assertIn('"current_request":"继续"', model.call_args.args[1])
 
     def test_invalid_primary_uses_distinct_retry_then_fails_closed(self):

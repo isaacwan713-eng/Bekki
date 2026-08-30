@@ -16,7 +16,7 @@ def _ai(
     payload,
     num_predict,
     num_ctx=8192,
-    model_name="gemma3:12b",
+    model_name="gemma4:12b",
 ):
     import tools
 
@@ -218,7 +218,7 @@ def _queries_are_compliant(message, plan, queries):
         adjudication_payload,
         1200,
         num_ctx=4096,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     return (
         isinstance(adjudicated, dict)

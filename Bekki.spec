@@ -7,7 +7,11 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets'), ('prompts', 'prompts')],
+    datas=[
+        ('assets', 'assets'),
+        ('prompts', 'prompts'),
+        ('WINDOWS_OCR.ps1', '.'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

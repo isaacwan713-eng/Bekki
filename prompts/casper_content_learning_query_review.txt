@@ -15,5 +15,13 @@ particular artifact request, recommendation, team, roster, or play-style
 preference. CURRENT_REQUEST is authoritative for both identity and outcome;
 older goals are not available to this review.
 
+Judge the literal query string by itself. Values elsewhere in PROPOSED_PLAN do
+not fill in words missing from the query. A query must name concrete searchable
+subjects such as the application/content and the folder, file type, import, or
+loading action. Phrases that merely describe the required output are
+placeholders. In particular, "one complete documentation search", "complete
+search query", "search query here", and "example query" must produce
+{"compliant":false,...}, even when the surrounding plan is valid.
+
 Set compliant false for any mismatch or meta-text. Do not rewrite queries and
 do not return prose or Markdown outside the JSON object.

@@ -45,7 +45,7 @@ BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "").strip()
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 BRAVE_IMAGE_SEARCH_URL = "https://api.search.brave.com/res/v1/images/search"
 OLLAMA_URL = model_runtime.OLLAMA_URL
-MODEL_NAME = "gemma3:12b"
+MODEL_NAME = "gemma4:12b"
 SEARCH_BUDGETS = (3, 5, 7, 10)
 
 
@@ -461,6 +461,7 @@ def call_model(
     model_name=None,
     response_format=None,
     images=None,
+    system_prompt=None,
 ):
     return model_runtime.generate(
         prompt,
@@ -470,6 +471,7 @@ def call_model(
         model_name=model_name or MODEL_NAME,
         response_format=response_format,
         images=images,
+        system_prompt=system_prompt,
         stage="tools.call_model",
     )
 
@@ -497,10 +499,8 @@ def run_ai_prompt(
     with open(resource_path(prompt_path), "r", encoding="utf-8") as file:
         system_prompt = file.read()
 
-    prompt = system_prompt + "\n\n" + input_text
-
     raw_output = call_model(
-        prompt,
+        input_text,
         num_ctx=num_ctx,
         num_predict=num_predict,
         think=think,
@@ -510,6 +510,7 @@ def run_ai_prompt(
         # format=json is forced, so only explicitly schema-bound calls use it.
         response_format=json_schema if expect_json and json_schema else None,
         images=images,
+        system_prompt=system_prompt,
     )
 
     if not expect_json:
@@ -642,7 +643,7 @@ def is_confirmation(message, pending_action=None, recent_context=""):
     payload = json.dumps(input_data, ensure_ascii=False, separators=(",", ":"))
     attempts = (
         ("prompts/confirm.txt", "llama3.2:latest", 240, 2048),
-        ("prompts/confirm_retry.txt", "gemma3:12b", 800, 4096),
+        ("prompts/confirm_retry.txt", "gemma4:12b", 800, 4096),
     )
     decision = ""
     for prompt_path, model_name, output_budget, context_budget in attempts:
@@ -713,7 +714,7 @@ def build_search_query(
         num_ctx=4096,
         num_predict=256,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     ).strip()
 
     print(
@@ -724,11 +725,52 @@ def build_search_query(
     return query or user_message
 
 
+def _resolved_news_window(user_message, today=None):
+    """Resolve an explicit recent-month request into one bounded date window."""
+    current = today or datetime.now().date()
+    text = " ".join(str(user_message or "").split()).casefold()
+    months = None
+    match = re.search(
+        r"(?:最近|近|过去)\s*([一二两三四五六七八九十\d]+)\s*个?月",
+        text,
+    )
+    if match:
+        token = match.group(1)
+        chinese_numbers = {
+            "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+            "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+        }
+        try:
+            months = int(token)
+        except ValueError:
+            months = chinese_numbers.get(token)
+    elif re.search(r"(?:这|最近|近|过去)\s*(?:几|数)\s*个?月", text):
+        months = 4
+    else:
+        english = re.search(r"(?:last|past|recent)\s+(\d+)\s+months?", text)
+        if english:
+            months = int(english.group(1))
+        elif re.search(r"(?:last|past|recent)\s+(?:few|several)\s+months?", text):
+            months = 4
+    if months is None:
+        return None
+    months = max(1, min(12, int(months)))
+    return current - timedelta(days=31 * months), current
+
+
 def build_news_queries(user_message, conversation_context=""):
     """Ask AI for complementary discovery queries for one news feed."""
+    resolved_window = _resolved_news_window(user_message)
+    window_text = (
+        resolved_window[0].isoformat() + " through " + resolved_window[1].isoformat()
+        if resolved_window
+        else "No additional relative-date window was resolved."
+    )
     input_text = (
         "Current date:\n"
         + datetime.now().date().isoformat()
+        + "\n\nAuthoritative resolved news window:\n"
+        + window_text
         + "\n\nRecent conversation:\n"
         + conversation_context
         + "\n\nCurrent user message:\n"
@@ -741,7 +783,7 @@ def build_news_queries(user_message, conversation_context=""):
         num_ctx=4096,
         num_predict=320,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
     values = result.get("queries", []) if isinstance(result, dict) else []
     queries = []
@@ -752,9 +794,71 @@ def build_news_queries(user_message, conversation_context=""):
         if len(queries) >= 2:
             break
     if not queries:
-        queries = [user_message.strip()[:220]]
+        subject = " ".join(str(user_message or "").split()).strip()[:150]
+        queries = [
+            subject + " recent events",
+            subject + " authoritative announcements",
+        ]
+    if resolved_window:
+        start_date, end_date = resolved_window
+        invalid_year = any(
+            int(year) < start_date.year or int(year) > end_date.year
+            for query in queries
+            for year in re.findall(r"\b(?:19|20)\d{2}\b", query)
+        )
+        date_anchor = start_date.isoformat() + " " + end_date.isoformat()
+        if invalid_year:
+            print(
+                "[NEWS QUERY WINDOW RECOVERY]",
+                "discarded_out_of_window_year",
+            )
+            subject = " ".join(str(user_message or "").split()).strip()[:150]
+            queries = [
+                subject + " " + date_anchor + " recent events",
+                subject + " " + date_anchor + " authoritative announcements",
+            ]
+        else:
+            queries = [
+                (query[:170].rstrip() + " " + date_anchor).strip()
+                for query in queries
+            ]
     print("[NEWS QUERIES]", json.dumps(queries, ensure_ascii=False))
     return queries
+
+
+def _claim_anchor_tokens(claim):
+    """Return numeric/date facts that a fact-check query must not discard."""
+    text = str(claim or "")
+    anchors = []
+    patterns = (
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{1,3}\s*(?:[-–—:]|\bto\b)\s*\d{1,3}\b",
+        r"\b(?:19|20)\d{2}\b",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            value = re.sub(r"\s+", " ", match.group(0)).strip()
+            if value and value not in anchors:
+                anchors.append(value)
+    return anchors
+
+
+def _normalized_anchor(value):
+    return re.sub(r"(?:\s+|[-–—:]|\bto\b)", "", str(value).casefold())
+
+
+def _query_preserves_claim_anchors(query, claim):
+    query_text = str(query or "")
+    compact_query = _normalized_anchor(query_text)
+    return all(
+        _normalized_anchor(anchor) in compact_query
+        for anchor in _claim_anchor_tokens(claim)
+    )
+
+
+def _anchored_claim_query(claim):
+    compact_claim = " ".join(str(claim or "").split()).strip()[:700]
+    return (compact_claim + " official source").strip()
 
 
 def build_claim_query(claim):
@@ -772,11 +876,23 @@ def build_claim_query(claim):
         num_ctx=4096,
         num_predict=128,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     ).strip()
 
+    if query and not _query_preserves_claim_anchors(query, claim):
+        missing = [
+            anchor for anchor in _claim_anchor_tokens(claim)
+            if _normalized_anchor(anchor) not in _normalized_anchor(query)
+        ]
+        print(
+            "[CLAIM QUERY ANCHOR RECOVERY]",
+            "missing=" + json.dumps(missing, ensure_ascii=False),
+        )
+        query = _anchored_claim_query(claim)
+
+    query = query or _anchored_claim_query(claim)
     print("BUILT CLAIM QUERY:", repr(query))
-    return query or claim
+    return query
 
 
 def score_sources(query, search_results):
@@ -807,7 +923,7 @@ def score_sources(query, search_results):
         num_ctx=8192,
         num_predict=1024,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
 
     scores = result.get("scores", []) if isinstance(result, dict) else []
@@ -865,7 +981,7 @@ def extract_answers(query, search_results):
             num_ctx=8192,
             num_predict=512,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
         )
 
         if result_ai is None:
@@ -899,7 +1015,7 @@ def find_consensus(query, answers):
         num_ctx=4096,
         num_predict=512,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
 
     if not isinstance(result, dict):
@@ -1003,7 +1119,7 @@ def rank_news_results(query, search_results):
         num_ctx=8192,
         num_predict=1024,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
     )
 
     decisions = result.get("items", []) if isinstance(result, dict) else []
@@ -3109,11 +3225,10 @@ _SOCIAL_POST_DETAIL_SCHEMA = {
 
 def _social_query_matches_platform(query, platforms):
     query = str(query or "").strip()
-    if not query:
-        return False
-    if "xiaohongshu" in platforms:
-        return bool(re.search(r"[\u3400-\u9fff]", query))
-    return True
+    # The social-query AI owns semantic compression.  Python deliberately
+    # imposes no target-language rule: preserving the user's original words
+    # is the contract for every social platform.
+    return bool(query)
 
 
 def _social_narrative_language(user_message):
@@ -3134,8 +3249,9 @@ def build_social_query(user_message, platforms):
         }
         if attempt == 2:
             packet["recovery_instruction"] = (
-                "The previous query used the wrong language or was invalid. "
-                "Create a new platform-native query independently."
+                "The previous query was empty or invalid. Create a concise "
+                "search query while preserving the original language and "
+                "every meaningful source expression verbatim."
             )
             packet["previous_rejected_query"] = previous_query[:160]
             print("[SOCIAL QUERY RETRY]", platforms)
@@ -3146,7 +3262,7 @@ def build_social_query(user_message, platforms):
             num_ctx=2048,
             num_predict=120,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
             json_schema=_SOCIAL_QUERY_SCHEMA,
         )
         if isinstance(raw_result, dict):
@@ -3243,7 +3359,7 @@ def extract_social_evidence(
         num_ctx=8192,
         num_predict=1400,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
         json_schema=_SOCIAL_EVIDENCE_SCHEMA,
     )
 
@@ -3386,7 +3502,7 @@ def extract_social_visual_evidence(
         num_ctx=4096,
         num_predict=1400,
         think=False,
-        model_name="gemma3:12b",
+        model_name="gemma4:12b",
         json_schema=_SOCIAL_VISUAL_SCHEMA,
         images=frames,
     )
@@ -3580,7 +3696,7 @@ def extract_social_post_introductions(
             num_ctx=8192,
             num_predict=1600,
             think=False,
-            model_name="gemma3:12b",
+            model_name="gemma4:12b",
             json_schema=_SOCIAL_POST_DETAIL_SCHEMA,
             images=batch_images or None,
         )
@@ -4281,8 +4397,13 @@ def social_research_controller(
 
 
 
-def search_controller(query, status_callback=None):
+def search_controller(query, status_callback=None, evidence_budgets=None):
     """Orchestrates search. AI judges meaning; Python controls the flow."""
+
+    budgets = tuple(evidence_budgets or SEARCH_BUDGETS)
+    budgets = tuple(
+        sorted({max(1, min(10, int(value))) for value in budgets})
+    ) or SEARCH_BUDGETS
 
     # =====================================================
     # 1. Search
@@ -4295,7 +4416,7 @@ def search_controller(query, status_callback=None):
 
     search_results = search(
         query,
-        count=max(SEARCH_BUDGETS)
+        count=max(budgets)
     )
 
     if not isinstance(
@@ -4361,7 +4482,7 @@ def search_controller(query, status_callback=None):
     budget_used = 0
 
 
-    for budget in SEARCH_BUDGETS:
+    for budget in budgets:
 
         target_budget = min(
             budget,

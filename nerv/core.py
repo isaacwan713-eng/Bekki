@@ -6,6 +6,8 @@ from .context_selector import ContextSelector
 from .curiosity import CuriosityJournal
 from .learning_engine import LearningEngine
 from .knowledge_verification import CuriosityKnowledgeVerifier
+from .knowledge_curator import KnowledgeCurator
+from .stable_knowledge_review import StableKnowledgeReviewer
 from .profile_store import ProfileStore
 from .profile_writer import ProfileWriter
 from . import skill_management
@@ -18,6 +20,10 @@ class NervCore:
         self.learning = LearningEngine(base_dir)
         self.curiosity = CuriosityJournal(model_call, unload_model, base_dir)
         self.knowledge_verification = CuriosityKnowledgeVerifier(
+            model_call, unload_model
+        )
+        self.knowledge_curator = KnowledgeCurator(model_call, unload_model)
+        self.stable_knowledge_review = StableKnowledgeReviewer(
             model_call, unload_model
         )
         self.model_call = model_call
@@ -104,8 +110,8 @@ class NervCore:
         finally:
             if self.unload_model is not None:
                 try:
-                    self.unload_model("gemma3:4b")
-                    print("[NERV PROFILE MODEL RELEASED] gemma3:4b")
+                    self.unload_model("gemma4:e4b")
+                    print("[NERV PROFILE MODEL RELEASED] gemma4:e4b")
                 except Exception as error:
                     print("[NERV PROFILE MODEL RELEASE WARNING]", repr(error))
         return {"event": event, "profile_results": profile_results}
@@ -119,6 +125,7 @@ class NervCore:
         verified=False,
         session_id="",
         assistant_reply="",
+        fact_knowledge_intake=None,
     ):
         """Persist the event now and write profile semantics off the reply path."""
         event = self.learning.record_result(
@@ -135,6 +142,11 @@ class NervCore:
                 str(user_message or ""),
                 str(assistant_reply or ""),
                 str(response_mode or ""),
+                (
+                    fact_knowledge_intake
+                    if isinstance(fact_knowledge_intake, dict)
+                    else None
+                ),
             ),
             name="BekkiNervProfileWriter",
             daemon=True,
@@ -153,7 +165,13 @@ class NervCore:
         thread.join(max(0.0, float(timeout_seconds)))
         return not thread.is_alive()
 
-    def _write_profile_safely(self, user_message, assistant_reply="", response_mode=""):
+    def _write_profile_safely(
+        self,
+        user_message,
+        assistant_reply="",
+        response_mode="",
+        fact_knowledge_intake=None,
+    ):
         # The runtime already accepts one user request at a time. This lock
         # prevents a very fast next turn from starting a second writer.
         with self._profile_write_lock:
@@ -172,19 +190,54 @@ class NervCore:
             finally:
                 if self.unload_model is not None:
                     try:
-                        self.unload_model("gemma3:4b")
-                        print("[NERV PROFILE MODEL RELEASED] gemma3:4b")
+                        self.unload_model("gemma4:e4b")
+                        print("[NERV PROFILE MODEL RELEASED] gemma4:e4b")
                     except Exception as error:
                         print("[NERV PROFILE MODEL RELEASE WARNING]", repr(error))
+            if isinstance(fact_knowledge_intake, dict):
+                try:
+                    from . import external_fact_fallback
+
+                    intake_result = external_fact_fallback.intake_audited_fact_lookup(
+                        user_message,
+                        fact_knowledge_intake.get("answer"),
+                        fact_knowledge_intake.get("search_result"),
+                        risk=fact_knowledge_intake.get("risk", "low"),
+                    )
+                    print(
+                        "[NERV FACT KNOWLEDGE INTAKE]",
+                        "status=" + str(
+                            intake_result.get("status") or "unknown"
+                        ),
+                        "persisted=" + str(
+                            len(intake_result.get("knowledge_ids") or [])
+                        ),
+                        "reason=" + str(
+                            intake_result.get("reason") or "none"
+                        ),
+                    )
+                except Exception as error:
+                    print("[NERV FACT KNOWLEDGE INTAKE WARNING]", repr(error))
             try:
+                # Curiosity receives a cheap, bounded snapshot of already
+                # approved related Knowledge after the turn completes. The
+                # existing Writer AI still owns topic relatedness and depth;
+                # this adds no model call and no Python domain taxonomy.
+                import knowledge_retrieval
+
+                curiosity_knowledge = knowledge_retrieval.shortlist(
+                    user_message
+                )[:10]
                 result = self.curiosity.observe_turn(
                     user_message,
                     assistant_reply,
                     response_mode,
+                    knowledge_candidates=curiosity_knowledge,
                 )
                 print(
                     "[NERV CURIOSITY OBSERVED]",
                     "status=" + str(result.get("status") or "unknown"),
+                    "reason=" + str(result.get("reason") or "none"),
                 )
             except Exception as error:
                 print("[NERV CURIOSITY WRITE WARNING]", repr(error))

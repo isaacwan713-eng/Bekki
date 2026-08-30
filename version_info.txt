@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'YW49'),
           StringStruct('FileDescription', 'Bekki AI - Local Desktop AI Companion'),
-          StringStruct('FileVersion', '1.4.0'),
+          StringStruct('FileVersion', '1.5.7'),
           StringStruct('InternalName', 'Bekki'),
           StringStruct('LegalCopyright', 'Copyright (c) 2026 YW49. All rights reserved.'),
           StringStruct('OriginalFilename', 'Bekki.exe'),
           StringStruct('ProductName', 'Bekki AI'),
-          StringStruct('ProductVersion', '1.4.0')
+          StringStruct('ProductVersion', '1.5.7')
         ]
       )
     ]),

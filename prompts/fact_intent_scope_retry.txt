@@ -4,6 +4,13 @@ Re-evaluate the original message from the supplied current date. Select one:
 CURRENT_ACTIVE_STATE, LATEST_COMPLETED_PERIOD, or EXPLICIT_PERIOD. Yesterday,
 last night, a named date, and a completed game on a specified day must be
 EXPLICIT_PERIOD. Do not copy multiple options into one value.
+A request to discover when or in which year an already completed named
+milestone occurred is also EXPLICIT_PERIOD. Debut, founding, first release,
+first appointment, and another one-time completed milestone are not current
+state merely because the user did not already know their date. Name the
+milestone in requested_period.
+requested_period must be a non-empty string. For CURRENT_ACTIVE_STATE, write
+"current active state as of <current_date>" and never return null.
 
 Return exactly:
 {"scope_type":"EXPLICIT_PERIOD","requested_period":"specific supported period","allow_previous_period":false,"reason":"brief temporal reason"}

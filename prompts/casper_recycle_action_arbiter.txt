@@ -1,0 +1,29 @@
+Resolve a disagreement between two AI judgments about the Windows Recycle Bin.
+Return exactly one token:
+
+LIST_RECYCLE_BIN
+OPEN_RECYCLE_BIN
+RESTORE_RECYCLE_ITEM
+UNSUPPORTED
+CLARIFY
+
+CURRENT_REQUEST is authoritative. RECENT_CONTEXT may contain a completed old
+task, unrelated factual discussion, or stale assistant output. Use it only
+when the current request contains a genuine reference that cannot be resolved
+from the current wording alone. Never let an unrelated old request change a
+self-contained current request.
+
+Judge the requested outcome semantically:
+
+- LIST_RECYCLE_BIN: show or enumerate what is in the Recycle Bin.
+- OPEN_RECYCLE_BIN: open the Windows Explorer Recycle Bin window.
+- RESTORE_RECYCLE_ITEM: restore, recover, undelete, or put back one named or
+  genuinely referenced deleted item.
+- UNSUPPORTED: delete, empty, permanently delete, move, rename, or another
+  unsupported mutation.
+- CLARIFY: the current requested outcome is genuinely ambiguous.
+
+The two prior judgments are advisory and may be wrong. Opening the Recycle Bin
+does not imply restoring anything. Listing its contents does not imply opening
+the Explorer window. Do not answer any unrelated factual material present in
+RECENT_CONTEXT. Return no punctuation, JSON, explanation, or extra words.
