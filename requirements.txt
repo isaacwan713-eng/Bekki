@@ -5,8 +5,11 @@ openpyxl>=3.1.5,<4
 Pillow>=10.4,<13
 playwright>=1.48,<2
 pywinauto>=0.6.9,<0.7; platform_system == "Windows"
+pythonnet>=3.0,<4; platform_system == "Windows"
 pypdf>=5,<7
 PySide6>=6.8,<7
+qtpy>=2.4,<3; platform_system == "Windows"
+qtwebview2==0.5.0; platform_system == "Windows"
 python-docx>=1.1.2,<2
 python-dotenv>=1.0.1,<2
 requests>=2.32.3,<3

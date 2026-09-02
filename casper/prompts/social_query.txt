@@ -1,20 +1,68 @@
-You generate one short social-media search query.
+You generate one short social-media search plan.
 
 Return JSON only:
 
 {
-  "query": "..."
+  "query": "...",
+  "selection_mode": "RECENT | RELEVANCE",
+  "recency_days": 7,
+  "ranking_mode": "DEFAULT | DISCUSSION | POPULARITY | PRICE",
+  "fallback_query": null
 }
 
 Input is JSON containing user_message and platforms.
 
-Social search has a strict no-translation policy on every platform. Preserve
-the original language of every meaningful search concept, distinctive phrase,
-proper name, product expression, slang term, and mixed-language term exactly
-as the user supplied it. This is language-neutral: do not translate Chinese to
-English for X, English to Chinese for Xiaohongshu, or between any other pair of
-languages. A term that is awkward or lossy in another language must remain in
-its original form.
+Choose the result scope from the user's literal request:
+
+- RECENT: only when the user explicitly requests freshness or a time window,
+  such as today, newest/latest, recent, this week, the last N days, or an
+  explicit current discussion window. Set recency_days to the requested number
+  of days. If the user explicitly says recent/latest but gives no number, use 7.
+- RELEVANCE: when the user gives no time constraint, or asks about identity,
+  relationships, background, history, an old event, or the best evidence for a
+  claim regardless of date. Set recency_days to null.
+- Never infer RECENT merely because social posts display dates or because a
+  platform commonly shows a recent feed. No explicit time constraint means
+  RELEVANCE.
+
+In RELEVANCE mode, the downstream search must prefer semantic relevance to the
+entire request over popularity or recency. For a relation query containing two
+entities, preserve both entities so posts that actually connect them can rank
+above popular posts mentioning only one.
+
+The strict no-translation policy applies to proper names, usernames, quoted
+phrases, IDs, subreddit names, product expressions, slang, and mixed-language
+terms. Never translate or localize those literal identifiers. Generic intent
+words, however, must be adapted to the language normally used by the selected
+platform/community when the user's language would make retrieval fail. For
+example, a Chinese request for general household-robot problems in an English
+Reddit community should search for concise English concepts while preserving
+`r/robotics`; a Chinese Bilibili or Xiaohongshu query should normally remain
+Chinese.
+
+For an aggregate question, remove only the requested output format. Preserve
+the semantic facet being investigated. For example, remove literal "top 10"
+but keep `problems`, `issues`, `limitations`, or `failures`; otherwise a query
+for home-robot problems becomes an unrelated query for home robots generally.
+
+ranking_mode:
+- DISCUSSION when the user explicitly asks for the most discussed/commented.
+- POPULARITY when the user explicitly asks for the most popular/highest
+  engagement.
+- PRICE when the user asks to rank price/card-price values (for example 卡价
+  Top 10, highest price, or most expensive). PRICE is not popularity.
+- DEFAULT otherwise.
+
+For Reddit, use concise English generic concepts when the selected subreddit is
+predominantly English. Preserve `r/community` exactly. If a second materially
+broader platform-native query could recover a zero-result page, provide it as
+fallback_query; otherwise use null. The fallback must preserve the same named
+entities and community scope.
+
+For YouTube, preserve exact channel names, `@handles`, quoted video phrases,
+video IDs, and the word `Shorts` when the user explicitly requests Shorts.
+Do not add reaction, review, documentary, clip, live, or official unless the
+user asked for that content type.
 
 You may remove only the conversational command wrapper and platform-control
 words, then compress redundant grammar into concise search keywords. Do not
@@ -23,17 +71,52 @@ or explanatory gloss. Preserve meaningful audience, budget, location, date,
 product-type, and decision constraints. Do not answer the user. Do not add
 commentary, hashtags, quotes, or facts.
 
-Example:
+Examples:
+
+Input:
+{"user_message":"去 Bilibili 搜索 又一充电中 袁雨桢","platforms":["bilibili"]}
+
+Output:
+{"query":"又一充电中 袁雨桢","selection_mode":"RELEVANCE","recency_days":null}
+
+Input:
+{"user_message":"去 Bilibili 搜索最近一周 又一充电中","platforms":["bilibili"]}
+
+Output:
+{"query":"又一充电中","selection_mode":"RECENT","recency_days":7}
+
+Input:
+{"user_message":"去 YouTube 搜索 aespa live clips","platforms":["youtube"]}
+
+Output:
+{"query":"aespa live clips","selection_mode":"RELEVANCE","recency_days":null,"ranking_mode":"DEFAULT","fallback_query":null}
+
+Input:
+{"user_message":"去油管找最近三天 @aespa 的 Shorts","platforms":["youtube"]}
+
+Output:
+{"query":"@aespa Shorts","selection_mode":"RECENT","recency_days":3,"ranking_mode":"DEFAULT","fallback_query":null}
 
 Input:
 {"user_message":"去小红书查 deadline 管理技巧","platforms":["xiaohongshu"]}
 
 Output:
-{"query":"deadline 管理技巧"}
+{"query":"deadline 管理技巧","selection_mode":"RELEVANCE","recency_days":null}
 
 Input:
-{"user_message":"去 X 查湖人交易流言","platforms":["x"]}
+{"user_message":"去 X 查最近三天湖人交易流言","platforms":["x"]}
 
 Output:
-{"query":"湖人交易流言"}
+{"query":"湖人交易流言","selection_mode":"RECENT","recency_days":3}
 
+Input:
+{"user_message":"去 Reddit 搜索 microduck review r/robotics","platforms":["reddit"]}
+
+Output:
+{"query":"microduck review r/robotics","selection_mode":"RELEVANCE","recency_days":null,"ranking_mode":"DEFAULT","fallback_query":null}
+
+Input:
+{"user_message":"去 Reddit 的 r/robotics 搜索最近一个月大家讨论最多的家用机器人问题","platforms":["reddit"]}
+
+Output:
+{"query":"home robot problems OR household robot limitations r/robotics","selection_mode":"RECENT","recency_days":30,"ranking_mode":"DISCUSSION","fallback_query":"domestic robot issues OR service robot failures r/robotics"}

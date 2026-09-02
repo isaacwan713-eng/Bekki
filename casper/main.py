@@ -239,18 +239,32 @@ def get_ai_response(
         melchior_instruction += (
             "\n\nMELCHIOR SOCIAL_RESEARCH RULE:\n"
             "Use only the supplied structured social evidence.\n"
-            "State recent_post_count and the requested time window when available.\n"
+            "Use the supplied platform names; never assume Xiaohongshu.\n"
+            "Respect selection_mode. For RECENT, state the requested time window "
+            "and do not use items outside it. For RELEVANCE, do not invent a time "
+            "window and keep semantic relevance as the primary order; visible "
+            "engagement is secondary.\n"
             "Describe what social posts are discussing, not what is proven.\n"
             "Clearly distinguish rumors, reposts, opinions, and confirmed facts.\n"
             "Do not use prior conversation as evidence.\n"
             "Do not invent social posts, dates, authors, or engagement.\n"
-            "Do not use items outside the requested time window.\n"
             "When grounded social recommendation cards are supplied, briefly "
             "introduce each displayed card and refer to its visible image.\n"
             "Never claim a restaurant name or child suitability when the card "
             "marks it as unknown.\n"
             "If there are no usable items, say the page had no readable "
             "social results.\n"
+        )
+    if (
+        melchior_plan
+        and melchior_plan.get("response_mode") == "DISCUSSION_FEED"
+    ):
+        melchior_instruction += (
+            "\n\nMELCHIOR DISCUSSION_FEED RULE:\n"
+            "Use only the attributed discussion evidence. Do not call it news, "
+            "do not require consensus, and do not turn repeated claims into "
+            "confirmed fact. Summarize recurring explanations, distinct views, "
+            "context, and disagreement. Cards own source links.\n"
         )
 
     if (
@@ -1135,7 +1149,9 @@ def process_request(message, status_callback):
     )
     sources = []
     if (
-        response_mode in {"CLAIM_CHECK", "NEWS_FEED", "SOCIAL_RESEARCH"}
+        response_mode in {
+            "CLAIM_CHECK", "NEWS_FEED", "DISCUSSION_FEED", "SOCIAL_RESEARCH",
+        }
         and isinstance(search_result, dict)
     ):
         seen_urls = set()

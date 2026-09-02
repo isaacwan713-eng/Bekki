@@ -6,8 +6,10 @@ candidates while preserving the original topic, explicit criteria, audience,
 region, and requested/AI-decided count.
 
 Do not repeat rejected or already verified product titles. Do not weaken an
-explicit condition. Do not search merchants, price, stock, checkout, sellers,
-or purchase pages. When the audience is GENERAL_UNSPECIFIED, avoid silently
+explicit condition. Do not search stock, checkout, sellers, purchase pages, or
+live merchant prices. If the plan contains an explicit budget criterion, an
+independent review price or official MSRP/list-price query is allowed so the
+auditor can verify that condition. When the audience is GENERAL_UNSPECIFIED, avoid silently
 narrowing the query to babies, toddlers, children, or another niche. Treat it
 as general/adult everyday use and explicitly broaden away from the niche that
 caused rejection. Use the rejected reasons to fix the query, not to relax the

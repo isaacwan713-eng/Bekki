@@ -17,6 +17,7 @@ DEFAULT_LANGUAGE = "zh-CN"
 TEXT = {
     "zh-CN": {
         "language": "系统语言", "history_toggle": "显示 / 隐藏聊天记录",
+        "fullscreen_enter": "Bekki 全屏（F11）", "fullscreen_exit": "退出全屏（Esc）",
         "chats": "聊天", "new_chat": "＋  新对话", "new_chat_title": "新对话",
         "clear_chat": "清除当前聊天", "reset_context": "重置当前 Context",
         "delete_chat": "删除这个对话", "input_placeholder": "和 Bekki 聊点什么吧…",
@@ -69,6 +70,7 @@ TEXT = {
     },
     "en": {
         "language": "System language", "history_toggle": "Show / hide chat history",
+        "fullscreen_enter": "Full-screen Bekki (F11)", "fullscreen_exit": "Exit full screen (Esc)",
         "chats": "Chats", "new_chat": "＋  New chat", "new_chat_title": "New chat",
         "clear_chat": "Clear current chat", "reset_context": "Reset current context",
         "delete_chat": "Delete this chat", "input_placeholder": "Message Bekki…",
@@ -120,6 +122,7 @@ TEXT = {
     },
     "es": {
         "language": "Idioma del sistema", "history_toggle": "Mostrar u ocultar el historial",
+        "fullscreen_enter": "Bekki a pantalla completa (F11)", "fullscreen_exit": "Salir de pantalla completa (Esc)",
         "chats": "Chats", "new_chat": "＋  Nuevo chat", "new_chat_title": "Nuevo chat",
         "clear_chat": "Borrar chat actual", "reset_context": "Restablecer contexto",
         "delete_chat": "Eliminar este chat", "input_placeholder": "Escribe a Bekki…",
@@ -172,6 +175,7 @@ TEXT = {
     },
     "ja": {
         "language": "システム言語", "history_toggle": "チャット履歴を表示 / 非表示",
+        "fullscreen_enter": "Bekkiを全画面表示（F11）", "fullscreen_exit": "全画面表示を終了（Esc）",
         "chats": "チャット", "new_chat": "＋  新しいチャット", "new_chat_title": "新しいチャット",
         "clear_chat": "現在のチャットを消去", "reset_context": "コンテキストをリセット",
         "delete_chat": "このチャットを削除", "input_placeholder": "Bekkiにメッセージ…",

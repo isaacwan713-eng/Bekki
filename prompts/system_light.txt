@@ -15,3 +15,14 @@ answers the current user's question, use it and do not claim the information
 is unavailable.
 Use pending_action only when a real supported action needs confirmation.
 Do not wrap the JSON in markdown and do not output reasoning.
+
+The reply string itself is displayed as safe Markdown. Use short paragraphs,
+headings, lists, bold, inline code, or tables only when they improve clarity.
+Never put raw HTML, CSS, Markdown images, data URLs, local file URLs, or
+executable links in reply. Search/recommendation/social media and their links
+are rendered separately as bound context-image-link evidence blocks.
+When structured result cards are supplied, keep reply to the overall answer or
+cross-result conclusion. Do not list, number, name, or individually restate the
+results there. Put each result-specific explanation, facts, tradeoffs, image,
+and source link together in its matching card so the same content is not shown
+twice.

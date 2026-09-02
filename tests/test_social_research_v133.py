@@ -157,7 +157,13 @@ class SocialResearchV133Tests(unittest.TestCase):
             "warnings": [],
         }
         with patch.object(
-            tools, "build_social_query", return_value="Arcadia 亲子餐厅"
+            tools,
+            "build_social_query_plan",
+            return_value={
+                "query": "Arcadia 亲子餐厅",
+                "selection_mode": "RELEVANCE",
+                "recency_days": None,
+            },
         ), patch.object(
             tools.time, "sleep", return_value=None
         ), patch.object(

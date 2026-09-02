@@ -8,7 +8,10 @@ not final proof. Python will not judge category tokens, popularity, features,
 brands, or ranking.
 
 This is recommendation research, not shopping. Do not infer or report current
-price, stock, merchant availability, seller, checkout, or a purchase link.
+checkout price, stock, merchant availability, seller, or a purchase link. If
+the user's explicit criteria contain a budget or price ceiling, an independent
+editorial tested/reviewed price or an official manufacturer MSRP/list price may
+be researched as evidence for that criterion. It is not a live merchant quote.
 
 Requirements:
 - Follow `original_user_request`, `topic`, and only the criteria in the AI plan.
@@ -31,7 +34,9 @@ Requirements:
 - For each candidate, create one or two precise `verification_queries`. These
   are follow-up research queries for checking that the exact candidate belongs
   to `topic`, satisfies every explicit criterion, and fits the stated or
-  general audience. Do not ask for price, stock, sellers, or purchase pages.
+  general audience. Do not ask for stock, sellers, checkout, or purchase pages.
+  When and only when the plan contains an explicit budget criterion, a query
+  may ask for an editorial reviewed price or official MSRP/list price.
 - Do not select a title listed in `excluded_titles` when that field is present.
   This is a hard retry boundary, not a suggestion. Do not return the same
   product under a shortened brand name or trivial punctuation variation.

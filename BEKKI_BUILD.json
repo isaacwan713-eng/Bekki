@@ -1,8 +1,8 @@
 {
-  "build_id": "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
-  "package_id": "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
-  "release_date": "2026-08-30",
+  "build_id": "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
+  "package_id": "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
+  "release_date": "2026-09-02",
   "runtime_entry": "main.py",
-  "update_kind": "Screenshot Multipass OCR V1.10.27 without additional AI gates",
-  "baseline": "Screenshot Current Evidence Anchor V1.10.26"
+  "update_kind": "Verified Video Site + Companion Bridge Hotfix V1.10.47.3",
+  "baseline": "Companion Watch Switch Hotfix V1.10.47.2"
 }

@@ -3,22 +3,28 @@
 import os
 import base64
 import hashlib
-import socket
-import subprocess
-import sys
 import time
 import json
 import re
+import managed_browser
+import secrets
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import parse_qs, parse_qsl, quote, unquote, urljoin, urlparse
+from urllib.parse import (
+    parse_qs,
+    parse_qsl,
+    quote,
+    quote_plus,
+    unquote,
+    urljoin,
+    urlparse,
+)
 
 
-CDP_PORT = 9224
-CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
+CDP_PORT = managed_browser.CDP_PORT
+CDP_URL = managed_browser.CDP_URL
 MAX_PAGE_TEXT = 15000
-_browser_process = None
 
 SEARCH_ENGINE_CATALOG = [
     {
@@ -190,136 +196,37 @@ def _status(callback, text):
 
 
 def _app_data_dir():
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
-        path = base / "Bekki"
-    elif sys.platform == "darwin":
-        path = Path.home() / "Library" / "Application Support" / "Bekki"
-    else:
-        path = Path.home() / ".local" / "share" / "Bekki"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return managed_browser.app_data_dir()
 
 
 def _profile_dir():
-    path = _app_data_dir() / "casper_browser_profile"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return managed_browser.profile_dir()
 
 
 def _edge_executable():
-    candidates = []
-    if sys.platform == "win32":
-        for variable in ("PROGRAMFILES(X86)", "PROGRAMFILES", "LOCALAPPDATA"):
-            root = os.environ.get(variable)
-            if root:
-                candidates.append(
-                    Path(root) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
-                )
-    elif sys.platform == "darwin":
-        candidates.append(
-            Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
-        )
-
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    raise RuntimeError("Microsoft Edge was not found for Casper Browser.")
+    return managed_browser.edge_executable()
 
 
 def _cdp_ready():
-    try:
-        with socket.create_connection(("127.0.0.1", CDP_PORT), timeout=0.5):
-            return True
-    except OSError:
-        return False
+    return managed_browser.cdp_is_ready()
 
 
 def ensure_browser():
-    """Start a separate headless Edge profile owned by Casper."""
-    global _browser_process
-    if _cdp_ready():
-        return
+    """Attach every Casper web task to Bekki's one normal Edge."""
 
-    command = [
-        _edge_executable(),
-        f"--remote-debugging-port={CDP_PORT}",
-        "--remote-debugging-address=127.0.0.1",
-        f"--user-data-dir={_profile_dir()}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--headless=new",
-        "--window-size=1280,900",
-    ]
-    _browser_process = subprocess.Popen(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    deadline = time.time() + 12
-    while time.time() < deadline:
-        if _cdp_ready():
-            return
-        time.sleep(0.25)
-    raise RuntimeError("Casper Browser did not start.")
+    managed_browser.ensure_browser()
 
 
 def _stop_casper_browser():
-    """Close only Casper's CDP browser so its profile can be reopened visibly."""
-    global _browser_process
-    if _cdp_ready():
-        try:
-            from playwright.sync_api import sync_playwright
+    """Compatibility no-op: individual tasks must not stop the shared browser."""
 
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.connect_over_cdp(CDP_URL)
-                browser.close()
-        except Exception as error:
-            print("[CASPER BROWSER CLOSE ERROR]", repr(error))
-    if _browser_process is not None and _browser_process.poll() is None:
-        try:
-            _browser_process.terminate()
-            _browser_process.wait(timeout=5)
-        except Exception as error:
-            print("[CASPER BROWSER TERMINATE ERROR]", repr(error))
-    _browser_process = None
-    deadline = time.time() + 8
-    while _cdp_ready() and time.time() < deadline:
-        time.sleep(0.2)
+    return None
 
 
 def open_human_handoff(url):
-    """Reopen Casper's persistent profile visibly for user verification."""
-    global _browser_process
-    target = str(url).strip()
-    parsed = urlparse(target)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("Human handoff requires a public web URL.")
-    _stop_casper_browser()
-    command = [
-        _edge_executable(),
-        f"--remote-debugging-port={CDP_PORT}",
-        "--remote-debugging-address=127.0.0.1",
-        f"--user-data-dir={_profile_dir()}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--start-maximized",
-        target,
-    ]
-    _browser_process = subprocess.Popen(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    deadline = time.time() + 12
-    while time.time() < deadline:
-        if _cdp_ready():
-            print("[CASPER HUMAN HANDOFF OPENED]", parsed.netloc)
-            return True
-        time.sleep(0.25)
-    raise RuntimeError("Visible Casper Browser did not start.")
+    """Show a verification page without replacing the shared browser."""
+
+    return managed_browser.open_human_handoff(url)
 
 
 def _protected_event(text):
@@ -703,7 +610,7 @@ def _plan_fact_entity_scope(user_request, query):
             },
             "source_language_boundaries": {
                 "type": "array",
-                "maxItems": 8,
+                "maxItems": 6,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -2636,6 +2543,1531 @@ def _curate_news_feed(user_request, articles):
     return output
 
 
+def _select_discussion_sources(user_request, candidates):
+    """Let AI select relevant and varied discussion pages before reading."""
+    import tools
+
+    packet = {
+        "current_date": datetime.now().date().isoformat(),
+        "original_user_request": str(user_request),
+        "candidates": [
+            {
+                "source_index": index,
+                "title": item.get("title", ""),
+                "description": str(item.get("description", ""))[:900],
+                "domain": item.get("domain", ""),
+                "url": item.get("url", ""),
+                "published_metadata": item.get("published", ""),
+            }
+            for index, item in enumerate(candidates[:18], start=1)
+        ],
+    }
+    schema = {
+        "type": "object",
+        "properties": {
+            "selected": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source_index": {"type": "integer"},
+                        "relevance_score": {
+                            "type": "integer", "minimum": 0, "maximum": 100,
+                        },
+                        "source_kind": {"type": "string"},
+                        "perspective_hint": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": [
+                        "source_index", "relevance_score", "source_kind",
+                        "perspective_hint", "reason",
+                    ],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["selected"],
+        "additionalProperties": False,
+    }
+    try:
+        raw = tools.run_ai_prompt(
+            "prompts/casper_discussion_select.txt",
+            json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=1300,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=schema,
+        )
+    except Exception as error:
+        print("[CASPER DISCUSSION SELECT ERROR]", repr(error))
+        return None
+    selected = raw.get("selected") if isinstance(raw, dict) else None
+    if not isinstance(selected, list):
+        return None
+    allowed_kinds = {
+        "FORUM_THREAD", "QA_THREAD", "SOCIAL_POST", "COMMENTARY",
+        "BACKGROUND", "OTHER",
+    }
+    output = []
+    seen = set()
+    for value in selected:
+        if not isinstance(value, dict):
+            continue
+        try:
+            index = int(value.get("source_index"))
+            score = int(value.get("relevance_score", 0))
+        except (TypeError, ValueError):
+            continue
+        if index < 1 or index > len(packet["candidates"]) or index in seen:
+            continue
+        kind = str(value.get("source_kind") or "OTHER").upper().strip()
+        if kind not in allowed_kinds:
+            kind = "OTHER"
+        item = dict(candidates[index - 1])
+        item.update(
+            {
+                "discussion_source_kind": kind,
+                "discussion_relevance_score": max(0, min(100, score)),
+                "discussion_perspective_hint": str(
+                    value.get("perspective_hint") or ""
+                ).strip()[:300],
+                "discussion_selection_reason": str(
+                    value.get("reason") or ""
+                ).strip()[:400],
+            }
+        )
+        output.append(item)
+        seen.add(index)
+        if len(output) >= 6:
+            break
+    return output
+
+
+_DISCUSSION_EXTRACT_BATCH_SIZE = 2
+
+
+def _recover_complete_discussion_payload(raw_output):
+    """Keep only fully closed item objects from a truncated items array."""
+
+    candidate = str(raw_output or "").strip()
+    if candidate.startswith("```"):
+        first_newline = candidate.find("\n")
+        if first_newline >= 0:
+            candidate = candidate[first_newline + 1:]
+    marker = re.search(r'"items"\s*:\s*\[', candidate)
+    if marker is None:
+        return None
+    cursor = marker.end()
+    decoder = json.JSONDecoder()
+    recovered = []
+    while cursor < len(candidate):
+        while cursor < len(candidate) and (
+            candidate[cursor].isspace() or candidate[cursor] == ","
+        ):
+            cursor += 1
+        if cursor >= len(candidate) or candidate[cursor] == "]":
+            break
+        if candidate[cursor] != "{":
+            break
+        try:
+            value, end = decoder.raw_decode(candidate, cursor)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(value, dict):
+            break
+        recovered.append(value)
+        cursor = end
+    if not recovered:
+        return None
+    print(
+        "[CASPER DISCUSSION EXTRACT PARTIAL RECOVERY]",
+        "complete_items=" + str(len(recovered)),
+    )
+    return {
+        "items": recovered,
+        "_partial_json_recovery": True,
+    }
+
+
+def _discussion_extract_schema(expected_indices):
+    expected_indices = [int(value) for value in expected_indices]
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "maxItems": len(expected_indices),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {
+                            "type": "integer",
+                            "enum": expected_indices,
+                        },
+                        "is_relevant": {"type": "boolean"},
+                        "source_kind": {"type": "string"},
+                        "discussion_title": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "claims": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 3,
+                        },
+                        "evidence_quote": {"type": "string"},
+                        "stance": {"type": "string"},
+                        "perspective_key": {"type": "string"},
+                        "published_at": {"type": "string"},
+                        "uncertainty": {"type": "string"},
+                        "relevance_score": {
+                            "type": "integer", "minimum": 0, "maximum": 100,
+                        },
+                        "reason": {"type": "string"},
+                    },
+                    "required": [
+                        "index", "is_relevant", "source_kind",
+                        "discussion_title", "summary", "claims",
+                        "evidence_quote", "stance", "perspective_key",
+                        "published_at", "uncertainty", "relevance_score",
+                        "reason",
+                    ],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["items"],
+        "additionalProperties": False,
+    }
+    return schema
+
+
+def _extract_discussion_batch(
+    user_request,
+    indexed_sources,
+    *,
+    compact=False,
+):
+    """Extract one small source batch; malformed siblings cannot erase it."""
+    import tools
+
+    description_limit = 700 if compact else 1000
+    content_limit = 1200 if compact else 2000
+    packet = {
+        "current_date": datetime.now().date().isoformat(),
+        "original_user_request": str(user_request),
+        "sources": [
+            {
+                "index": index,
+                "search_title": item.get("title", ""),
+                "search_description": str(
+                    item.get("description", "")
+                )[:description_limit],
+                "domain": item.get("domain", ""),
+                "url": item.get("url", ""),
+                "published_metadata": item.get("published", ""),
+                "selected_source_kind": item.get(
+                    "discussion_source_kind", "OTHER"
+                ),
+                "page_success": item.get("page_success") is True,
+                "page_content": str(
+                    item.get("page_content", "")
+                )[:content_limit],
+            }
+            for index, item in indexed_sources
+        ],
+    }
+    expected_indices = [index for index, _item in indexed_sources]
+    schema = _discussion_extract_schema(expected_indices)
+    try:
+        raw = tools.run_ai_prompt(
+            "prompts/casper_discussion_extract.txt",
+            json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=(1100 if compact else 1800),
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=schema,
+            invalid_json_handler=_recover_complete_discussion_payload,
+        )
+    except Exception as error:
+        print(
+            "[CASPER DISCUSSION EXTRACT BATCH ERROR]",
+            "indices=" + repr(expected_indices),
+            repr(error),
+        )
+        return []
+    if isinstance(raw, dict) and raw.get("_partial_json_recovery") is True:
+        print(
+            "[CASPER DISCUSSION EXTRACT BATCH PARTIAL]",
+            "indices=" + repr(expected_indices),
+        )
+    values = raw.get("items") if isinstance(raw, dict) else None
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, dict)]
+
+
+def _extract_discussion_sources(user_request, sources):
+    """Extract attributed viewpoints in isolated, truncation-safe batches."""
+
+    indexed_sources = list(enumerate(sources[:6], start=1))
+    values = []
+    for offset in range(0, len(indexed_sources), _DISCUSSION_EXTRACT_BATCH_SIZE):
+        batch = indexed_sources[
+            offset:offset + _DISCUSSION_EXTRACT_BATCH_SIZE
+        ]
+        batch_values = _extract_discussion_batch(user_request, batch)
+        expected = {index for index, _item in batch}
+        completed = set()
+        for value in batch_values:
+            try:
+                index = int(value.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if index in expected:
+                values.append(value)
+                completed.add(index)
+        missing = sorted(expected - completed)
+        if missing:
+            print(
+                "[CASPER DISCUSSION EXTRACT RETRY]",
+                "indices=" + repr(missing),
+            )
+        by_index = {index: item for index, item in batch}
+        for index in missing:
+            retry_values = _extract_discussion_batch(
+                user_request,
+                [(index, by_index[index])],
+                compact=True,
+            )
+            retry_value = next(
+                (
+                    value for value in retry_values
+                    if str(value.get("index") or "") == str(index)
+                ),
+                None,
+            )
+            if retry_value is not None:
+                values.append(retry_value)
+            else:
+                print(
+                    "[CASPER DISCUSSION SOURCE OMITTED]",
+                    "index=" + str(index),
+                    "reason=extract_failed",
+                )
+
+    allowed_kinds = {
+        "FORUM_THREAD", "QA_THREAD", "SOCIAL_POST", "COMMENTARY",
+        "BACKGROUND", "OTHER",
+    }
+    allowed_stances = {
+        "SUPPORTS_PREMISE", "DISPUTES_PREMISE", "EXPLAINS_CONTEXT",
+        "MIXED", "UNCLEAR",
+    }
+    output = []
+    seen = set()
+    sources_by_index = dict(indexed_sources)
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        try:
+            index = int(value.get("index"))
+            score = int(value.get("relevance_score", 0))
+        except (TypeError, ValueError):
+            continue
+        if index not in sources_by_index or index in seen:
+            continue
+        source = sources_by_index[index]
+        summary = str(value.get("summary") or "").strip()[:900]
+        if value.get("is_relevant") is not True or score < 50 or not summary:
+            seen.add(index)
+            continue
+        kind = str(value.get("source_kind") or "OTHER").upper().strip()
+        if kind not in allowed_kinds:
+            kind = "OTHER"
+        stance = str(value.get("stance") or "UNCLEAR").upper().strip()
+        if stance not in allowed_stances:
+            stance = "UNCLEAR"
+        claims = [
+            str(claim).strip()[:320]
+            for claim in value.get("claims", [])[:3]
+            if str(claim).strip()
+        ] if isinstance(value.get("claims"), list) else []
+        uncertainty = str(value.get("uncertainty") or "").strip()[:500]
+        evidence_level = (
+            "opened_page" if source.get("page_success") is True
+            else "search_snippet"
+        )
+        if evidence_level == "search_snippet" and not uncertainty:
+            uncertainty = "只读取到搜索摘要，未能打开完整页面。"
+        output.append(
+            {
+                "source_index": index,
+                "source_title": str(source.get("title") or "").strip()[:300],
+                "domain": str(source.get("domain") or "").strip()[:160],
+                "url": str(source.get("url") or "").strip()[:2048],
+                "published_at": str(
+                    value.get("published_at") or source.get("published") or ""
+                ).strip()[:160],
+                "source_kind": kind,
+                "summary": summary,
+                "claims": claims,
+                "evidence_quote": str(
+                    value.get("evidence_quote") or ""
+                ).strip()[:240],
+                "stance": stance,
+                "perspective_key": str(
+                    value.get("perspective_key") or ""
+                ).strip()[:160],
+                "uncertainty": uncertainty,
+                "relevance_score": max(0, min(100, score)),
+                "reason": str(value.get("reason") or "").strip()[:400],
+                "evidence_level": evidence_level,
+                "image_url": str(source.get("image_url") or "").strip()[:2048],
+            }
+        )
+        seen.add(index)
+    output.sort(key=lambda item: -item["relevance_score"])
+    return output
+
+
+def _synthesize_discussion_feed(user_request, items):
+    """Return a grounded Markdown roundup without performing a claim vote."""
+    import tools
+
+    packet = {
+        "original_user_request": str(user_request),
+        "required_narrative_language": (
+            "Chinese"
+            if re.search(r"[\u3400-\u9fff]", str(user_request or ""))
+            else "the same language as the user request"
+        ),
+        "discussion_sources": [
+            {
+                key: item.get(key)
+                for key in (
+                    "source_index", "source_title", "domain", "published_at",
+                    "source_kind", "summary", "claims", "evidence_quote",
+                    "stance", "perspective_key", "uncertainty",
+                    "relevance_score", "evidence_level",
+                )
+            }
+            for item in items[:6]
+        ],
+    }
+    schema = {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string"},
+            "themes": {
+                "type": "array",
+                "maxItems": 5,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "source_indices": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                        },
+                        "agreement": {"type": "string"},
+                    },
+                    "required": [
+                        "label", "summary", "source_indices", "agreement",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            "limitations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 4,
+            },
+            "confidence": {"type": "string"},
+        },
+        "required": ["answer", "themes", "limitations", "confidence"],
+        "additionalProperties": False,
+    }
+    try:
+        raw = tools.run_ai_prompt(
+            "prompts/casper_discussion_synthesis.txt",
+            json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
+            expect_json=True,
+            num_ctx=8192,
+            num_predict=1700,
+            think=False,
+            model_name="gemma4:12b",
+            json_schema=schema,
+        )
+    except Exception as error:
+        print("[CASPER DISCUSSION SYNTHESIS ERROR]", repr(error))
+        raw = None
+    chinese = bool(re.search(r"[\u3400-\u9fff]", str(user_request or "")))
+    answer = str((raw or {}).get("answer") or "").strip()[:2400]
+    if not answer:
+        answer = (
+            "这次读取到的讨论来源没有形成可安全呈现的跨来源总结。"
+            if chinese else
+            "The readable discussion sources did not yield a safe cross-source summary."
+        )
+    valid_indices = {int(item.get("source_index")) for item in items}
+    allowed_agreement = {
+        "REPEATED", "SINGLE_SOURCE", "DISPUTED", "CONTEXT_ONLY",
+    }
+    themes = []
+    for value in (raw or {}).get("themes", [])[:5]:
+        if not isinstance(value, dict):
+            continue
+        label = str(value.get("label") or "").strip()[:120]
+        summary = str(value.get("summary") or "").strip()[:600]
+        indices = []
+        for raw_index in value.get("source_indices", []):
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if index in valid_indices and index not in indices:
+                indices.append(index)
+        agreement = str(value.get("agreement") or "").upper().strip()
+        if agreement not in allowed_agreement:
+            agreement = "SINGLE_SOURCE" if len(indices) < 2 else "REPEATED"
+        if agreement == "REPEATED" and len(indices) < 2:
+            agreement = "SINGLE_SOURCE"
+        if label and summary and indices:
+            themes.append((label, summary, indices, agreement))
+    limitations = [
+        str(value).strip()[:400]
+        for value in (raw or {}).get("limitations", [])[:4]
+        if str(value).strip()
+    ]
+    if len(items) < 2 and not any(
+        ("少于" in value or "fewer" in value.casefold() or "sample" in value.casefold())
+        for value in limitations
+    ):
+        limitations.append(
+            "可读且相关的来源少于 2 个，不能形成可靠的跨来源结论。"
+            if chinese else
+            "Fewer than two relevant readable sources were available, so no reliable cross-source conclusion is possible."
+        )
+    lines = [answer]
+    if themes:
+        lines.extend(["", "主要说法：" if chinese else "Main themes:"])
+        labels = {
+            "REPEATED": "多个来源重复出现",
+            "SINGLE_SOURCE": "仅单一来源",
+            "DISPUTED": "来源之间有分歧",
+            "CONTEXT_ONLY": "背景信息",
+        }
+        for label, summary, _indices, agreement in themes:
+            suffix = labels.get(agreement, agreement) if chinese else agreement.replace("_", " ").title()
+            lines.append("- **" + label + "**：" + summary + "（" + suffix + "）")
+    if limitations:
+        lines.extend(["", "需要注意：" if chinese else "Limitations:"])
+        lines.extend("- " + value for value in limitations)
+    return "\n".join(lines).strip()
+
+
+def _normalized_media_watch_plan(value, user_request=""):
+    """Validate a new or persisted watch plan before it reaches web search."""
+
+    import media_watch
+
+    raw = value if isinstance(value, dict) else {}
+    topic = re.sub(r"\s+", " ", str(raw.get("topic") or "")).strip()[:180]
+    requested_sites = []
+    for site in raw.get("requested_sites", []):
+        normalized = media_watch.normalize_site(site)
+        if normalized and normalized not in requested_sites:
+            requested_sites.append(normalized)
+    requested_sites = requested_sites[:4]
+    selection_mode = str(raw.get("selection_mode") or "EXACT").upper().strip()
+    if selection_mode not in {"EXACT", "RANDOM_ONE"}:
+        selection_mode = media_watch.selection_mode(user_request)
+    content_kind = str(raw.get("content_kind") or "VIDEO").upper().strip()
+    if content_kind not in {
+        "SERIES", "MOVIE", "EPISODE", "LIVE", "VIDEO", "CATEGORY",
+    }:
+        content_kind = "CATEGORY" if selection_mode == "RANDOM_ONE" else "VIDEO"
+    if not topic:
+        topic = media_watch.fallback_topic(
+            user_request,
+            requested_sites=requested_sites,
+        )
+    return {
+        "topic": topic,
+        "selection_mode": selection_mode,
+        "content_kind": content_kind,
+        "episode_hint": str(raw.get("episode_hint") or "").strip()[:100] or None,
+        "requested_sites": requested_sites,
+        "site_scope_explicit": bool(requested_sites),
+    }
+
+
+def _media_watch_queries(plan):
+    """Build bounded discovery queries without weakening a requested site."""
+
+    import media_watch
+
+    topic = str(plan.get("topic") or "视频").strip()
+    sites = list(plan.get("requested_sites") or [])
+    explicit = bool(sites)
+    if not sites:
+        sites = list(media_watch.DEFAULT_WATCH_SITES)
+    queries = []
+    for site in sites:
+        search_site = site
+        if site == "bilibili.com":
+            search_site = "bilibili.com/video"
+        elif site == "youtube.com":
+            search_site = "youtube.com/watch"
+        suffix = "" if plan.get("selection_mode") == "RANDOM_ONE" else " watch"
+        queries.append(("site:" + search_site + " " + topic + suffix).strip()[:260])
+    if not explicit:
+        queries.append((topic + " official streaming watch").strip()[:260])
+    return list(dict.fromkeys(queries))[:4]
+
+
+def _media_watch_topic_tokens(topic):
+    text = re.sub(r"\s+", " ", str(topic or "")).casefold().strip()
+    tokens = []
+    if len(text) >= 2:
+        tokens.append(text)
+    tokens.extend(
+        value for value in re.findall(r"[a-z0-9][a-z0-9_-]+", text)
+        if len(value) >= 2
+    )
+    tokens.extend(
+        value for value in re.findall(r"[\u3400-\u9fff]{2,}", text)
+        if len(value) >= 2
+    )
+    # Native search results often omit the generic media noun while keeping
+    # the user's actual subject (for example ``下饭视频`` -> ``下饭``).  Keep
+    # that bounded subject token so a relevant native card does not require an
+    # unnatural exact-title echo.  This is deliberately suffix-only; it does
+    # not turn arbitrary Chinese text into permissive bigrams.
+    for suffix in ("短视频", "纪录片", "电视剧", "动画片", "视频", "影片", "节目"):
+        if text.endswith(suffix):
+            subject = text[:-len(suffix)].strip()
+            if len(subject) >= 2:
+                tokens.append(subject)
+            break
+    return list(dict.fromkeys(tokens))[:12]
+
+
+def _score_media_watch_candidate(candidate, plan):
+    """Return a relevance score or ``None`` for an off-contract result."""
+
+    import media_watch
+    import social_video
+
+    url = str(candidate.get("url") or "").strip()
+    domain = str(candidate.get("domain") or "").casefold().removeprefix("www.")
+    requested_sites = plan.get("requested_sites") or []
+    allowed_sites = requested_sites or list(media_watch.ALLOWED_WATCH_SITES)
+    if not any(media_watch.domain_matches_site(domain, site) for site in allowed_sites):
+        return None
+    combined = re.sub(
+        r"\s+",
+        " ",
+        (str(candidate.get("title") or "") + " " + str(candidate.get("description") or "")),
+    ).casefold()
+    tokens = _media_watch_topic_tokens(plan.get("topic"))
+    hits = [token for token in tokens if token and token in combined]
+    if tokens and not hits:
+        return None
+    exact_topic = str(plan.get("topic") or "").casefold().strip()
+    score = 60 if exact_topic and exact_topic in combined else min(42, len(hits) * 14)
+    contract = social_video.social_video_contract(url)
+    if contract is not None:
+        score += 30
+    if any(marker in combined for marker in ("官方", "official", "正版")):
+        score += 14
+    if requested_sites:
+        for index, site in enumerate(requested_sites):
+            if media_watch.domain_matches_site(domain, site):
+                score += max(0, 8 - index * 2)
+                break
+    derivative_markers = (
+        "解说", "reaction", "剪辑", "盘点", "预告", "trailer", "review",
+        "解读", "片段", "clip", "shorts",
+    )
+    if plan.get("selection_mode") == "EXACT" and not any(
+        marker in exact_topic for marker in derivative_markers
+    ) and any(marker in combined for marker in derivative_markers):
+        # A request for the work itself must fail closed instead of silently
+        # replacing it with commentary, clips, trailers, Shorts, or reactions.
+        return None
+    if score < 25:
+        return None
+    enriched = dict(candidate)
+    enriched["watch_score"] = score
+    enriched["inline_playable"] = contract is not None
+    enriched["video_contract"] = contract
+    return enriched
+
+
+def _media_watch_thumbnail(candidate):
+    """Use deterministic YouTube artwork; do not invent an image for other sites."""
+
+    contract = candidate.get("video_contract")
+    if isinstance(contract, dict) and contract.get("platform") == "youtube":
+        video_id = str(contract.get("video_id") or "")
+        if video_id:
+            return "https://i.ytimg.com/vi/" + video_id + "/hqdefault.jpg"
+    return str(candidate.get("image_url") or "").strip()
+
+
+def _native_media_watch_candidate(item, platform):
+    """Convert one rendered native video card into the watch-search contract."""
+
+    if not isinstance(item, dict):
+        return None
+    url = str(item.get("url") or "").strip()
+    try:
+        domain = str(urlparse(url).hostname or "").casefold().removeprefix("www.")
+    except ValueError:
+        return None
+    visible_text = re.sub(
+        r"\s+", " ", str(item.get("visible_text") or "")
+    ).strip()[:1200]
+    title = re.sub(
+        r"\s+",
+        " ",
+        str(item.get("title") or item.get("image_alt") or ""),
+    ).strip()[:300]
+    if not title:
+        title = visible_text[:220]
+    if not url or not domain or not title:
+        return None
+    description = re.sub(
+        r"\s+",
+        " ",
+        str(item.get("description") or visible_text),
+    ).strip()[:700]
+    return {
+        "title": title,
+        "description": description,
+        "url": url,
+        "domain": domain,
+        "image_url": str(item.get("image_url") or "").strip(),
+        "author": re.sub(
+            r"\s+", " ", str(item.get("author") or "")
+        ).strip()[:160],
+        "published": str(item.get("published") or "").strip()[:80],
+        "discovery_engine": platform + "_native",
+    }
+
+
+_VIDEO_SITE_DETAIL_PATH = re.compile(
+    r"/(?:play|watch|video|videos|episode|episodes|movie|movies|show|shows)/?",
+    re.IGNORECASE,
+)
+_VIDEO_SITE_TAXONOMY = (
+    "视频", "影视", "电影", "电视剧", "动漫", "动画", "综艺", "纪录片",
+    "短剧", "剧集", "立即播放", "movies", "videos", "episodes", "shows",
+    "anime", "watch now", "tv series",
+)
+
+
+def _video_site_surface_evidence(domain, body_text, links, media_element_count=0):
+    """Classify a site from repeatable video-catalog structure, not user wording."""
+
+    import media_watch
+
+    normalized = media_watch.normalize_site(domain)
+    detail_urls = set()
+    for item in links if isinstance(links, list) else []:
+        url = str((item or {}).get("url") or "").strip()
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            continue
+        host = media_watch.normalize_site(parsed.hostname)
+        if (
+            host
+            and media_watch.domain_matches_site(host, normalized)
+            and _VIDEO_SITE_DETAIL_PATH.search(parsed.path or "")
+        ):
+            detail_urls.add(url)
+    folded = re.sub(r"\s+", " ", str(body_text or "")).casefold()
+    taxonomy_hits = sum(
+        1 for marker in _VIDEO_SITE_TAXONOMY if marker.casefold() in folded
+    )
+    detail_count = len(detail_urls)
+    try:
+        media_count = max(0, int(media_element_count or 0))
+    except (TypeError, ValueError, OverflowError):
+        media_count = 0
+    verified = bool(
+        (detail_count >= 6 and taxonomy_hits >= 2)
+        or (detail_count >= 3 and taxonomy_hits >= 1 and media_count >= 1)
+    )
+    return {
+        "verified": verified,
+        "detail_link_count": detail_count,
+        "taxonomy_hit_count": taxonomy_hits,
+        "media_element_count": media_count,
+    }
+
+
+def _video_site_links(page, domain, maximum=600):
+    """Read bounded same-site anchors in one browser evaluation."""
+
+    import media_watch
+
+    raw_items = page.locator("a[href]").evaluate_all(
+        """nodes => nodes.slice(0, 1200).map(node => {
+          const image = node.querySelector("img");
+          const heading = node.querySelector("h1,h2,h3,h4,h5,h6");
+          return {
+            url: node.href || "",
+            text: (heading?.textContent || node.textContent || node.getAttribute("aria-label") || image?.alt || "").trim(),
+            image_url: image?.currentSrc || image?.src || ""
+          };
+        })"""
+    )
+    results = []
+    seen = set()
+    for item in raw_items if isinstance(raw_items, list) else []:
+        url = str((item or {}).get("url") or "").strip()
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            continue
+        host = media_watch.normalize_site(parsed.hostname)
+        if not host or not media_watch.domain_matches_site(host, domain):
+            continue
+        text_value = re.sub(
+            r"\s+", " ", str((item or {}).get("text") or "")
+        ).strip()[:300]
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        results.append(
+            {
+                "url": url,
+                "text": text_value,
+                "image_url": str((item or {}).get("image_url") or "").strip()[:2048],
+            }
+        )
+        if len(results) >= max(1, min(int(maximum), 800)):
+            break
+    return results
+
+
+def _video_site_search_template(current_url, topic, domain):
+    """Generalize only an observed same-site search URL."""
+
+    import media_watch
+
+    value = str(current_url or "").strip()
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return ""
+    host = media_watch.normalize_site(parsed.hostname)
+    if not host or not media_watch.domain_matches_site(host, domain):
+        return ""
+    variants = (quote(str(topic), safe=""), quote_plus(str(topic)), str(topic))
+    for variant in variants:
+        if variant and variant in value:
+            return value.replace(variant, "{query}", 1)[:2000]
+    return ""
+
+
+def _video_site_aliases(page_title, domain):
+    title = re.sub(r"\s+", " ", str(page_title or "")).strip()
+    aliases = [str(domain).split(".", 1)[0]]
+    if title:
+        label = re.split(r"\s*[-|｜—_]\s*", title, maxsplit=1)[0].strip()
+        if 2 <= len(label) <= 40 and not label.casefold().startswith("search"):
+            aliases.append(label)
+    return aliases
+
+
+def _video_site_candidates(links, domain):
+    """Convert catalog detail anchors while excluding episode-number links."""
+
+    results = []
+    seen = set()
+    for item in links if isinstance(links, list) else []:
+        url = str((item or {}).get("url") or "").strip()
+        text_value = re.sub(
+            r"\s+", " ", str((item or {}).get("text") or "")
+        ).strip()[:300]
+        try:
+            path = urlparse(url).path
+        except ValueError:
+            continue
+        if not _VIDEO_SITE_DETAIL_PATH.search(path or ""):
+            continue
+        if not text_value or re.fullmatch(r"[\d\s:./+-]+", text_value):
+            continue
+        canonical = url.split("?", 1)[0]
+        key = (canonical, text_value.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            {
+                "title": text_value,
+                "description": text_value,
+                "url": canonical,
+                "domain": domain,
+                "image_url": str((item or {}).get("image_url") or "").strip(),
+                "author": "",
+                "published": "",
+                "discovery_engine": domain + "_native",
+            }
+        )
+    return results[:80]
+
+
+def _discover_verified_video_site(plan, site, status_callback=None):
+    """Verify an unfamiliar public site, learn its search, and read its catalog."""
+
+    from playwright.sync_api import Error as PlaywrightError
+    from playwright.sync_api import TimeoutError, sync_playwright
+
+    import media_watch
+    import video_sites
+
+    domain = media_watch.normalize_site(site)
+    if not domain:
+        return [], []
+    ensure_browser()
+    query_log = [domain + "_native:" + str(plan.get("topic") or "视频")]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(CDP_URL)
+        if not browser.contexts:
+            raise RuntimeError("Casper Browser has no usable context.")
+        page = browser.contexts[0].new_page()
+        try:
+            entry = video_sites.get_site(domain)
+            template = str((entry or {}).get("search_url_template") or "")
+            topic = str(plan.get("topic") or "视频").strip()[:180]
+            if template:
+                target = template.replace("{query}", quote(topic, safe=""))
+            else:
+                target = "https://" + domain + "/"
+            try:
+                page.goto(target, wait_until="domcontentloaded", timeout=20000)
+            except (TimeoutError, PlaywrightError) as error:
+                print("[MEDIA WATCH SITE NAVIGATION]", domain, repr(error))
+            page.wait_for_timeout(1000)
+            body = page.locator("body").inner_text(timeout=10000)
+            protected = _protected_event(body)
+            if protected:
+                return [], query_log
+            opened_host = media_watch.normalize_site(urlparse(page.url).hostname)
+            if not media_watch.domain_matches_site(opened_host, domain):
+                print("[MEDIA WATCH SITE REJECTED]", "domain=" + domain, "reason=redirect")
+                return [], query_log
+            links = _video_site_links(page, domain)
+            if not entry or not entry.get("verified"):
+                media_count = page.locator("video, audio").count()
+                evidence = _video_site_surface_evidence(
+                    domain,
+                    body,
+                    links,
+                    media_element_count=media_count,
+                )
+                if not evidence["verified"]:
+                    print(
+                        "[MEDIA WATCH SITE REJECTED]",
+                        "domain=" + domain,
+                        "detail_links=" + str(evidence["detail_link_count"]),
+                        "taxonomy=" + str(evidence["taxonomy_hit_count"]),
+                        "media=" + str(evidence["media_element_count"]),
+                    )
+                    return [], query_log
+                aliases = _video_site_aliases(page.title(), domain)
+            else:
+                evidence = dict(entry.get("evidence") or {})
+                aliases = list(entry.get("aliases") or [])
+
+            if not template:
+                search_box = page.locator(
+                    'input[type="search"], input[placeholder*="搜索"], '
+                    'input[placeholder*="Search" i], input[aria-label*="search" i]'
+                )
+                chosen = None
+                for index in range(min(search_box.count(), 8)):
+                    candidate = search_box.nth(index)
+                    if candidate.is_visible():
+                        chosen = candidate
+                        break
+                if chosen is not None:
+                    chosen.fill(topic)
+                    chosen.press("Enter")
+                    page.wait_for_timeout(1400)
+                    template = _video_site_search_template(page.url, topic, domain)
+                    body = page.locator("body").inner_text(timeout=10000)
+                    links = _video_site_links(page, domain)
+
+            if not entry or not entry.get("verified") or template != str(
+                (entry or {}).get("search_url_template") or ""
+            ):
+                stored = video_sites.record_verified_site(
+                    domain,
+                    evidence,
+                    aliases=aliases,
+                    search_url_template=template,
+                )
+                print(
+                    "[MEDIA WATCH SITE VERIFIED]",
+                    "domain=" + domain,
+                    "detail_links=" + str(evidence.get("detail_link_count") or 0),
+                    "taxonomy=" + str(evidence.get("taxonomy_hit_count") or 0),
+                    "search=" + str(bool(stored.get("search_url_template"))).lower(),
+                )
+            candidates = _video_site_candidates(links, domain)
+            print(
+                "[MEDIA WATCH SITE NATIVE]",
+                "domain=" + domain,
+                "candidates=" + str(len(candidates)),
+            )
+            return candidates, query_log
+        finally:
+            page.close()
+
+
+def _discover_native_media_watch(plan, status_callback=None):
+    """Discover Bilibili/YouTube cards on their own rendered search pages."""
+
+    import media_watch
+    import social_browser
+
+    requested_sites = list(plan.get("requested_sites") or [])
+    sites = requested_sites or list(media_watch.DEFAULT_WATCH_SITES)
+    native_routes = []
+    if any(media_watch.domain_matches_site("bilibili.com", site) for site in sites):
+        native_routes.append(("bilibili", "B 站"))
+    if any(media_watch.domain_matches_site("youtube.com", site) for site in sites):
+        native_routes.append(("youtube", "YouTube"))
+    generic_sites = [
+        site
+        for site in requested_sites
+        if not media_watch.domain_matches_site("bilibili.com", site)
+        and not media_watch.domain_matches_site("youtube.com", site)
+    ]
+    if not native_routes and not generic_sites:
+        return [], []
+
+    topic = str(plan.get("topic") or "视频").strip()[:180]
+    candidates = []
+    query_log = []
+    for platform, label in native_routes:
+        _status(status_callback, "正在直接搜索 " + label + " 视频… 🎬")
+        query_log.append(platform + "_native:" + topic)
+        try:
+            opened = social_browser.open_social_search(
+                platform,
+                topic,
+                selection_mode="RELEVANCE",
+            )
+            page = social_browser.inspect_active_social_page(
+                platform,
+                expected_url=opened.get("url", ""),
+            )
+            platform_count = 0
+            for item in page.get("post_candidates", []):
+                converted = _native_media_watch_candidate(item, platform)
+                if converted is not None:
+                    candidates.append(converted)
+                    platform_count += 1
+            print(
+                "[MEDIA WATCH NATIVE]",
+                "platform=" + platform,
+                "candidates=" + str(platform_count),
+            )
+        except Exception as error:
+            # Native rendering is the preferred discovery surface, but a
+            # temporary site/runtime failure still gets the bounded web-search
+            # fallback below.
+            print("[MEDIA WATCH NATIVE ERROR]", platform, repr(error))
+        finally:
+            try:
+                social_browser.close_social_browser()
+            except Exception as error:
+                print("[MEDIA WATCH NATIVE CLOSE WARNING]", repr(error))
+    for site in generic_sites:
+        _status(
+            status_callback,
+            "正在验证并搜索 " + media_watch.site_label(site) + "… 🎬",
+        )
+        try:
+            site_candidates, site_queries = _discover_verified_video_site(
+                plan,
+                site,
+                status_callback=status_callback,
+            )
+            candidates.extend(site_candidates)
+            query_log.extend(site_queries)
+        except Exception as error:
+            print("[MEDIA WATCH SITE NATIVE ERROR]", site, repr(error))
+    return candidates, query_log
+
+
+def _media_watch_card(candidate, plan):
+    import media_watch
+
+    title = re.sub(r"\s+", " ", str(candidate.get("title") or "观看候选")).strip()[:180]
+    description = re.sub(
+        r"\s+", " ", str(candidate.get("description") or "")
+    ).strip()[:500]
+    domain = str(candidate.get("domain") or "").casefold().removeprefix("www.")
+    platform = next(
+        (
+            media_watch.site_label(site)
+            for site in (plan.get("requested_sites") or media_watch.DEFAULT_WATCH_SITES)
+            if media_watch.domain_matches_site(domain, site)
+        ),
+        domain,
+    )
+    playable = bool(candidate.get("inline_playable"))
+    mode_text = "可在 Bekki 内播放并进入影院模式" if playable else "当前仅支持打开原网站"
+    image_url = _media_watch_thumbnail(candidate)
+    return {
+        "type": "article",
+        "title": title,
+        "summary": description or ("来自 " + platform + " 的观看候选。"),
+        "context_markdown": (
+            "### 观看候选\n\n"
+            + (description or "搜索结果提供了这个可打开的观看页面。")
+            + "\n\n- **来源：** " + platform
+            + "\n- **播放方式：** " + mode_text
+        ),
+        "url": str(candidate.get("url") or ""),
+        "domain": domain,
+        "image": (
+            {
+                "url": image_url,
+                "alt": title,
+                "source_url": str(candidate.get("url") or ""),
+                "label": "视频封面",
+                "kind": "media",
+            }
+            if image_url else None
+        ),
+        "metadata": {
+            "brand": platform,
+            "captured_at": datetime.now().astimezone().isoformat(),
+            "link_target": "watch_page",
+        },
+        "sections": [
+            {
+                "kind": "note",
+                "label": "筛选方式",
+                "text": (
+                    "在符合网站与主题条件的候选中随机选择"
+                    if plan.get("selection_mode") == "RANDOM_ONE"
+                    else "按主题相关性与可播放性选择"
+                ),
+            }
+        ],
+        "requirements": [],
+    }
+
+
+def media_watch_controller(
+    user_request,
+    status_callback=None,
+    preplanned=None,
+    excluded_urls=None,
+    chooser=None,
+):
+    """Find one bounded watch candidate and prepare a theater-mode question."""
+
+    import media_watch
+    import result_cards
+    import social_video
+    import tools
+
+    plan = _normalized_media_watch_plan(
+        preplanned if isinstance(preplanned, dict) else tools.build_media_watch_plan(user_request),
+        user_request=user_request,
+    )
+    excluded = {
+        str(value or "").strip()
+        for value in (excluded_urls or [])
+        if str(value or "").strip()
+    }
+    _status(status_callback, "Casper 正在寻找可观看的内容… 🎬")
+    candidates = []
+    seen = set(excluded)
+    native_items, native_queries = _discover_native_media_watch(
+        plan,
+        status_callback=status_callback,
+    )
+    for item in native_items:
+        url = str(item.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        scored = _score_media_watch_candidate(item, plan)
+        if scored is not None:
+            candidates.append(scored)
+
+    queries = list(native_queries)
+    # A literal but previously unknown domain is not a video website merely
+    # because the request says “go there and play”.  Its rendered catalog must
+    # pass the structural verifier above before any general search result can
+    # be accepted from it.  Built-in sources already have a shipped contract.
+    try:
+        import video_sites
+
+        unverified_sites = [
+            site
+            for site in plan.get("requested_sites", [])
+            if not media_watch.is_builtin_video_site(site)
+            and not video_sites.is_verified(site)
+        ]
+    except (ImportError, OSError, ValueError):
+        unverified_sites = [
+            site
+            for site in plan.get("requested_sites", [])
+            if not media_watch.is_builtin_video_site(site)
+        ]
+    if unverified_sites:
+        site_text = "、".join(media_watch.site_label(site) for site in unverified_sites)
+        print(
+            "[MEDIA WATCH SITE UNVERIFIED]",
+            "sites=" + ",".join(unverified_sites),
+        )
+        return {
+            "status": "UNVERIFIED_VIDEO_SITE",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "plan": plan,
+            "results": [],
+            "cards": [],
+            "direct_reply": (
+                "我检查了 " + site_text + "，但页面没有呈现足够且可重复的视频目录、"
+                "播放详情页或剧集结构，所以没有把它登记为视频网站，也不会用普通"
+                "网页搜索结果冒充可观看内容。你可以换一个网站，或提供该站的具体"
+                "视频页面让我再核对。"
+            ),
+        }
+    if not candidates:
+        web_queries = _media_watch_queries(plan)
+        queries.extend(web_queries)
+        for query in web_queries:
+            discovery = discover_web(query, count=7, status_callback=status_callback)
+            if discovery.get("status") == "HUMAN_HANDOFF":
+                return {
+                    "status": "HUMAN_HANDOFF",
+                    "query": " | ".join(queries),
+                    "plan": plan,
+                    "pending_approval": {
+                        "event": discovery.get("event", "captcha"),
+                        "reason": "Background browser requires human control.",
+                    },
+                    "results": [],
+                    "cards": [],
+                }
+            for item in discovery.get("results", []):
+                url = str(item.get("url") or "").strip()
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                scored = _score_media_watch_candidate(item, plan)
+                if scored is not None:
+                    candidates.append(scored)
+    candidates.sort(key=lambda item: item.get("watch_score", 0), reverse=True)
+    if not candidates:
+        site_text = "、".join(
+            media_watch.site_label(site) for site in plan.get("requested_sites", [])
+        ) or "已支持的观看网站"
+        return {
+            "status": "NO_WATCH_RESULT",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "plan": plan,
+            "results": [],
+            "cards": [],
+            "direct_reply": (
+                "这次没有在 " + site_text + " 找到同时符合主题与页面条件的可靠观看结果。"
+                "我没有用解说、剪辑或无关视频补位；你可以换一个关键词或指定其他网站。"
+            ),
+        }
+    if plan.get("selection_mode") == "RANDOM_ONE":
+        pool = candidates[: min(5, len(candidates))]
+        selected = (chooser or secrets.choice)(pool)
+    else:
+        selected = candidates[0]
+    card_list = result_cards.clean_cards([_media_watch_card(selected, plan)])
+    if not card_list:
+        return {
+            "status": "NO_WATCH_RESULT",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "plan": plan,
+            "results": [],
+            "cards": [],
+            "direct_reply": "找到了候选页面，但它没有通过 Bekki 的安全卡片校验，因此没有打开。",
+        }
+    card = card_list[0]
+    playable = social_video.social_video_contract(card.get("url")) is not None
+    title = str(card.get("title") or "这个视频")
+    if playable:
+        direct_reply = (
+            "我找到《" + title + "》了。要现在进入影院模式吗？\n\n"
+            "你可以回答“可以”，也可以直接点卡片上的“影院模式”；"
+            "不喜欢就说“换一个”。"
+        )
+        pending_action = {
+            "type": "media_watch_choice",
+            "original_request": str(user_request or "")[:1200],
+            "approval_payload": {
+                "selected_url": str(card.get("url") or ""),
+                "selected_title": title,
+                "selected_card": card,
+                "plan": plan,
+                "excluded_urls": list(excluded | {str(card.get("url") or "")})[:20],
+            },
+        }
+    else:
+        direct_reply = (
+            "我找到《" + title + "》了，但这个网站目前不能在 Bekki 内嵌播放，"
+            "所以不会假装可以进入影院模式。你可以用卡片打开原网站。"
+        )
+        pending_action = None
+    result_item = dict(selected)
+    result_item.update(
+        {
+            "summary": str(card.get("summary") or ""),
+            "description": str(card.get("summary") or ""),
+            "content_type": "MEDIA_WATCH",
+            "image_url": _media_watch_thumbnail(selected),
+        }
+    )
+    print(
+        "[CASPER MEDIA WATCH]",
+        "mode=" + str(plan.get("selection_mode")),
+        "sites=" + ",".join(plan.get("requested_sites") or ["cross_site"]),
+        "playable=" + str(playable).lower(),
+        "candidates=" + str(len(candidates)),
+    )
+    return {
+        "status": "OK",
+        "query": " | ".join(queries),
+        "queries": queries,
+        "plan": plan,
+        "results": [result_item],
+        "cards": card_list,
+        "direct_reply": direct_reply,
+        "pending_action": pending_action,
+        "context": (
+            "melchior response mode: MEDIA_WATCH\n"
+            "The selected URL obeys the user's literal site condition. Inline "
+            "playability is structural and does not imply uploader authorization."
+        ),
+        "discovery_type": "casper_browser_media_watch",
+    }
+
+
+def discussion_feed_controller(queries, user_request="", status_callback=None):
+    """Browser-first cross-site discussion roundup, separate from news/claims."""
+    import result_cards
+
+    if isinstance(queries, str):
+        queries = [queries]
+    queries = [
+        str(value).strip()[:240]
+        for value in queries if str(value).strip()
+    ][:3]
+    all_candidates = []
+    seen_urls = set()
+    _status(status_callback, "Casper 正在发现相关讨论页面… 🌐")
+    for query in queries:
+        discovery = discover_web(query, count=8, status_callback=status_callback)
+        if discovery.get("status") == "HUMAN_HANDOFF":
+            return {
+                "status": "HUMAN_HANDOFF",
+                "query": " | ".join(queries),
+                "pending_approval": {
+                    "event": discovery.get("event", "captcha"),
+                    "reason": "Background browser requires human control.",
+                },
+                "results": [],
+                "cards": [],
+            }
+        for item in discovery.get("results", []):
+            url = str(item.get("url") or "").strip()
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_candidates.append(item)
+    if not all_candidates:
+        return {
+            "status": "NO_RESULTS",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "results": [],
+            "cards": [],
+        }
+
+    _status(status_callback, "Casper 正在选择不同来源的讨论… 🧭")
+    selected = _select_discussion_sources(user_request, all_candidates)
+    if selected is None:
+        print("[CASPER DISCUSSION SELECT FALLBACK]", "discovery_order")
+        selected = all_candidates[:6]
+    if not selected:
+        return {
+            "status": "NO_RELEVANT_DISCUSSION",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "results": [],
+            "inspected_results": all_candidates,
+            "cards": [],
+        }
+
+    _status(status_callback, "Casper 正在读取帖子与论坛页面… 📖")
+    inspected = []
+    for candidate in selected[:6]:
+        page = read_url(candidate.get("url", ""))
+        enriched = dict(candidate)
+        enriched.update(
+            {
+                "page_success": page.get("success", False),
+                "page_content": page.get("content", ""),
+                "page_error": page.get("error", ""),
+                "reader_type": "casper_browser",
+                "image_url": page.get("image_url", "") or candidate.get("image_url", ""),
+                "published": page.get("published", "") or candidate.get("published", ""),
+                "protected_event": page.get("protected_event"),
+            }
+        )
+        inspected.append(enriched)
+
+    _status(status_callback, "Casper 正在提取各来源的说法… 🧠")
+    items = _extract_discussion_sources(user_request, inspected)
+    if not items:
+        return {
+            "status": "NO_RELEVANT_DISCUSSION",
+            "query": " | ".join(queries),
+            "queries": queries,
+            "results": inspected,
+            "inspected_results": inspected,
+            "cards": [],
+        }
+
+    by_index = {
+        index: item for index, item in enumerate(inspected, start=1)
+    }
+    results = []
+    for item in items:
+        source = dict(by_index[item["source_index"]])
+        source.update(
+            {
+                "summary": item["summary"],
+                "description": item["summary"],
+                "content_type": "DISCUSSION",
+                "is_concrete_news": False,
+                "discussion_stance": item["stance"],
+                "discussion_source_kind": item["source_kind"],
+                "discussion_relevance_score": item["relevance_score"],
+                "evidence_level": item["evidence_level"],
+            }
+        )
+        results.append(source)
+
+    cards = result_cards.clean_cards(
+        [
+            {
+                "type": "article",
+                "title": item["source_title"] or item["domain"] or "讨论来源",
+                "summary": item["summary"],
+                "context_markdown": (
+                    "### 该来源的主要说法\n\n"
+                    + item["summary"]
+                    + (
+                        "\n\n" + "\n".join("- " + claim for claim in item["claims"])
+                        if item["claims"] else ""
+                    )
+                ),
+                "url": item["url"],
+                "domain": item["domain"],
+                "image": (
+                    {
+                        "url": item["image_url"],
+                        "alt": item["source_title"],
+                        "source_url": item["url"],
+                        "label": "来源图片",
+                        "kind": "media",
+                    }
+                    if item["image_url"] else None
+                ),
+                "metadata": {
+                    "published_at": item["published_at"],
+                    "captured_at": datetime.now().astimezone().isoformat(),
+                    "evidence_level": item["evidence_level"],
+                },
+                "sections": [
+                    {
+                        "kind": "note",
+                        "label": "来源性质",
+                        "text": item["source_kind"],
+                    },
+                    {
+                        "kind": "warning",
+                        "label": "证据边界",
+                        "text": item["uncertainty"] or "该页面的说法不等于事实已被证实。",
+                    },
+                ],
+                "requirements": [],
+            }
+            for item in items[:6]
+        ]
+    )
+    _status(status_callback, "Casper 正在归纳共同点与分歧… 🧩")
+    direct_reply = _synthesize_discussion_feed(user_request, items)
+    if cards:
+        direct_reply += (
+            "\n\n最相关的 " + str(len(cards)) + " 个讨论来源已放在下方卡片中。"
+            if re.search(r"[\u3400-\u9fff]", str(user_request or ""))
+            else "\n\nThe " + str(len(cards)) + " most relevant discussion sources are shown in the cards below."
+        )
+    feed = [
+        {
+            key: item.get(key)
+            for key in (
+                "source_index", "source_title", "domain", "published_at",
+                "source_kind", "summary", "claims", "stance",
+                "perspective_key", "uncertainty", "relevance_score",
+                "evidence_level",
+            )
+        }
+        for item in items
+    ]
+    print(
+        "[CASPER DISCUSSION FEED]",
+        len(feed), "sources", len(cards), "cards",
+    )
+    return {
+        "status": "OK",
+        "query": " | ".join(queries),
+        "queries": queries,
+        "results": results,
+        "inspected_results": inspected,
+        "cards": cards,
+        "feed": feed,
+        "direct_reply": direct_reply,
+        "context": (
+            "melchior response mode: DISCUSSION_FEED\n"
+            "These are attributed public discussion viewpoints, not news and "
+            "not independently confirmed facts. Do not run a consensus vote or "
+            "convert repeated claims into truth.\n\n"
+            + json.dumps(feed, ensure_ascii=False, indent=2)
+        ),
+        "discovery_type": "casper_browser_discussion",
+    }
+
+
 def news_feed_controller(queries, user_request="", status_callback=None):
     """Browser-first ranked news feed based on rendered article evidence."""
     import result_cards
@@ -4207,6 +5639,11 @@ def _accept_ai_recommendation_verdicts(result, candidates):
         ]
         verified["verification_source_count"] = len(verification_domains)
         verified["verification_source_domains"] = verification_domains
+        verified["verification_checks"] = [
+            dict(check)
+            for check in decision.get("checks", [])
+            if isinstance(check, dict)
+        ]
         verified["verification_evidence"] = [
             {
                 "title": str(source.get("title") or "")[:220],
@@ -4409,7 +5846,7 @@ def _build_ai_recommendation_recovery_queries(
 
 
 def _build_ai_verified_recommendation_reply(user_request, plan, verified):
-    """Summarize only the candidates that survived second-stage verification."""
+    """Create one overview while moving item detail into matching cards."""
     import tools
 
     if not verified:
@@ -4423,6 +5860,7 @@ def _build_ai_verified_recommendation_reply(user_request, plan, verified):
                 "title": item["title"],
                 "brand": item["brand"],
                 "summary": item["summary"],
+                "verification_checks": item.get("verification_checks", []),
                 "verification_source_domains": item.get(
                     "verification_source_domains", []
                 ),
@@ -4438,7 +5876,7 @@ def _build_ai_verified_recommendation_reply(user_request, plan, verified):
                 json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
                 expect_json=True,
                 num_ctx=4096,
-                num_predict=1200,
+                num_predict=1600,
                 think=False,
                 model_name="gemma4:12b",
             )
@@ -4450,13 +5888,175 @@ def _build_ai_verified_recommendation_reply(user_request, plan, verified):
             )
             break
         if isinstance(raw, dict):
-            reply = str(raw.get("reply") or "").strip()[:5000]
+            by_title = {
+                " ".join(str(item.get("title") or "").split()).casefold(): item
+                for item in verified
+                if str(item.get("title") or "").strip()
+            }
+            bound_count = 0
+            raw_items = raw.get("items")
+            if not isinstance(raw_items, list):
+                raw_items = []
+            for value in raw_items[: len(verified)]:
+                if not isinstance(value, dict):
+                    continue
+                title_key = " ".join(
+                    str(value.get("title") or "").split()
+                ).casefold()
+                candidate = by_title.get(title_key)
+                if candidate is None:
+                    continue
+                context = " ".join(
+                    str(value.get("context") or "").split()
+                ).strip()[:900]
+                raw_pros = value.get("pros")
+                if not isinstance(raw_pros, list):
+                    raw_pros = []
+                raw_cons = value.get("cons")
+                if not isinstance(raw_cons, list):
+                    raw_cons = []
+                pros = [
+                    " ".join(str(item or "").split()).strip()[:240]
+                    for item in raw_pros[:3]
+                    if str(item or "").strip()
+                ]
+                cons = [
+                    " ".join(str(item or "").split()).strip()[:240]
+                    for item in raw_cons[:3]
+                    if str(item or "").strip()
+                ]
+                if context:
+                    candidate["card_summary"] = context
+                if pros or cons:
+                    candidate["presentation_sections"] = [
+                        {"kind": "pros_cons", "pros": pros, "cons": cons}
+                    ]
+                if context or pros or cons:
+                    bound_count += 1
+            reply = _compact_recommendation_overview(
+                user_request,
+                raw.get("reply"),
+                verified,
+            )
             if reply:
+                print(
+                    "[CASPER RECOMMENDATION CARD CONTEXTS]",
+                    "bound=" + str(bound_count),
+                    "cards=" + str(len(verified)),
+                )
                 return reply
         packet["retry_instruction"] = "Return only the required JSON object."
-    return "\n".join(
-        item["title"] + "：" + item["summary"] for item in verified
-    )[:5000]
+    return _compact_recommendation_overview(user_request, "", verified)
+
+
+def _compact_recommendation_overview(user_request, reply, verified):
+    """Keep the message bubble global; candidate detail belongs to cards."""
+
+    value = str(reply or "").strip()[:1200]
+    normalized = " ".join(value.split()).casefold()
+    repeats_candidate = any(
+        " ".join(str(item.get("title") or "").split()).casefold() in normalized
+        for item in verified
+        if str(item.get("title") or "").strip()
+    )
+    list_like = bool(re.search(r"(?:^|\n)\s*(?:\d+[.)]|[-*])\s+", value))
+    if value and not repeats_candidate and not list_like and len(value) <= 520:
+        return value
+    count = len(verified)
+    chinese = bool(re.search(r"[\u3400-\u9fff]", str(user_request or "")))
+    if chinese:
+        return (
+            f"我找到 {count} 款通过条件核验的选择。每款的匹配理由、"
+            "优缺点、图片和来源已经合并在下方对应卡片中。"
+        )
+    return (
+        f"I found {count} options that passed the requested checks. Each "
+        "option's fit, pros and cons, image, and source are combined in its "
+        "matching card below."
+    )
+
+
+def _build_recommendation_shortfall_reply(
+    user_request,
+    plan,
+    rejected,
+    source_count=0,
+):
+    """Return an actual answer when no candidate survives verification."""
+
+    target_count = max(1, int(plan.get("target_count") or 1))
+    unique_rejections = []
+    seen_titles = set()
+    for item in rejected or []:
+        title = " ".join(str(item.get("title") or "").split()).strip()[:180]
+        if not title or title.casefold() in seen_titles:
+            continue
+        seen_titles.add(title.casefold())
+        reason = " ".join(str(item.get("reason") or "").split()).strip()[:420]
+        failed = [
+            " ".join(str(value or "").split()).strip()[:120]
+            for value in item.get("failed_conditions", [])[:4]
+            if str(value or "").strip()
+        ]
+        if not reason and failed:
+            reason = ", ".join(failed)
+        unique_rejections.append((title, reason))
+        if len(unique_rejections) >= target_count:
+            break
+
+    chinese = bool(re.search(r"[\u3400-\u9fff]", str(user_request or "")))
+    if chinese:
+        lines = [
+            "### 这次还没有足够的已验证推荐",
+            "",
+            f"你要 {target_count} 款，但这轮没有候选同时通过全部硬条件；"
+            "因此我不会把评测文章标题冒充成产品答案。",
+        ]
+        if unique_rejections:
+            lines.extend(["", "未通过的候选：", ""])
+            for title, reason in unique_rejections:
+                detail = reason or "现有证据不足以确认所有条件。"
+                lines.append(f"- **{title}** — {detail}")
+        else:
+            lines.extend(
+                ["", "候选生成结果不完整，暂时没有可安全列出的产品。"]
+            )
+        if source_count:
+            lines.extend(
+                [
+                    "",
+                    f"下方保留 {source_count} 条独立评测来源作为继续核验的线索；"
+                    "它们不是已验证推荐，也不代表实时价格或库存。",
+                ]
+            )
+    else:
+        lines = [
+            "### Not enough verified recommendations yet",
+            "",
+            f"You asked for {target_count}, but no candidate passed every hard "
+            "requirement in this run. I will not present article titles as "
+            "product recommendations.",
+        ]
+        if unique_rejections:
+            lines.extend(["", "Candidates that did not pass:", ""])
+            for title, reason in unique_rejections:
+                detail = reason or (
+                    "The available evidence did not verify every condition."
+                )
+                lines.append(f"- **{title}** — {detail}")
+        else:
+            lines.extend(
+                ["", "Candidate generation was incomplete, so there is no safe list yet."]
+            )
+        if source_count:
+            lines.extend(
+                [
+                    "",
+                    f"The {source_count} independent review sources below are research "
+                    "leads, not verified recommendations or live price/stock claims.",
+                ]
+            )
+    return "\n".join(lines)[:5000]
 
 
 def product_recommendation_controller(
@@ -4567,6 +6167,7 @@ def product_recommendation_controller(
         status_callback=status_callback,
     )
     attempted_titles = [item["title"] for item in initial_options]
+    reading_sources = [dict(source) for source in sources]
 
     needs_recovery = (
         bool(rejected)
@@ -4586,21 +6187,32 @@ def product_recommendation_controller(
         )
         if recovery_queries:
             _status(status_callback, "Casper 正在自动补搜其他候选… 🔄")
-            expanded_sources, _ = _collect_recommendation_sources(
+            # Recovery is a fresh evidence batch. Seeding the collector with
+            # pass-one sources suppresses every result from an already-seen
+            # domain and previously made this second pass a silent no-op.
+            recovery_sources, _ = _collect_recommendation_sources(
                 recovery_queries,
                 region,
                 engine_plan,
                 status_callback=status_callback,
-                existing_sources=sources,
-                limit=9,
+                existing_sources=None,
+                limit=6,
             )
-            new_sources = expanded_sources[len(sources):]
-            if new_sources:
+            if recovery_sources:
+                seen_reading_urls = {
+                    str(source.get("url") or "").strip()
+                    for source in reading_sources
+                    if str(source.get("url") or "").strip()
+                }
+                for source in recovery_sources:
+                    source_url = str(source.get("url") or "").strip()
+                    if source_url and source_url not in seen_reading_urls:
+                        reading_sources.append(dict(source))
+                        seen_reading_urls.add(source_url)
                 # Recovery candidate generation sees only evidence returned by
-                # the new AI-created queries. Old niche sources remain useful
-                # for deduplication during discovery but cannot steer the
-                # second candidate pass back toward already rejected products.
-                recovery_sources = [dict(source) for source in new_sources]
+                # the new AI-created queries, so rejected products cannot
+                # steer it back toward the same failed shortlist.
+                recovery_sources = [dict(source) for source in recovery_sources]
                 for index, source in enumerate(recovery_sources, start=1):
                     source["index"] = index
                 recovery_packet = dict(packet)
@@ -4649,7 +6261,7 @@ def product_recommendation_controller(
             {
                 "type": "article",
                 "title": item["title"],
-                "summary": item["summary"],
+                "summary": item.get("card_summary") or item["summary"],
                 "url": item["url"],
                 "domain": item["domain"],
                 "metadata": {
@@ -4665,15 +6277,17 @@ def product_recommendation_controller(
                     ),
                     "captured_at": datetime.now().astimezone().isoformat(),
                 },
+                "sections": item.get("presentation_sections", []),
                 "requirements": [],
             }
             for item in options
         ]
     )[:8]
-    if not cards and sources:
+    if not cards and reading_sources:
         # A truncated/invalid candidate JSON must not erase the useful
         # independent sources already found.  Render them honestly as reading
         # leads, not as verified product recommendations.
+        fallback_limit = min(5, max(1, int(plan.get("target_count") or 1)))
         cards = result_cards.clean_cards(
             [
                 {
@@ -4683,21 +6297,36 @@ def product_recommendation_controller(
                     "url": str(source.get("url") or "")[:2048],
                     "domain": str(source.get("domain") or "")[:180],
                     "metadata": {
+                        "evidence_type": "independent_reading_source",
                         "published_at": str(source.get("published") or "")[:160],
                         "captured_at": datetime.now().astimezone().isoformat(),
                     },
                     "requirements": [],
                 }
-                for source in sources[:5]
+                for source in reading_sources[:fallback_limit]
                 if source.get("url") and (source.get("title") or source.get("domain"))
             ]
         )
         if cards:
-            direct_reply = (
-                "这次候选推荐的结构化输出没有完整通过校验；"
-                "我先保留已经找到的独立评测与推荐来源，避免整条结果消失。"
+            direct_reply = _build_recommendation_shortfall_reply(
+                user_request,
+                plan,
+                rejected,
+                source_count=len(cards),
             )
             print("[CASPER RECOMMENDATION SOURCE FALLBACK]", len(cards))
+    if not direct_reply:
+        direct_reply = _build_recommendation_shortfall_reply(
+            user_request,
+            plan,
+            rejected,
+            source_count=len(cards) if not options else 0,
+        )
+    card_context_label = (
+        "Verified recommendation cards:"
+        if options
+        else "Independent reading-source cards (not verified recommendations):"
+    )
     context = (
         "melchior response mode: RECOMMENDATION_RESEARCH\n"
         "evidence_route: independent_recommendation_sources\n"
@@ -4708,7 +6337,8 @@ def product_recommendation_controller(
         "The AI owns topic interpretation, criteria, ranking, and count. "
         "Python only executed AI-created searches and bound source indexes. "
         "Give the recommendation first and explain only the supplied evidence.\n\n"
-        "Recommendation cards:\n"
+        + card_context_label
+        + "\n"
         + json.dumps(cards, ensure_ascii=False, indent=2)
     )
     target_satisfied = bool(cards) and (
@@ -4729,7 +6359,7 @@ def product_recommendation_controller(
         "requirements": plan["criteria"],
         "recommendation_plan": plan,
         "context": context,
-        "direct_reply": direct_reply if cards else "",
+        "direct_reply": direct_reply,
         "evidence_route": "independent_recommendation_sources",
     }
 

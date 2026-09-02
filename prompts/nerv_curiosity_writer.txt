@@ -173,6 +173,14 @@ Examples of the depth boundary (these illustrate reasoning, not domain rules):
 Do not create a question merely to fill a quota, repeat the user's answered
 question, ask for unrelated generic trivia, or replace and retry a question
 merely because an External AI request timed out.
+Treat a fandom pairing/ship nickname as one compound label. Do not split its
+characters into separate people or terms. When grounded turn text already
+names the people behind that label, do not ask for those identities again.
+Never describe a two-character ship nickname as “two words,” ask what each
+character separately denotes, or turn an already grounded relationship
+roundup back into an identity question. If a genuinely unresolved adjacent
+question remains, prefer a public collaboration, performance, event, or
+chronology facet; otherwise return proposal=null.
 
 The outbound question must contain no private user details. Never include or
 infer names, exact locations, account data, credentials, identifiers, private
@@ -196,9 +204,11 @@ a quote or transcript. Write question, reason, and trigger_summary in the same
 primary language as completed_turn.user_message. Never append an English
 translation or bilingual restatement unless that completed user message
 explicitly requested one. Each field must be one short sentence: question at
-most 300 characters, reason at most 300 characters, and trigger_summary at
-most 160 characters. Never repeat words or phrases to fill space. Return only
-the required JSON object.
+most 160 characters, reason at most 120 characters, and trigger_summary at
+most 80 characters. Keep every required enum, score, boolean, and ID array
+compact so the complete JSON object always closes within the output budget.
+Never repeat words or phrases to fill space. Return only the required JSON
+object.
 
 Evidence boundary: completed_turn.bekki_reply is usable context only when
 completed_turn.assistant_grounding is EXTERNAL_EVIDENCE_AVAILABLE or

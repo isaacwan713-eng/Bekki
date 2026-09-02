@@ -9,16 +9,27 @@ the precise mode supported by the visible evidence; never invent an identity
 from an ambiguous image.
 
 Allowed modes:
-- SEARCH: NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
+- SEARCH: NEWS_FEED, DISCUSSION_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH, MEDIA_WATCH,
   SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH
 - LOCAL: LOCAL_ANSWER
 - COMMAND: TASK_ACTION, NERV_SKILL_ACTION, EXTERNAL_AI_ACTION, DEVICE_ACTION
 
-NEWS_FEED is a broad current update or multiple headlines. FACT_LOOKUP is one
-changing fact. CLAIM_CHECK verifies one explicit claim. SOCIAL_RESEARCH is an
-explicit social-platform request. SHOPPING_RESEARCH asks to buy, find price,
+NEWS_FEED is a broad current update or multiple headlines. DISCUSSION_FEED is
+an open, cross-site roundup of attributed forum/post/Q&A viewpoints that need
+not agree and are not news. FACT_LOOKUP is one changing fact. CLAIM_CHECK
+verifies one explicit claim. SOCIAL_RESEARCH is an explicit supported native
+social-platform research request. MEDIA_WATCH finds a specific or random item
+for the user to watch; a named playback website is a hard source condition and
+social_platforms remains empty. SHOPPING_RESEARCH asks to buy, find price,
 stock, seller, or merchant items. RECOMMENDATION_RESEARCH asks what is worth
 choosing from independent evidence. TASK_ACTION manages reminders.
+Never select SOCIAL_RESEARCH when the user did not name a supported platform.
+Use DISCUSSION_FEED when the user asks for an open multi-source synthesis of
+reasons, viewpoints, interpretations, timelines, or what different discussion
+pages say. A mixed yes/no plus open causal-summary question is
+DISCUSSION_FEED; a pure yes/no claim remains CLAIM_CHECK. Use DISCUSSION_FEED
+for Zhihu, Quora, Tieba, independent forums, or a cross-site mix. Never return
+SOCIAL_RESEARCH with an empty social_platforms array.
 NERV_SKILL_ACTION forgets or removes a verified reusable operation learned by
 Bekki; it never manages reminders and never executes the skill. DEVICE_ACTION
 operates or inspects the local computer. LOCAL_ANSWER is conversation, writing,

@@ -1332,7 +1332,10 @@ def execute_mode(
     # Load the existing search/browser layer only for research modes.
     import tools
 
-    if mode in {"NEWS_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH"}:
+    if mode in {
+        "NEWS_FEED", "DISCUSSION_FEED", "FACT_LOOKUP", "CLAIM_CHECK",
+        "SOCIAL_RESEARCH", "MEDIA_WATCH",
+    }:
         try:
             tools.unload_model("gemma4:12b")
         except Exception as error:
@@ -1344,6 +1347,44 @@ def execute_mode(
             melchior_plan.get("social_platforms", []),
             status_callback=status_callback,
         )
+        return search_result, action_context
+
+    if mode == "DISCUSSION_FEED":
+        queries = tools.build_discussion_queries(message, recent_context)
+        from . import browser as casper_browser
+
+        try:
+            search_result = casper_browser.discussion_feed_controller(
+                queries,
+                user_request=message,
+                status_callback=status_callback,
+            )
+        except Exception as error:
+            print("[CASPER DISCUSSION BROWSER UNAVAILABLE]", repr(error))
+            search_result = {
+                "status": "BROWSER_UNAVAILABLE",
+                "query": " | ".join(queries),
+                "queries": queries,
+                "results": [],
+                "cards": [],
+            }
+        return search_result, action_context
+
+    if mode == "MEDIA_WATCH":
+        from . import browser as casper_browser
+
+        try:
+            search_result = casper_browser.media_watch_controller(
+                message,
+                status_callback=status_callback,
+            )
+        except Exception as error:
+            print("[CASPER MEDIA WATCH UNAVAILABLE]", repr(error))
+            search_result = {
+                "status": "BROWSER_UNAVAILABLE",
+                "results": [],
+                "cards": [],
+            }
         return search_result, action_context
 
     if mode in {"SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH"}:

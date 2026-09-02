@@ -21,11 +21,18 @@ Response modes:
 - LOCAL_ANSWER: conversation, translation, writing, coding, math, stable
   knowledge, memory, or understanding an active attachment. No web search.
 - NEWS_FEED: broad current update, multiple headlines, or recent-news digest.
+- DISCUSSION_FEED: collect and synthesize several public discussion sources,
+  such as forum threads, Q&A pages, fan posts, Zhihu, Quora, Tieba, or a mix of
+  communities. It reports attributed viewpoints and alleged explanations; it
+  does not require consensus and does not label the material as news.
 - FACT_LOOKUP: one changing fact such as a score, schedule, price, lineup,
   injury, office holder, release, or current availability.
 - CLAIM_CHECK: verify whether one explicit current claim is true or reliable.
-- SOCIAL_RESEARCH: explicit request to inspect X/Twitter, Instagram, or
-  Xiaohongshu discussion/posts.
+- SOCIAL_RESEARCH: explicit request to inspect X/Twitter, Instagram,
+  Xiaohongshu, Bilibili/B站/哔哩哔哩, or Reddit discussion/posts.
+- MEDIA_WATCH: find a specific work/video or a random item in a requested
+  category so the user can watch it. A named website is a hard source condition,
+  not SOCIAL_RESEARCH.
 - RECOMMENDATION_RESEARCH: decide what current real-world options are worth
   choosing from independent evidence.
 - SHOPPING_RESEARCH: concrete merchant listings, current price/stock/seller,
@@ -41,6 +48,7 @@ Response modes:
 
 Decide by requested outcome, not words:
 - "曼联最近有什么新闻" -> NEWS_FEED
+- "整理知乎、贴吧和论坛对某段关系变化的不同说法" -> DISCUSSION_FEED
 - "曼联下一场比赛是什么时候" -> FACT_LOOKUP
 - "曼联已经签下某球员是真的吗" -> CLAIM_CHECK
 - "打开回收站" -> DEVICE_ACTION
@@ -55,19 +63,38 @@ Decide by requested outcome, not words:
 - "我有哪些提醒" -> TASK_ACTION because it must inspect Bekki's task store
 - "忘掉打开 FM26 战术文件夹这个技能" -> NERV_SKILL_ACTION
 - "帮我问 ChatGPT：为什么猫会呼噜" -> EXTERNAL_AI_ACTION
+- "我想看名侦探柯南" -> MEDIA_WATCH
+- "去 B 站找一个下饭视频" -> MEDIA_WATCH, not SOCIAL_RESEARCH
 - "帮我推荐三个婴儿车" → RECOMMENDATION_RESEARCH + PRODUCT
 - "网上找一个 FM26 战术并安装" -> DEVICE_ACTION because installation is
   the requested final outcome
+- A closed rumor question asking only whether one claim is true is CLAIM_CHECK.
+  An open-ended request asking why people believe it, what different posts
+  allege, how interpretations differ, or what timeline discussions describe is
+  DISCUSSION_FEED when no supported native platform was selected.
+- For a mixed question, the open multi-source summary requirement controls the
+  route. "卡黄闹翻了吗？" -> CLAIM_CHECK. "卡黄是闹翻了吗，她们为什么会
+  闹翻？" -> DISCUSSION_FEED. The latter must not be reduced to its first
+  yes/no clause.
+- SOCIAL_RESEARCH remains platform-native and requires at least one explicitly
+  requested supported platform. Zhihu, Quora, Tieba, and independent forums
+  use DISCUSSION_FEED through general web discovery. Never return
+  SOCIAL_RESEARCH with an empty social_platforms array.
 
 Set the remaining fields consistently:
 - LOCAL_ANSWER: needs_search=false, research_depth=none,
   source_policy=local_context, research_profile=local_context.
 - NEWS_FEED: true, ranked_feed, weighted_news, weighted_news.
+- DISCUSSION_FEED: true, discussion_roundup, discussion_sources,
+  discussion_synthesis; social_platforms must be empty.
 - FACT_LOOKUP: true, direct_lookup, official_first, official_first.
 - CLAIM_CHECK: true, 3_5_7, evidence_verification, evidence_verification; put
   the exact neutral claim in claim_to_verify.
 - SOCIAL_RESEARCH: true, social_handoff, platform_native, platform_native; set
-  social_platforms from x, instagram, xiaohongshu.
+  social_platforms from bilibili, instagram, reddit, x, xiaohongshu, youtube.
+- MEDIA_WATCH: true, watch_discovery, user_bounded_watch_sources, media_watch;
+  social_platforms stays empty because the watch controller reads literal site
+  conditions from the user message.
 - RECOMMENDATION_RESEARCH: true, recommendation_compare, domain_evidence,
   recommendation_match.
 - SHOPPING_RESEARCH: true, shopping_compare, merchant_results, shopping_match.

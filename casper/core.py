@@ -70,6 +70,13 @@ def execute(
                 "BROWSER_UNAVAILABLE",
                 "NO_RESULT",
                 "NO_RESULTS",
+                "INSUFFICIENT_EVIDENCE",
+                "ERROR",
+                "NO_PLATFORM",
+                "QUERY_UNAVAILABLE",
+                "NO_READABLE_SOCIAL_PAGE",
+                "NO_RELEVANT_DISCUSSION",
+                "NO_WATCH_RESULT",
             }:
                 result["status"] = "limited_evidence"
         result["audit_log"].append(

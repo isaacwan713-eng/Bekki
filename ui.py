@@ -2,16 +2,60 @@
 # Created by YW49
 # Copyright (c) 2026 YW49. All rights reserved.
 
+import base64
+import json
 import os
 import sys
-import html
 import re
+import math
+import weakref
 import localization as i18n
 import image_loader
+import message_markdown
+import result_cards
+import social_video
 import ui_preferences
+import shiboken6
 from datetime import datetime
+
+os.environ.setdefault("QT_API", "pyside6")
+
+WEBVIEW2_AUDIO_AUTOPLAY_FLAG = "--autoplay-policy=no-user-gesture-required"
+
+
+def _enable_inline_webview2_audio_policy():
+    """Allow sound only in WebViews Bekki creates after an explicit play click."""
+
+    if sys.platform != "win32":
+        return False
+    variable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+    current = str(os.environ.get(variable) or "").strip()
+    arguments = current.split()
+    if WEBVIEW2_AUDIO_AUTOPLAY_FLAG not in arguments:
+        os.environ[variable] = " ".join(
+            value
+            for value in (current, WEBVIEW2_AUDIO_AUTOPLAY_FLAG)
+            if value
+        )
+    return WEBVIEW2_AUDIO_AUTOPLAY_FLAG in str(
+        os.environ.get(variable) or ""
+    ).split()
+
+
+INLINE_WEBVIEW2_AUDIO_POLICY_ENABLED = _enable_inline_webview2_audio_policy()
+if INLINE_WEBVIEW2_AUDIO_POLICY_ENABLED:
+    print(
+        "[INLINE VIDEO AUDIO POLICY]",
+        "enabled=true",
+        "flag=" + WEBVIEW2_AUDIO_AUTOPLAY_FLAG,
+    )
+
 from PySide6.QtCore import (
     Qt,
+    QBuffer,
+    QEvent,
+    QIODevice,
+    QPoint,
     QPropertyAnimation,
     QTimer,
     QUrl,
@@ -23,10 +67,13 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QIcon,
+    QKeySequence,
     QPainter,
     QPainterPath,
     QPixmap,
     QImage,
+    QShortcut,
+    QTextDocument,
     QTextOption,
 )
 from PySide6.QtWidgets import (
@@ -55,6 +102,21 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+try:
+    if sys.platform != "win32":
+        raise ImportError("Edge WebView2 inline playback is Windows-only")
+    from qtwebview2 import QtWebView2Widget
+    from qtwebview2 import DictJsBridge
+    INLINE_WEBVIEW2_AVAILABLE = True
+    INLINE_WEBVIEW2_IMPORT_ERROR = ""
+except Exception as error:
+    # The Edge player is optional at import time so a missing runtime or
+    # Python bridge never prevents Bekki from starting. Source links remain.
+    QtWebView2Widget = None
+    DictJsBridge = None
+    INLINE_WEBVIEW2_AVAILABLE = False
+    INLINE_WEBVIEW2_IMPORT_ERROR = repr(error)
+
 def resource_path(relative_path):
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
@@ -77,6 +139,132 @@ COLORS = {
     "pink_soft": "#fff1f7",
     "danger": "#c96d8e",
 }
+
+MESSAGE_CONTENT_WIDTH = 350
+MESSAGE_CONTENT_MAX_WIDTH = 760
+MESSAGE_RESPONSIVE_WIDTH_RATIO = 0.72
+EVIDENCE_CONTENT_WIDTH = 332
+RESULT_CARD_WIDTH_OFFSET = 10
+RESULT_CARD_HORIZONTAL_CHROME = 28
+SOCIAL_POST_LINK_LABEL = "打开原帖  ↗"
+MESSAGE_BUBBLE_MIN_WIDTH = 82
+MESSAGE_BUBBLE_HORIZONTAL_CHROME = 28
+MESSAGE_BUBBLE_VERTICAL_CHROME = 24
+MESSAGE_BUBBLE_NATURAL_WIDTH_SAFETY = 14
+MESSAGE_BUBBLE_WRAP_WIDTH_SAFETY = 8
+
+_ACTIVE_VIDEO_CARD_REF = None
+
+
+def _qt_object_is_alive(value):
+    """Return false for Python wrappers whose underlying Qt object is gone."""
+
+    if value is None:
+        return False
+    try:
+        return bool(shiboken6.isValid(value))
+    except (RuntimeError, TypeError):
+        return False
+
+
+def _safe_qt_call(value, method_name, *args):
+    """Best-effort cleanup call that tolerates already-destroyed Qt children."""
+
+    if not _qt_object_is_alive(value):
+        return False
+    try:
+        getattr(value, method_name)(*args)
+        return True
+    except Exception:
+        return False
+
+
+def _claim_active_video_card(card):
+    """Give one card exclusive playback and stop any previous card."""
+
+    global _ACTIVE_VIDEO_CARD_REF
+    previous = (
+        _ACTIVE_VIDEO_CARD_REF()
+        if isinstance(_ACTIVE_VIDEO_CARD_REF, weakref.ReferenceType)
+        else None
+    )
+    if previous is not None and previous is not card:
+        if _qt_object_is_alive(previous):
+            try:
+                previous_contract = getattr(previous, "_video_contract", None) or {}
+                current_contract = getattr(card, "_video_contract", None) or {}
+                previous_id = str(
+                    previous_contract.get("video_id") or "unknown"
+                )
+                current_id = str(current_contract.get("video_id") or "unknown")
+                previous._stop_inline_video()
+                if bool(getattr(previous, "_video_active", False)):
+                    print(
+                        "[INLINE VIDEO SWITCH]",
+                        "previous=" + previous_id,
+                        "current=" + current_id,
+                        "stopped=false",
+                    )
+                    return False
+                print(
+                    "[INLINE VIDEO SWITCH]",
+                    "previous=" + previous_id,
+                    "current=" + current_id,
+                    "stopped=true",
+                )
+            except Exception as error:
+                print("[INLINE VIDEO WEBVIEW2] stale_card_cleanup", repr(error))
+                return False
+        else:
+            print("[INLINE VIDEO WEBVIEW2] stale_card_released")
+        _ACTIVE_VIDEO_CARD_REF = None
+    if not _qt_object_is_alive(card):
+        return False
+    _ACTIVE_VIDEO_CARD_REF = weakref.ref(card)
+    return True
+
+
+def _release_active_video_card(card):
+    global _ACTIVE_VIDEO_CARD_REF
+    current = (
+        _ACTIVE_VIDEO_CARD_REF()
+        if isinstance(_ACTIVE_VIDEO_CARD_REF, weakref.ReferenceType)
+        else None
+    )
+    if current is card or current is None or not _qt_object_is_alive(current):
+        _ACTIVE_VIDEO_CARD_REF = None
+
+
+def _release_active_video_card_ref(card_ref):
+    """Clear the global slot when Qt destroys a card before Python releases it."""
+
+    global _ACTIVE_VIDEO_CARD_REF
+    current = (
+        _ACTIVE_VIDEO_CARD_REF()
+        if isinstance(_ACTIVE_VIDEO_CARD_REF, weakref.ReferenceType)
+        else None
+    )
+    destroyed = card_ref() if isinstance(card_ref, weakref.ReferenceType) else None
+    if current is destroyed or current is None or not _qt_object_is_alive(current):
+        _ACTIVE_VIDEO_CARD_REF = None
+
+
+def _inline_video_user_data_folder():
+    """Keep the shared Edge player session under Bekki's preserved data tree."""
+
+    launcher = sys.executable if getattr(sys, "frozen", False) else sys.argv[0]
+    application_root = os.path.dirname(os.path.abspath(launcher))
+    profile_path = os.path.join(
+        application_root,
+        "data",
+        "webview2_video_profile",
+    )
+    try:
+        os.makedirs(profile_path, exist_ok=True)
+    except OSError as error:
+        print("[INLINE VIDEO WEBVIEW2] profile_unavailable", repr(error))
+        return None
+    return profile_path
 
 
 class ModernMenu(QMenu):
@@ -550,12 +738,175 @@ def _chat_font_values(preferences):
     return family, value["font_size"]
 
 
+def _build_markdown_document(
+    markdown,
+    highlights=None,
+    family=None,
+    size=13,
+    color="#35465a",
+    text_width=None,
+):
+    """Build the same document used for both rendering and exact measurement."""
+
+    decorated = message_markdown.apply_highlights(markdown, highlights)
+    safe_markdown = message_markdown.sanitize_markdown(decorated)
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(QFont(family or "Segoe UI Variable", int(size or 13)))
+    document.setDefaultStyleSheet(
+        "html,body{margin:0;padding:0;color:" + color + ";}"
+        "p{margin:0 0 7px 0;}"
+        "h1,h2,h3,h4{color:#344b63;margin:6px 0 5px 0;font-weight:700;}"
+        "h1{font-size:18px;}h2{font-size:16px;}h3{font-size:14px;}h4{font-size:13px;}"
+        "ul,ol{margin-top:3px;margin-bottom:7px;margin-left:18px;}"
+        "li{margin-bottom:3px;}"
+        "a{color:#347fc3;text-decoration:none;}"
+        "code{font-family:'Cascadia Code','Consolas',monospace;"
+        "background:#eaf4ff;color:#356f9f;}"
+        "blockquote{color:#607d99;border-left:3px solid #b8d7f2;margin-left:4px;}"
+        "table{border-collapse:collapse;margin:5px 0;}"
+        "th,td{border:1px solid #d7e7f5;padding:4px;}"
+    )
+    try:
+        dialect = getattr(QTextDocument, "MarkdownDialectGitHub", None)
+        if dialect is None:
+            feature_enum = getattr(QTextDocument, "MarkdownFeature", None)
+            dialect = getattr(feature_enum, "MarkdownDialectGitHub", None)
+        if dialect is None:
+            document.setMarkdown(safe_markdown)
+        else:
+            document.setMarkdown(safe_markdown, dialect)
+    except (AttributeError, TypeError):
+        document.setMarkdown(safe_markdown)
+    if text_width is not None:
+        document.setTextWidth(max(1.0, float(text_width)))
+    return document
+
+
+def _markdown_to_rich_text(markdown, highlights=None, family=None, size=13, color="#35465a"):
+    """Render Bekki's safe Markdown subset through Qt's native document engine."""
+
+    document = _build_markdown_document(
+        markdown,
+        highlights=highlights,
+        family=family,
+        size=size,
+        color=color,
+    )
+    return document.toHtml()
+
+
+def _measure_markdown_bubble(
+    markdown,
+    highlights=None,
+    family=None,
+    size=13,
+    color="#35465a",
+    dynamic_width=False,
+    maximum_width=None,
+):
+    """Return a stable outer bubble size without QLabel.heightForWidth()."""
+
+    maximum_width = max(
+        MESSAGE_BUBBLE_MIN_WIDTH,
+        int(maximum_width or MESSAGE_CONTENT_WIDTH),
+    )
+    bubble_width = maximum_width
+    if dynamic_width:
+        natural_document = _build_markdown_document(
+            markdown,
+            highlights=highlights,
+            family=family,
+            size=size,
+            color=color,
+        )
+        natural_width = math.ceil(max(0.0, natural_document.idealWidth()))
+        bubble_width = min(
+            maximum_width,
+            max(
+                MESSAGE_BUBBLE_MIN_WIDTH,
+                natural_width
+                + MESSAGE_BUBBLE_HORIZONTAL_CHROME
+                + MESSAGE_BUBBLE_NATURAL_WIDTH_SAFETY,
+            ),
+        )
+
+    content_width = max(
+        40,
+        bubble_width
+        - MESSAGE_BUBBLE_HORIZONTAL_CHROME
+        - (MESSAGE_BUBBLE_WRAP_WIDTH_SAFETY if dynamic_width else 0),
+    )
+    measured_document = _build_markdown_document(
+        markdown,
+        highlights=highlights,
+        family=family,
+        size=size,
+        color=color,
+        text_width=content_width,
+    )
+    document_height = measured_document.documentLayout().documentSize().height()
+    bubble_height = max(
+        42,
+        math.ceil(document_height) + MESSAGE_BUBBLE_VERTICAL_CHROME,
+    )
+    return bubble_width, bubble_height
+
+
+def _responsive_message_content_width(viewport_width):
+    """Scale the conversation column while keeping long text comfortable."""
+
+    try:
+        viewport_width = int(viewport_width)
+    except (TypeError, ValueError):
+        viewport_width = MESSAGE_CONTENT_WIDTH
+    responsive_width = round(
+        max(0, viewport_width) * MESSAGE_RESPONSIVE_WIDTH_RATIO
+    )
+    return min(
+        MESSAGE_CONTENT_MAX_WIDTH,
+        max(MESSAGE_CONTENT_WIDTH, responsive_width),
+    )
+
+
+def _result_card_width(message_width):
+    return max(340, int(message_width) + RESULT_CARD_WIDTH_OFFSET)
+
+
+def _open_safe_markdown_link(value):
+    url = QUrl(str(value or "").strip())
+    if url.scheme().lower() == "https" and url.host():
+        QDesktopServices.openUrl(url)
+
+
+def _set_markdown_label(label, markdown, highlights=None, family=None, size=13, color="#35465a"):
+    label.setTextFormat(Qt.RichText)
+    label.setWordWrap(True)
+    label.setTextInteractionFlags(
+        Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
+    )
+    label.setOpenExternalLinks(False)
+    if not getattr(label, "_bekki_markdown_link_connected", False):
+        label.linkActivated.connect(_open_safe_markdown_link)
+        label._bekki_markdown_link_connected = True
+    label.setText(
+        _markdown_to_rich_text(
+            markdown,
+            highlights=highlights,
+            family=family,
+            size=size,
+            color=color,
+        )
+    )
+
+
 class HeaderWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._language_handler = None
         self._task_handler = None
         self._settings_handler = None
+        self._fullscreen_handler = None
 
         brand_mark = QLabel("♥")
         brand_mark.setAlignment(Qt.AlignCenter)
@@ -649,6 +1000,24 @@ class HeaderWidget(QWidget):
             """
         )
 
+        self.fullscreen_button = QPushButton("⛶")
+        self.fullscreen_button.setFixedSize(28, 28)
+        self.fullscreen_button.setCursor(Qt.PointingHandCursor)
+        self.fullscreen_button.setToolTip(i18n.t("fullscreen_enter"))
+        self.fullscreen_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #eef8ff;
+                border: 1px solid #d4e8f8;
+                border-radius: 14px;
+                color: #558bb7;
+                font-size: 15px;
+            }
+            QPushButton:hover { background-color: #dff1ff; color: #3378af; }
+            QPushButton:pressed { background-color: #d2e9fb; }
+            """
+        )
+
         self.task_button = QPushButton("✓")
         self.task_button.setFixedSize(28,28)
         self.task_button.setCursor(
@@ -707,6 +1076,7 @@ class HeaderWidget(QWidget):
         title_layout.addStretch()
         title_layout.addWidget(self.task_button)
         title_layout.addWidget(self.language_button)
+        title_layout.addWidget(self.fullscreen_button)
         title_layout.addWidget(self.settings_button)
         title_layout.addWidget(self.history_button)
         title_layout.addWidget(version_badge)
@@ -727,6 +1097,16 @@ class HeaderWidget(QWidget):
     def connect_settings(self, handler):
         self._settings_handler = handler
         self.settings_button.clicked.connect(handler)
+
+    def connect_fullscreen_toggle(self, handler):
+        self._fullscreen_handler = handler
+        self.fullscreen_button.clicked.connect(handler)
+
+    def set_fullscreen_state(self, enabled):
+        self.fullscreen_button.setText("❐" if enabled else "⛶")
+        self.fullscreen_button.setToolTip(
+            i18n.t("fullscreen_exit" if enabled else "fullscreen_enter")
+        )
 
     def show_language_menu(self):
         menu = ModernMenu(self.language_button, width=220)
@@ -754,6 +1134,7 @@ class HeaderWidget(QWidget):
         self.history_button.setToolTip(i18n.t("history_toggle"))
         self.task_button.setToolTip(i18n.t("tasks"))
         self.settings_button.setToolTip(i18n.t("appearance"))
+        self.set_fullscreen_state(self.window().isFullScreen())
 
     def connect_task_toggle(self
                             ,handler,
@@ -921,16 +1302,24 @@ class RemoteResultImage(QLabel):
     def __init__(
         self,
         card_type="article",
+        fit_mode="cover",
+        display_width=None,
     ):
         super().__init__()
 
         self._current_url = ""
+        self._open_target = ""
+        self._open_target_is_local = False
         self._image_job = None
+        self._fit_mode = "contain" if fit_mode == "contain" else "cover"
+        self._source_pixmap = QPixmap()
+        self._display_width = max(int(display_width or 430), 220)
+        self._compact_placeholder = False
 
-        self.setFixedSize(
-            96,
-            86,
-        )
+        if self._fit_mode == "contain":
+            self.setFixedSize(self._display_width, 240)
+        else:
+            self.setFixedSize(96, 86)
 
         self.setAlignment(
             Qt.AlignCenter
@@ -968,6 +1357,19 @@ class RemoteResultImage(QLabel):
             """
         )
 
+    def load_path(self, path):
+        if not isinstance(path, str) or not path.strip():
+            return
+        path = os.path.abspath(path.strip())
+        image = QImage(path)
+        if image.isNull():
+            print("[RESULT IMAGE FAILED]", path, "Qt could not decode local image.")
+            return
+        self._current_url = "local:" + path
+        self._open_target = path
+        self._open_target_is_local = True
+        self._apply_image(image)
+
     def load_url(
         self,
         url,
@@ -984,6 +1386,8 @@ class RemoteResultImage(QLabel):
             return
 
         self._current_url = url
+        self._open_target = url
+        self._open_target_is_local = False
 
         self._image_job = (
             image_loader.load_image_async(
@@ -1014,22 +1418,22 @@ class RemoteResultImage(QLabel):
             )
             return
 
-        pixmap = QPixmap.fromImage(
-            image
-        )
+        self._apply_image(image)
+        self._image_job = None
+
+    def _apply_image(self, image):
+        pixmap = QPixmap.fromImage(image)
 
         if pixmap.isNull():
             self._on_failed(
-                url,
+                self._current_url,
                 "Image pixmap is empty.",
             )
             return
 
-        self.setPixmap(
-            self._rounded_cover(
-                pixmap
-            )
-        )
+        self._source_pixmap = pixmap
+        self._resize_contain_surface()
+        self.setPixmap(self._rounded_cover(self._source_pixmap))
 
         self.setText("")
 
@@ -1043,7 +1447,55 @@ class RemoteResultImage(QLabel):
             """
         )
 
-        self._image_job = None
+        self.setCursor(Qt.PointingHandCursor)
+
+    def set_display_width(self, width):
+        """Resize a bound screenshot/cover when the chat column reflows."""
+
+        if self._fit_mode != "contain":
+            return
+        try:
+            width = max(int(width), 220)
+        except (TypeError, ValueError):
+            return
+        if width == self._display_width and self.width() == width:
+            return
+        self._display_width = width
+        if self._compact_placeholder and self._source_pixmap.isNull():
+            self.setFixedSize(self._display_width, 118)
+            self.updateGeometry()
+            return
+        self._resize_contain_surface()
+        if not self._source_pixmap.isNull():
+            self.setPixmap(self._rounded_cover(self._source_pixmap))
+        self.updateGeometry()
+
+    def _resize_contain_surface(self):
+        if self._fit_mode != "contain":
+            return
+        target_height = 240
+        if not self._source_pixmap.isNull() and self._source_pixmap.width() > 0:
+            target_height = round(
+                self._display_width
+                * self._source_pixmap.height()
+                / self._source_pixmap.width()
+            )
+            responsive_height_cap = max(520, round(self._display_width * 1.05))
+            target_height = min(
+                max(target_height, 120),
+                responsive_height_cap,
+            )
+        self.setFixedSize(self._display_width, target_height)
+
+    def mousePressEvent(self, event):
+        if self._open_target:
+            target = (
+                QUrl.fromLocalFile(self._open_target)
+                if self._open_target_is_local
+                else QUrl(self._open_target)
+            )
+            QDesktopServices.openUrl(target)
+        super().mousePressEvent(event)
 
     def _on_failed(
         self,
@@ -1067,6 +1519,29 @@ class RemoteResultImage(QLabel):
         source_pixmap,
     ):
         target_size = self.size()
+
+        if self._fit_mode == "contain":
+            scaled = source_pixmap.scaled(
+                target_size,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            rounded = QPixmap(target_size)
+            rounded.fill(QColor("#edf6ff"))
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            path = QPainterPath()
+            path.addRoundedRect(
+                0, 0, target_size.width(), target_size.height(), 13, 13
+            )
+            painter.setClipPath(path)
+            painter.drawPixmap(
+                (target_size.width() - scaled.width()) // 2,
+                (target_size.height() - scaled.height()) // 2,
+                scaled,
+            )
+            painter.end()
+            return rounded
 
         scaled = source_pixmap.scaled(
             target_size,
@@ -1215,38 +1690,33 @@ class ResultImagePlaceholder(QFrame):
 
 
 class ResultCard(QFrame):
-    """One safe multimodal result card."""
+    """One ordered context -> graph(s) -> link evidence block."""
 
-    def __init__(
-        self,
-        card,
-    ):
+    def __init__(self, card):
         super().__init__()
-
-        self.card = (
-            card
-            if isinstance(card, dict)
-            else {}
+        self.card = card if isinstance(card, dict) else {}
+        self._evidence_block = message_markdown.evidence_block(self.card)
+        self.url = str(self._evidence_block["link"].get("url") or "")
+        card_type = str(self.card.get("type") or "article").lower()
+        self._video_contract = social_video.social_video_contract(self.url)
+        self._video_view = None
+        self._video_core = None
+        self._video_js_bridge = None
+        self._video_event_bindings = []
+        self._video_wsgi_app = None
+        self._video_active = False
+        self._theater_active = False
+        self._video_wrapper_loaded = False
+        self._companion_enabled = False
+        self._companion_messages = []
+        self._normal_video_content_width = EVIDENCE_CONTENT_WIDTH
+        card_ref = weakref.ref(self)
+        self.destroyed.connect(
+            lambda *_args, current_ref=card_ref:
+                _release_active_video_card_ref(current_ref)
         )
 
-        self.url = str(
-            self.card.get(
-                "url",
-                "",
-            )
-        )
-
-        card_type = str(
-            self.card.get(
-                "type",
-                "article",
-            )
-        )
-
-        self.setObjectName(
-            "resultCard"
-        )
-
+        self.setObjectName("resultCard")
         self.setStyleSheet(
             f"""
             QFrame#resultCard {{
@@ -1254,7 +1724,6 @@ class ResultCard(QFrame):
                 border: 1px solid #dce9f6;
                 border-radius: 15px;
             }}
-
             QLabel {{
                 background: transparent;
                 border: none;
@@ -1263,241 +1732,85 @@ class ResultCard(QFrame):
             """
         )
 
-        image_data = self.card.get(
-            "image",
-            {}
+        context_label = QLabel()
+        context_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        context_label.setMaximumWidth(EVIDENCE_CONTENT_WIDTH)
+        self.context_label = context_label
+        _set_markdown_label(
+            context_label,
+            self._evidence_block.get("context_markdown", ""),
+            family="Segoe UI Variable",
+            size=11,
+            color="#4b647c",
+        )
+
+        graph_items = self._evidence_block.get("graphs", [])
+        render_items = graph_items or [{}]
+        graph_widgets = []
+        graph_labels = []
+        for index, image_data in enumerate(render_items, start=1):
+            image = RemoteResultImage(
+                card_type,
+                fit_mode="contain",
+                display_width=EVIDENCE_CONTENT_WIDTH,
             )
-
-        if not isinstance(image_data,dict):
-            image_data = {}
-
-        image_url = str(image_data.get("url","",)).strip()
-
-        # News cards may be text-only. Product and social cards keep a visual
-        # area because the image is part of the result itself.
-        image = None
-        should_show_image = bool(image_url) or card_type in {
-            "product",
-            "social_post",
-            "place",
-            "person",
-            "provider",
-            "service",
-        }
-
-        if should_show_image:
-            image = RemoteResultImage(card_type)
-            image.setFixedSize(132, 118)
-            if image_url:
+            local_path = str(image_data.get("local_path") or "").strip()
+            image_url = str(image_data.get("url") or "").strip()
+            if local_path:
+                image.load_path(local_path)
+            elif image_url:
                 image.load_url(image_url)
+            else:
+                image.setFixedSize(EVIDENCE_CONTENT_WIDTH, 118)
+                image._compact_placeholder = True
+                image.setToolTip("当前来源没有可验证的预览图片")
+            graph_widgets.append(image)
+            if graph_items:
+                label = str(image_data.get("label") or "图片 " + str(index)).strip()
+            else:
+                label = "图片（暂无可验证预览）"
+            graph_labels.append(label)
+        self.graph_widgets = graph_widgets
 
-            
-        title = QLabel(
-            str(
-                self.card.get(
-                    "title",
-                    "",
-                )
-            )
-        )
-        title.setWordWrap(True)
-        title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        title.setStyleSheet(
-            f"""
-            QLabel {{
-                color: #344b63;
-                font-family: {UI_FONT};
-                font-size: 12px;
-                font-weight: 700;
-            }}
+        self.video_host = QFrame()
+        self.video_host.setObjectName("inlineVideoHost")
+        self.video_host.setVisible(False)
+        self.video_host.setStyleSheet(
+            """
+            QFrame#inlineVideoHost {
+                background-color: #080b10;
+                border: 1px solid #caddec;
+                border-radius: 13px;
+            }
             """
         )
+        self.video_host_layout = QVBoxLayout(self.video_host)
+        self.video_host_layout.setContentsMargins(0, 0, 0, 0)
+        self.video_host_layout.setSpacing(0)
 
-        summary = QLabel(
-            str(
-                self.card.get(
-                    "summary",
-                    "",
-                )
-            )
-        )
-        summary.setWordWrap(True)
-        summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        summary.setStyleSheet(
-            f"""
-            QLabel {{
-                color: #637b92;
-                font-family: {UI_FONT};
-                font-size: 10px;
-            }}
-            """
-        )
-        summary.setVisible(
-            bool(summary.text())
-        )
-
-        domain = str(
-            self.card.get(
-                "domain",
-                "",
-            )
-        )
-
-        metadata = self.card.get(
-            "metadata",
-            {},
-        )
-
-        if not isinstance(
-            metadata,
-            dict,
-        ):
+        metadata = self.card.get("metadata")
+        if not isinstance(metadata, dict):
             metadata = {}
-
-        merchant = str(
-            metadata.get(
-                "merchant",
-                "",
-            )
-        )
-
-        brand = str(
-            metadata.get(
-                "brand",
-                "",
-            )
-        )
-
-        author = str(
-            metadata.get(
-                "author",
-                "",
-            )
-        )
-
         source_text = (
-            " · ".join(value for value in (merchant, brand) if value)
-            or author
-            or domain
+            " · ".join(
+                str(value).strip()
+                for value in (metadata.get("merchant"), metadata.get("brand"))
+                if str(value or "").strip()
+            )
+            or str(metadata.get("author") or "").strip()
+            or str(self.card.get("domain") or "").strip()
         )
-
-        source_label = QLabel(
-            source_text
-        )
+        source_label = QLabel(source_text)
+        source_label.setWordWrap(True)
         source_label.setStyleSheet(
-            f"""
-            QLabel {{
-                color: #7da1c2;
-                font-family: {UI_FONT};
-                font-size: 9px;
-                font-weight: 600;
-            }}
-            """
+            f"color:#7da1c2;font-family:{UI_FONT};font-size:9px;font-weight:600;"
         )
 
-        price = str(
-            metadata.get(
-                "price",
-                "",
-            )
+        fallback_link_label = (
+            SOCIAL_POST_LINK_LABEL if card_type == "social_post" else "查看来源  ↗"
         )
-
-        price_label = QLabel(price)
-        price_label.setVisible(
-            bool(price)
-        )
-        price_label.setStyleSheet(
-            f"""
-            QLabel {{
-                color: #ba6687;
-                font-family: {UI_FONT};
-                font-size: 12px;
-                font-weight: 750;
-            }}
-            """
-        )
-
-        requirements = self.card.get(
-            "requirements",
-            [],
-        )
-        if not isinstance(requirements, list):
-            requirements = []
-
-        requirement_layout = QHBoxLayout()
-        requirement_layout.setContentsMargins(0, 1, 0, 0)
-        requirement_layout.setSpacing(5)
-
-        requirement_colours = {
-            "MATCH": ("#e8f7f1", "#32866b", "✓"),
-            "MISMATCH": ("#fff0f4", "#b85f7b", "×"),
-            "UNKNOWN": ("#eef5fc", "#6689a8", "?"),
-        }
-
-        popularity_status = str(
-            metadata.get("popularity_status", "UNKNOWN")
-        ).upper()
-        popularity_evidence = str(
-            metadata.get("popularity_evidence", "")
-        ).strip()
-        if popularity_status in {"HIGH", "MEDIUM"} and popularity_evidence:
-            popularity_chip = QLabel(
-                ("🔥 热门" if popularity_status == "HIGH" else "↗ 人气")
-            )
-            popularity_chip.setToolTip(popularity_evidence)
-            popularity_chip.setStyleSheet(
-                f"""
-                QLabel {{
-                    background-color: #fff3e8;
-                    border: 1px solid #ffe0c2;
-                    border-radius: 8px;
-                    color: #b66b2f;
-                    font-family: {UI_FONT};
-                    font-size: 9px;
-                    font-weight: 700;
-                    padding: 3px 6px;
-                }}
-                """
-            )
-            requirement_layout.addWidget(popularity_chip)
-
-        for requirement in requirements[:3]:
-            if not isinstance(requirement, dict):
-                continue
-            status = str(requirement.get("status", "UNKNOWN")).upper()
-            label_text = str(
-                requirement.get("label")
-                or requirement.get("requirement")
-                or requirement.get("name")
-                or requirement.get("text")
-                or ""
-            ).strip()
-            if not label_text:
-                continue
-            background, colour, symbol = requirement_colours.get(
-                status,
-                requirement_colours["UNKNOWN"],
-            )
-            chip = QLabel(symbol + " " + label_text[:22])
-            chip.setStyleSheet(
-                f"""
-                QLabel {{
-                    background-color: {background};
-                    border: 1px solid {background};
-                    border-radius: 8px;
-                    color: {colour};
-                    font-family: {UI_FONT};
-                    font-size: 9px;
-                    font-weight: 650;
-                    padding: 3px 6px;
-                }}
-                """
-            )
-            requirement_layout.addWidget(chip)
-        requirement_layout.addStretch()
-
         open_button = QPushButton(
-            "查看商品  ↗" if card_type == "product" else "查看来源  ↗"
+            str(self._evidence_block["link"].get("label") or fallback_link_label)
         )
         open_button.setVisible(bool(self.url))
         open_button.setCursor(Qt.PointingHandCursor)
@@ -1511,7 +1824,7 @@ class ResultCard(QFrame):
                 font-family: {UI_FONT};
                 font-size: 10px;
                 font-weight: 700;
-                padding: 5px 9px;
+                padding: 6px 10px;
             }}
             QPushButton:hover {{
                 background-color: #dcefff;
@@ -1521,100 +1834,656 @@ class ResultCard(QFrame):
         )
         open_button.clicked.connect(self._open_source)
 
-        source_layout = QHBoxLayout()
-        source_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
+        self.play_button = QPushButton("在 Bekki 播放  ▶")
+        self.play_button.setVisible(
+            bool(self._video_contract) and INLINE_WEBVIEW2_AVAILABLE
         )
-        source_layout.setSpacing(6)
-        source_layout.addWidget(
-            source_label,
+        self.play_button.setCursor(Qt.PointingHandCursor)
+        self.play_button.setToolTip("在当前卡片内播放；不会打开新页面")
+        self.play_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: #eef8ff;
+                border: 1px solid #c9e3f7;
+                border-radius: 9px;
+                color: #347fbe;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+                padding: 6px 10px;
+            }}
+            QPushButton:hover {{
+                background-color: #dcefff;
+                border-color: #9fcbed;
+            }}
+            QPushButton:pressed {{ background-color: #cfe7fa; }}
+            """
         )
-        source_layout.addStretch()
-        source_layout.addWidget(
-            price_label,
-        )
+        self.play_button.clicked.connect(self._toggle_inline_video)
 
-        text_layout = QVBoxLayout()
-        text_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
+        self.theater_button = QPushButton("影院模式  ▣")
+        self.theater_button.setVisible(
+            bool(self._video_contract) and INLINE_WEBVIEW2_AVAILABLE
         )
-        text_layout.setSpacing(4)
-        text_layout.addWidget(title)
-        text_layout.addWidget(summary)
-        if requirement_layout.count() > 1:
-            text_layout.addLayout(requirement_layout)
+        self.theater_button.setCursor(Qt.PointingHandCursor)
+        self.theater_button.setToolTip("在 Bekki 页面内放大当前视频")
+        self.theater_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: #172231;
+                border: 1px solid #30455e;
+                border-radius: 9px;
+                color: #d8edff;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+                padding: 6px 10px;
+            }}
+            QPushButton:hover {{
+                background-color: #213247;
+                border-color: #5a84aa;
+            }}
+            QPushButton:pressed {{ background-color: #101923; }}
+            """
+        )
+        self.theater_button.clicked.connect(self._toggle_theater_mode)
 
-        sections = self.card.get("sections", [])
-        if isinstance(sections, list):
-            for section in sections[:4]:
-                if not isinstance(section, dict):
-                    continue
-                kind = str(section.get("kind", "")).lower()
-                lines = []
-                if kind == "facts":
-                    values = section.get("items", {})
-                    if isinstance(values, dict):
-                        lines = [
-                            str(key) + ": " + str(value)
-                            for key, value in list(values.items())[:3]
-                        ]
-                elif kind == "pros_cons":
-                    pros = section.get("pros", [])
-                    cons = section.get("cons", [])
-                    if isinstance(pros, list) and pros:
-                        lines.append("＋ " + str(pros[0]))
-                    if isinstance(cons, list) and cons:
-                        lines.append("－ " + str(cons[0]))
-                elif kind in {"fit", "warning", "note"}:
-                    label = str(section.get("label", "")).strip()
-                    value = str(section.get("text", "")).strip()
-                    if value:
-                        lines = [((label + ": ") if label else "") + value]
-                if not lines:
-                    continue
-                section_label = QLabel("\n".join(lines))
-                section_label.setWordWrap(True)
-                section_label.setStyleSheet(
-                    f"color:#58738d;font-family:{UI_FONT};font-size:9px;"
-                )
-                text_layout.addWidget(section_label)
-        text_layout.addStretch()
-        text_layout.addLayout(
-            source_layout
-        )
-        text_layout.addWidget(open_button, 0, Qt.AlignRight)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(6)
 
-        layout = QHBoxLayout()
-        layout.setContentsMargins(
-            8,
-            8,
-            10,
-            8,
-        )
-        layout.setSpacing(10)
-        if image is not None:
-            layout.addWidget(image)
-        layout.addLayout(
-            text_layout,
-            1,
-        )
+        # This explicit order is the core contract: context first, every graph
+        # owned by that context next, and the matching link last.
+        layout.addWidget(context_label)
+        layout.addWidget(self.video_host, 0, Qt.AlignHCenter)
+        graph_label_widgets = []
+        for label_text, image in zip(graph_labels, graph_widgets):
+            graph_label = QLabel(label_text)
+            graph_label.setStyleSheet(
+                f"color:#6e91b1;font-family:{UI_FONT};font-size:9px;"
+                "font-weight:700;padding-top:3px;"
+            )
+            graph_label_widgets.append(graph_label)
+            layout.addWidget(graph_label)
+            layout.addWidget(image, 0, Qt.AlignHCenter)
+        self.graph_label_widgets = graph_label_widgets
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 2, 0, 0)
+        footer.setSpacing(6)
+        footer.addWidget(source_label, 1)
+        footer.addWidget(self.play_button, 0, Qt.AlignRight)
+        footer.addWidget(self.theater_button, 0, Qt.AlignRight)
+        footer.addWidget(open_button, 0, Qt.AlignRight)
+        layout.addLayout(footer)
 
         self.setLayout(layout)
-        self.setMinimumHeight(138 if image is not None else 116)
-        self.setMinimumWidth(390)
-        self.setMaximumWidth(470)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.set_content_width(MESSAGE_CONTENT_WIDTH)
+
+    def set_content_width(self, message_width):
+        """Keep context, graphs, and link inside one responsive evidence card."""
+
+        card_width = _result_card_width(message_width)
+        content_width = max(
+            220,
+            card_width - RESULT_CARD_HORIZONTAL_CHROME,
+        )
+        self._normal_video_content_width = content_width
+        self.setFixedWidth(card_width)
+        self.context_label.setFixedWidth(content_width)
+        for image in self.graph_widgets:
+            image.set_display_width(content_width)
+        self._resize_video_surface(content_width)
+        self.context_label.updateGeometry()
+        if self.layout() is not None:
+            self.layout().invalidate()
+        self.updateGeometry()
+
+    def _video_surface_size(self, content_width):
+        if self._video_contract and self._video_contract.get("is_short"):
+            width = min(max(int(content_width), 220), 405)
+            return width, min(round(width * 16 / 9), 720)
+        width = max(int(content_width), 220)
+        return width, min(max(round(width * 9 / 16), 180), 430)
+
+    def _resize_video_surface(self, content_width):
+        if self._theater_active:
+            return
+        width, height = self._video_surface_size(content_width)
+        _safe_qt_call(self.video_host, "setFixedSize", width, height)
+        if self._video_view is not None:
+            _safe_qt_call(self._video_view, "setFixedSize", width, height)
+
+    def _toggle_inline_video(self):
+        if self._video_active:
+            self._stop_inline_video()
+        else:
+            self._start_inline_video()
+
+    def _toggle_theater_mode(self):
+        window = self.window()
+        if self._theater_active:
+            handler = getattr(window, "exit_theater_mode", None)
+            if callable(handler):
+                handler(self)
+            return
+        if not self._video_active:
+            self._start_inline_video()
+        if not self._video_active:
+            return
+        card_ref = weakref.ref(self)
+
+        def enter():
+            card = card_ref()
+            if card is None or not _qt_object_is_alive(card) or not card._video_active:
+                return
+            handler = getattr(card.window(), "enter_theater_mode", None)
+            if callable(handler):
+                handler(card)
+
+        QTimer.singleShot(0, enter)
+
+    def _theater_video_surface_size(self, available_width, available_height):
+        """Fit the video in Bekki's theater layer without distorting its ratio."""
+
+        available_width = max(280, int(available_width))
+        available_height = max(180, int(available_height))
+        if self._video_contract and self._video_contract.get("is_short"):
+            height = min(available_height, 820)
+            width = max(220, round(height * 9 / 16))
+            if width > available_width:
+                width = available_width
+                height = round(width * 16 / 9)
+            return width, height
+        width = min(available_width, round(available_height * 16 / 9))
+        height = round(width * 9 / 16)
+        return width, height
+
+    def _attach_video_host_to_theater(
+        self,
+        theater_layout,
+        available_width,
+        available_height,
+    ):
+        if not self._video_active or not _qt_object_is_alive(self.video_host):
+            return False
+        own_layout = self.layout()
+        try:
+            theater_parent = theater_layout.parentWidget()
+        except (AttributeError, RuntimeError):
+            theater_parent = None
+        if (
+            own_layout is None
+            or not _qt_object_is_alive(own_layout)
+            or not _qt_object_is_alive(theater_parent)
+        ):
+            return False
+        own_layout.removeWidget(self.video_host)
+        theater_layout.addWidget(self.video_host, 0, Qt.AlignCenter)
+        self._theater_active = True
+        self.theater_button.setText("退出影院  ▣")
+        self._resize_theater_surface(available_width, available_height)
+        self._schedule_inline_geometry_refresh()
+        return True
+
+    def _resize_theater_surface(self, available_width, available_height):
+        if not self._theater_active:
+            return
+        width, height = self._theater_video_surface_size(
+            available_width,
+            available_height,
+        )
+        _safe_qt_call(self.video_host, "setFixedSize", width, height)
+        if self._video_view is not None:
+            _safe_qt_call(self._video_view, "setFixedSize", width, height)
+
+    def _restore_video_host_from_theater(self):
+        if not self._theater_active:
+            return
+        parent_widget = None
+        if _qt_object_is_alive(self.video_host):
+            try:
+                parent_widget = self.video_host.parentWidget()
+            except RuntimeError:
+                parent_widget = None
+        parent_layout = (
+            parent_widget.layout()
+            if _qt_object_is_alive(parent_widget)
+            else None
+        )
+        if parent_layout is not None:
+            _safe_qt_call(parent_layout, "removeWidget", self.video_host)
+        own_layout = self.layout()
+        if _qt_object_is_alive(own_layout) and _qt_object_is_alive(self.video_host):
+            own_layout.insertWidget(1, self.video_host, 0, Qt.AlignHCenter)
+        self._theater_active = False
+        _safe_qt_call(self.theater_button, "setText", "影院模式  ▣")
+        self._resize_video_surface(self._normal_video_content_width)
+        self._schedule_inline_geometry_refresh()
+
+    def _start_inline_video(self):
+        """Create the shared Edge player only after a deliberate click."""
+
+        if (
+            self._video_active
+            or not self._video_contract
+            or not INLINE_WEBVIEW2_AVAILABLE
+        ):
+            return
+        wrapper_url = social_video.webview_wrapper_url(self._video_contract)
+        wsgi_app = social_video.webview_wsgi_app(self._video_contract)
+        if not wrapper_url or wsgi_app is None:
+            return
+
+        if not _claim_active_video_card(self):
+            return
+        self._video_active = True
+        for label in self.graph_label_widgets:
+            label.setVisible(False)
+        for image in self.graph_widgets:
+            image.setVisible(False)
+
+        try:
+            js_bridge = DictJsBridge()
+            card_ref = weakref.ref(self)
+
+            @js_bridge.bind_js_api_func
+            def bekki_companion_event(payload):
+                card = card_ref()
+                if card is None or not _qt_object_is_alive(card):
+                    return False
+                return card._on_companion_bridge_message(payload)
+
+            view = QtWebView2Widget(
+                url=wrapper_url,
+                debug=False,
+                context_menus=False,
+                background_color="#080b10",
+                handle_new_window=False,
+                lazyload=True,
+                user_data_folder=_inline_video_user_data_folder(),
+                no_local_storage=False,
+                wsgi_app=wsgi_app,
+                wsgi_host_name=social_video.WEBVIEW_WRAPPER_HOST,
+                wsgi_executor=2,
+                init_settings_hook=self._configure_inline_webview,
+                js_apis=js_bridge,
+                fullscreen_support=True,
+                parent=self.video_host,
+            )
+        except Exception as error:
+            print("[INLINE VIDEO WEBVIEW2] create_failed", repr(error))
+            self._video_active = False
+            for label in self.graph_label_widgets:
+                label.setVisible(True)
+            for image in self.graph_widgets:
+                image.setVisible(True)
+            _release_active_video_card(self)
+            return
+        view.setContextMenuPolicy(Qt.NoContextMenu)
+        view.setStyleSheet(
+            "background-color:#080b10;border:none;border-radius:13px;"
+        )
+        width, height = self._video_surface_size(
+            max(220, self.width() - RESULT_CARD_HORIZONTAL_CHROME)
+        )
+        view.setFixedSize(width, height)
+        self._video_view = view
+        self._video_js_bridge = js_bridge
+        self._video_wsgi_app = wsgi_app
+        view.bridge.initialization_done.connect(
+            self._on_inline_webview_initialization
+        )
+        view.bridge.domContentLoaded.connect(self._on_inline_webview_loaded)
+        self.video_host_layout.addWidget(view, 0, Qt.AlignCenter)
+        self.video_host.setVisible(True)
+        self.play_button.setText("停止播放  ■")
+        self._schedule_inline_geometry_refresh()
+
+    def _execute_inline_script(self, script):
+        """Run one fixed-shape command in Bekki's verified wrapper document."""
+
+        if (
+            not self._video_active
+            or not self._video_wrapper_loaded
+            or self._video_core is None
+        ):
+            return False
+        try:
+            self._video_core.ExecuteScriptAsync(str(script))
+            return True
+        except Exception as error:
+            print("[COMPANION WATCH SCRIPT ERROR]", repr(error))
+            return False
+
+    def _set_companion_overlay(self, enabled, reset=False):
+        self._companion_enabled = bool(enabled)
+        if reset:
+            self._companion_messages = []
+        commands = []
+        if reset:
+            commands.append("window.BekkiCompanion.reset();")
+        commands.append(
+            "window.BekkiCompanion.setEnabled("
+            + ("true" if self._companion_enabled else "false")
+            + ");"
+        )
+        return self._execute_inline_script(
+            "if(window.BekkiCompanion){" + "".join(commands) + "}"
+        )
+
+    def _set_companion_busy(self, busy):
+        value = "true" if bool(busy) else "false"
+        return self._execute_inline_script(
+            "if(window.BekkiCompanion){window.BekkiCompanion.setBusy("
+            + value
+            + ");}"
+        )
+
+    def _remember_companion_message(self, role, text):
+        role = str(role or "").strip().upper()
+        clean = re.sub(r"\s+", " ", str(text or "")).strip()[:320]
+        if role not in {"YOU", "BEKKI"} or not clean:
+            return ""
+        self._companion_messages.append({"role": role, "text": clean})
+        self._companion_messages = self._companion_messages[-8:]
+        return clean
+
+    def _append_companion_message(self, role, text):
+        clean = self._remember_companion_message(role, text)
+        if not clean:
+            return False
+        return self._execute_inline_script(
+            "if(window.BekkiCompanion){window.BekkiCompanion.addMessage("
+            + json.dumps(str(role or "").strip().upper(), ensure_ascii=False)
+            + ","
+            + json.dumps(clean, ensure_ascii=False)
+            + ");}"
+        )
+
+    def companion_history(self):
+        return [dict(item) for item in self._companion_messages[-8:]]
+
+    def _on_companion_bridge_message(self, payload):
+        """Accept only bounded events delivered by qtwebview2's typed API."""
+
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return False
+        if not isinstance(payload, dict):
+            return False
+        message_type = str(payload.get("type") or "").strip()
+        if message_type not in {"companion_message", "companion_close"}:
+            return False
+        handler = getattr(self.window(), "handle_companion_web_message", None)
+        if callable(handler):
+            return bool(handler(self, payload))
+        return False
+
+    def _configure_inline_webview(self, core_webview):
+        """Bind one WebView2 control to its verified wrapper and no popups."""
+
+        contract = self._video_contract
+        if not self._video_active:
+            # A superseded WebView can finish initialization after its card was
+            # stopped. Quarantine that late control instead of allowing it to
+            # load or regain audio behind the newly selected player.
+            try:
+                core_webview.IsMuted = True
+            except Exception:
+                pass
+            try:
+                core_webview.Stop()
+            except Exception:
+                pass
+            print("[INLINE VIDEO WEBVIEW2] stale_initialization_stopped")
+            return
+
+        def navigation_starting(_sender, args):
+            target = str(getattr(args, "Uri", "") or "")
+            if not social_video.allowed_webview_navigation(target, contract):
+                args.Cancel = True
+                print("[INLINE VIDEO WEBVIEW2] navigation_blocked", target[:240])
+
+        def new_window_requested(_sender, args):
+            args.Handled = True
+            print(
+                "[INLINE VIDEO WEBVIEW2] popup_blocked",
+                str(getattr(args, "Uri", "") or "")[:240],
+            )
+
+        def download_starting(_sender, args):
+            args.Cancel = True
+            print("[INLINE VIDEO WEBVIEW2] download_blocked")
+
+        def audio_state_changed(_sender, _args):
+            self._ensure_inline_video_audio("state_changed")
+
+        core_webview.NavigationStarting += navigation_starting
+        core_webview.NewWindowRequested += new_window_requested
+        core_webview.DownloadStarting += download_starting
+        self._video_core = core_webview
+        self._video_event_bindings = [
+            ("NavigationStarting", navigation_starting),
+            ("NewWindowRequested", new_window_requested),
+            ("DownloadStarting", download_starting),
+        ]
+        try:
+            core_webview.IsMutedChanged += audio_state_changed
+            self._video_event_bindings.append(
+                ("IsMutedChanged", audio_state_changed)
+            )
+        except Exception:
+            pass
+        try:
+            core_webview.IsDocumentPlayingAudioChanged += audio_state_changed
+            self._video_event_bindings.append(
+                ("IsDocumentPlayingAudioChanged", audio_state_changed)
+            )
+        except Exception:
+            pass
+        self._ensure_inline_video_audio("initialized")
+
+    def _ensure_inline_video_audio(self, reason):
+        """Unmute the shared WebView2 output after an explicit play action."""
+
+        core_webview = self._video_core
+        if core_webview is None or not self._video_active:
+            return
+        platform = str(self._video_contract.get("platform") or "unknown")
+        video_id = str(self._video_contract.get("video_id") or "unknown")
+        try:
+            core_webview.IsMuted = False
+            muted = bool(core_webview.IsMuted)
+        except Exception as error:
+            print(
+                "[INLINE VIDEO AUDIO]",
+                "platform=" + platform,
+                "video_id=" + video_id,
+                "reason=" + str(reason),
+                "unmute_failed=" + repr(error),
+            )
+            return
+        try:
+            playing = bool(core_webview.IsDocumentPlayingAudio)
+        except Exception:
+            playing = False
+        print(
+            "[INLINE VIDEO AUDIO]",
+            "platform=" + platform,
+            "video_id=" + video_id,
+            "reason=" + str(reason),
+            "muted=" + str(muted).lower(),
+            "playing=" + str(playing).lower(),
+        )
+
+    def _schedule_inline_audio_enable(self):
+        """Reassert audio after the cross-origin player finishes booting."""
+
+        card_ref = weakref.ref(self)
+
+        def enable_audio(reason):
+            card = card_ref()
+            if (
+                card is not None
+                and _qt_object_is_alive(card)
+                and card._video_active
+            ):
+                card._ensure_inline_video_audio(reason)
+
+        QTimer.singleShot(250, lambda: enable_audio("player_loaded_250ms"))
+        QTimer.singleShot(1000, lambda: enable_audio("player_loaded_1000ms"))
+        QTimer.singleShot(2500, lambda: enable_audio("player_loaded_2500ms"))
+
+    def _detach_inline_webview_events(self):
+        core_webview = self._video_core
+        bindings = list(self._video_event_bindings)
+        self._video_core = None
+        self._video_event_bindings = []
+        if core_webview is None:
+            return
+        for event_name, handler in bindings:
+            try:
+                if event_name == "NavigationStarting":
+                    core_webview.NavigationStarting -= handler
+                elif event_name == "NewWindowRequested":
+                    core_webview.NewWindowRequested -= handler
+                elif event_name == "DownloadStarting":
+                    core_webview.DownloadStarting -= handler
+                elif event_name == "IsMutedChanged":
+                    core_webview.IsMutedChanged -= handler
+                elif event_name == "IsDocumentPlayingAudioChanged":
+                    core_webview.IsDocumentPlayingAudioChanged -= handler
+            except Exception:
+                pass
+
+    def _on_inline_webview_initialization(self, success, error_message):
+        platform = str(self._video_contract.get("platform") or "unknown")
+        print(
+            "[INLINE VIDEO WEBVIEW2]",
+            "platform=" + platform,
+            "ready=" + str(bool(success)).lower(),
+            ("error=" + str(error_message or "")) if not success else "",
+        )
+        if not success and self._video_active:
+            QTimer.singleShot(0, self._stop_inline_video)
+
+    def _on_inline_webview_loaded(self):
+        if not self._video_active:
+            return
+        platform = str(self._video_contract.get("platform") or "unknown")
+        print("[INLINE VIDEO WEBVIEW2] wrapper_loaded platform=" + platform)
+        self._video_wrapper_loaded = True
+        remembered = self.companion_history()
+        self._execute_inline_script(
+            "if(window.BekkiCompanion){window.BekkiCompanion.reset();"
+            "window.BekkiCompanion.setEnabled("
+            + ("true" if self._companion_enabled else "false")
+            + ");}"
+        )
+        for item in remembered:
+            self._execute_inline_script(
+                "if(window.BekkiCompanion){window.BekkiCompanion.addMessage("
+                + json.dumps(item["role"], ensure_ascii=False)
+                + ","
+                + json.dumps(item["text"], ensure_ascii=False)
+                + ");}"
+            )
+        self._schedule_inline_audio_enable()
+
+    def _stop_inline_video(self, refresh=True):
+        """Stop audio immediately, dispose the player, and restore its cover."""
+
+        if self._theater_active:
+            handler = getattr(self.window(), "exit_theater_mode", None)
+            if callable(handler):
+                handler(self)
+            else:
+                self._restore_video_host_from_theater()
+
+        view = self._video_view
+        core_webview = self._video_core
+        self._video_view = None
+        self._video_wsgi_app = None
+        self._video_js_bridge = None
+        self._video_active = False
+        self._video_wrapper_loaded = False
+        self._companion_enabled = False
+        self._companion_messages = []
+        if core_webview is not None:
+            native_stop = True
+            try:
+                # Stop and mute the native control before detaching callbacks
+                # or scheduling QObject deletion.  WebView2 teardown is
+                # asynchronous; this prevents the previous card from emitting
+                # audio while the next card is being initialized.
+                core_webview.IsMuted = True
+            except Exception as error:
+                print("[INLINE VIDEO WEBVIEW2] mute_on_stop_failed", repr(error))
+            try:
+                core_webview.Stop()
+            except Exception as error:
+                native_stop = False
+                print("[INLINE VIDEO WEBVIEW2] stop_failed", repr(error))
+            print(
+                "[INLINE VIDEO STOP]",
+                "platform=" + str(
+                    (self._video_contract or {}).get("platform") or "unknown"
+                ),
+                "video_id=" + str(
+                    (self._video_contract or {}).get("video_id") or "unknown"
+                ),
+                "native_stop=" + str(native_stop).lower(),
+            )
+        self._detach_inline_webview_events()
+        if _qt_object_is_alive(view):
+            try:
+                view.load_url("about:blank")
+            except Exception:
+                pass
+            _safe_qt_call(self.video_host_layout, "removeWidget", view)
+            _safe_qt_call(view, "close")
+            _safe_qt_call(view, "deleteLater")
+        _safe_qt_call(self.video_host, "setVisible", False)
+        for label in self.graph_label_widgets:
+            _safe_qt_call(label, "setVisible", True)
+        for image in self.graph_widgets:
+            _safe_qt_call(image, "setVisible", True)
+        _safe_qt_call(self.play_button, "setText", "在 Bekki 播放  ▶")
+        _release_active_video_card(self)
+        if refresh and view is not None:
+            self._schedule_inline_geometry_refresh()
+
+    def _schedule_inline_geometry_refresh(self):
+        if _qt_object_is_alive(self):
+            QTimer.singleShot(0, self._refresh_inline_geometry)
+
+    def _refresh_inline_geometry(self):
+        current = self
+        for _index in range(4):
+            if not _qt_object_is_alive(current):
+                break
+            try:
+                current_layout = current.layout()
+            except RuntimeError:
+                break
+            if current_layout is not None:
+                _safe_qt_call(current_layout, "invalidate")
+            _safe_qt_call(current, "updateGeometry")
+            try:
+                current = current.parentWidget()
+            except RuntimeError:
+                break
+            if current is None:
+                break
 
     def _open_source(self):
-        if self.url:
-            QDesktopServices.openUrl(
-                QUrl(self.url)
-            )
+        target = QUrl(self.url)
+        if target.scheme().lower() == "https" and target.host():
+            QDesktopServices.openUrl(target)
 
 
 class ResultCardList(QWidget):
@@ -1624,6 +2493,7 @@ class ResultCardList(QWidget):
         super().__init__()
 
         self._cards = []
+        self._content_width = MESSAGE_CONTENT_WIDTH
         self.card_layout = QVBoxLayout()
         self.card_layout.setContentsMargins(
             0,
@@ -1641,6 +2511,7 @@ class ResultCardList(QWidget):
         self.setLayout(
             self.card_layout
         )
+        self.setFixedWidth(_result_card_width(self._content_width))
         self.setVisible(False)
 
     def set_cards(self, cards):
@@ -1656,13 +2527,30 @@ class ResultCardList(QWidget):
             widget = item.widget()
 
             if widget is not None:
+                if isinstance(widget, ResultCard):
+                    widget._stop_inline_video(refresh=False)
                 widget.deleteLater()
 
-        self._cards = [card for card in self._cards[:3] if isinstance(card, dict)]
+        self._cards = [card for card in self._cards[:5] if isinstance(card, dict)]
         self._render_cards()
         self.setVisible(bool(self._cards))
+        if self.layout() is not None:
+            self.layout().invalidate()
+        self.updateGeometry()
 
-        self.adjustSize()
+    def set_content_width(self, message_width):
+        try:
+            message_width = max(MESSAGE_CONTENT_WIDTH, int(message_width))
+        except (TypeError, ValueError):
+            message_width = MESSAGE_CONTENT_WIDTH
+        self._content_width = message_width
+        self.setFixedWidth(_result_card_width(message_width))
+        for index in range(self.card_host.count()):
+            card = self.card_host.itemAt(index).widget()
+            if isinstance(card, ResultCard):
+                card.set_content_width(message_width)
+        if self.layout() is not None:
+            self.layout().invalidate()
         self.updateGeometry()
 
     def _render_cards(self):
@@ -1670,10 +2558,30 @@ class ResultCardList(QWidget):
             item = self.card_host.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                if isinstance(widget, ResultCard):
+                    widget._stop_inline_video(refresh=False)
                 widget.deleteLater()
 
         for card in self._cards:
-            self.card_host.addWidget(ResultCard(card))
+            card_widget = ResultCard(card)
+            card_widget.set_content_width(self._content_width)
+            self.card_host.addWidget(card_widget)
+
+    def find_card_by_url(self, url):
+        """Return the live result card that owns ``url``, if it still exists."""
+
+        target = str(url or "").strip()
+        if not target:
+            return None
+        for index in range(self.card_host.count()):
+            card = self.card_host.itemAt(index).widget()
+            if (
+                isinstance(card, ResultCard)
+                and _qt_object_is_alive(card)
+                and str(card.url or "").strip() == target
+            ):
+                return card
+        return None
 
 
 class MessageWidget(QWidget):
@@ -1691,6 +2599,7 @@ class MessageWidget(QWidget):
         is_user = sender.lower() in {"you", "user", "isaac"}
         self._is_user_message = is_user
         self._preferences = ui_preferences.normalize_preferences(preferences)
+        self._content_width = MESSAGE_CONTENT_WIDTH
         outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(2, 6, 2, 6)
         outer_layout.setSpacing(9)
@@ -1701,15 +2610,20 @@ class MessageWidget(QWidget):
 
         self._plain_text = str(text)
         self._highlights = highlights or []
+        self._sources = []
+        self._card_urls = set()
+        self._geometry_refresh_pending = False
         self.bubble = QLabel()
         self.bubble.setWordWrap(True)
+        self.bubble.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.bubble.setTextInteractionFlags(
-            Qt.TextSelectableByMouse
+            Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
         )
-        self.bubble.setMaximumWidth(286)
+        self.bubble.setOpenExternalLinks(False)
+        self.bubble.setMaximumWidth(self._content_width)
         self.bubble.setSizePolicy(
-            QSizePolicy.Minimum,
-            QSizePolicy.Preferred,
+            QSizePolicy.Fixed,
+            QSizePolicy.Fixed,
         )
         self._render_text()
 
@@ -1719,10 +2633,8 @@ class MessageWidget(QWidget):
         self.message_layout = message_layout
         message_layout.setContentsMargins(0, 0, 0, 0)
         message_layout.setSpacing(3)
-        self.source_layout = QGridLayout()
-        self.source_layout.setContentsMargins(0, 2, 0, 0)
-        self.source_layout.setSpacing(4)
-        self.result_cards = (ResultCardList())
+        self.result_cards = ResultCardList()
+        self.source_cards = ResultCardList()
 
         if is_user:
             name_label.setAlignment(Qt.AlignRight)
@@ -1778,7 +2690,7 @@ class MessageWidget(QWidget):
         else:
             # A stable width lets QLabel calculate the full wrapped height
             # when the short thinking text is replaced by a longer reply.
-            self.bubble.setFixedWidth(286)
+            self.bubble.setFixedWidth(self._content_width)
             name_label.setStyleSheet(
                 f"""
                 QLabel {{
@@ -1832,9 +2744,11 @@ class MessageWidget(QWidget):
                 self.result_cards,
                 0,
                 Qt.AlignLeft,)
-            
-            message_layout.addLayout(self.source_layout)
-            self.source_layout.setAlignment(Qt.AlignRight)            
+            message_layout.addWidget(
+                self.source_cards,
+                0,
+                Qt.AlignLeft,
+            )
             outer_layout.addWidget(
                 avatar_label,
                 alignment=Qt.AlignTop,
@@ -1891,6 +2805,7 @@ class MessageWidget(QWidget):
             }}
             """
         )
+        self._render_text()
         if not self._is_user_message:
             avatar_path = ui_preferences.resolved_avatar_path(
                 self._preferences,
@@ -1917,224 +2832,100 @@ class MessageWidget(QWidget):
         self._fit_bubble_height()
 
     def _fit_bubble_height(self):
-        """Recalculate wrapped QLabel height after thinking text is replaced."""
-        if self._is_user_message:
-            # User bubbles choose their width from their content. Fixing their
-            # height before the horizontal layout settles clips wrapped lines.
-            self.bubble.setMinimumHeight(0)
-            self.bubble.setMaximumHeight(16777215)
-            self.bubble.adjustSize()
-            self.bubble.updateGeometry()
-            self.adjustSize()
-            self.updateGeometry()
-            return
+        """Size rich Markdown from its document layout, not QLabel heuristics."""
 
-        self.bubble.setFixedWidth(286)
-        width = self.bubble.width() or min(286, self.bubble.sizeHint().width())
-        required_height = self.bubble.heightForWidth(width)
-        if required_height > 0:
-            # A small allowance avoids Windows clipping the final baseline
-            # when rich text contains mixed CJK and Latin bold runs.
-            self.bubble.setFixedHeight(required_height + 8)
-        else:
-            self.bubble.adjustSize()
+        family, size = _chat_font_values(self._preferences)
+        color = "#3d3440" if self._is_user_message else "#35465a"
+        width, height = _measure_markdown_bubble(
+            self._plain_text,
+            highlights=self._highlights,
+            family=family,
+            size=size,
+            color=color,
+            dynamic_width=self._is_user_message,
+            maximum_width=self._content_width,
+        )
+        self.bubble.setFixedSize(width, height)
         self.bubble.updateGeometry()
+        self._schedule_geometry_refresh()
+
+    def set_available_width(self, viewport_width):
+        """Reflow this message when the conversation viewport changes size."""
+
+        content_width = _responsive_message_content_width(viewport_width)
+        if content_width == self._content_width:
+            return
+        self._content_width = content_width
+        self.bubble.setMaximumWidth(content_width)
+        self.result_cards.set_content_width(content_width)
+        self.source_cards.set_content_width(content_width)
+        self._fit_bubble_height()
+
+    def _schedule_geometry_refresh(self):
+        """Let the result signal return before recalculating the whole message."""
+
+        if self._geometry_refresh_pending:
+            return
+        self._geometry_refresh_pending = True
+        QTimer.singleShot(0, self._finish_geometry_refresh)
+
+    def _finish_geometry_refresh(self):
+        self._geometry_refresh_pending = False
+        self.message_layout.invalidate()
+        if self.layout() is not None:
+            self.layout().invalidate()
         self.adjustSize()
         self.updateGeometry()
 
     def set_cards(self, cards):
-        cards = cards or []
-        self.result_cards.set_cards(
-            cards
-        )
-        # Shopping uses one complete image/text row per product, followed by
-        # Bekki's cross-product recommendation. Other card types keep the
-        # existing reply-first presentation.
-        product_cards = bool(cards) and all(
-            isinstance(card, dict) and card.get("type") == "product"
+        cards = [value for value in (cards or []) if isinstance(value, dict)]
+        self._card_urls = {
+            str(card.get("url") or "").strip()
             for card in cards
-        )
-        self.message_layout.removeWidget(self.result_cards)
-        self.message_layout.insertWidget(
-            1 if product_cards else 2,
-            self.result_cards,
-            0,
-            Qt.AlignLeft,
-        )
-        self.adjustSize()
-        self.updateGeometry()
+            if str(card.get("url") or "").strip()
+        }
+        self.result_cards.set_cards(cards)
+        # Rebuild source evidence after cards so duplicate URLs never appear as
+        # detached links below the result that already owns them.
+        self.set_sources(self._sources)
+        self._schedule_geometry_refresh()
 
     def _render_text(self):
-        styles = {
-            "important": "font-weight:700;color:#347fc3;",
-            "warning": "font-weight:700;color:#b87532;",
-            "critical": "font-weight:700;color:#bd5877;",
-            "technical": "font-family:'Cascadia Code','Consolas',monospace;background-color:#eaf4ff;color:#356f9f;",
-        }
-        ranges = []
-        for item in self._highlights[:8]:
-            if not isinstance(item, dict):
-                continue
-            value = str(item.get("text", ""))
-            style = str(item.get("style", ""))
-            start = self._plain_text.find(value) if value else -1
-            end = start + len(value)
-            if start < 0 or style not in styles:
-                continue
-            if any(start < old_end and end > old_start for old_start, old_end, _ in ranges):
-                continue
-            ranges.append((start, end, style))
-        ranges.sort(key=lambda value: value[0])
-        parts, cursor = [], 0
-        for start, end, style in ranges:
-            parts.append(html.escape(self._plain_text[cursor:start]))
-            parts.append('<span style="' + styles[style] + '">' + html.escape(self._plain_text[start:end]) + "</span>")
-            cursor = end
-        parts.append(html.escape(self._plain_text[cursor:]))
-        rendered = "".join(parts)
-
-        # Bekki may use small Markdown bold markers in otherwise plain replies.
-        # Content is escaped first, so enabling this limited formatting cannot
-        # inject arbitrary HTML into the message bubble.
-        has_markdown_bold = bool(re.search(r"\*\*[^*\n]+\*\*", rendered))
-        if has_markdown_bold:
-            rendered = re.sub(
-                r"\*\*([^*\n]+)\*\*",
-                r'<strong style="font-weight:700;color:#347fc3;">\1</strong>',
-                rendered,
-            )
-
-        use_rich_text = bool(ranges) or has_markdown_bold
-        self.bubble.setTextFormat(Qt.RichText if use_rich_text else Qt.PlainText)
-        self.bubble.setText(
-            rendered.replace("\n", "<br>")
-            if use_rich_text
-            else self._plain_text
+        family, size = _chat_font_values(self._preferences)
+        _set_markdown_label(
+            self.bubble,
+            self._plain_text,
+            highlights=self._highlights,
+            family=family,
+            size=size,
+            color="#3d3440" if self._is_user_message else "#35465a",
         )
 
     def set_sources(self, sources):
-        while self.source_layout.count():
-            item = self.source_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        valid_sources = [
-            item for item in sources
-            if item.get("url")
+        self._sources = [
+            value for value in (sources or []) if isinstance(value, dict)
         ]
+        bound_source_cards = result_cards.cards_from_sources(
+            self._sources,
+            exclude_urls=self._card_urls,
+            limit=5,
+        )
+        self.source_cards.set_cards(bound_source_cards)
+        self._schedule_geometry_refresh()
 
-        concrete_sources = [
-            item for item in valid_sources
-            if item.get("is_concrete_news", True)
-        ]
-        link_sources = [
-            item for item in valid_sources
-            if not item.get("is_concrete_news", True)
-        ]
+    def find_card_by_url(self, url):
+        """Resolve an action target inside either owned card collection."""
 
-        # Keep Fact Check compact and show up to four concrete sources directly.
-        visible_sources = concrete_sources[:4]
-        hidden_sources = concrete_sources[4:] + link_sources
-
-        def make_badge(label, tooltip):
-            badge = QPushButton(label)
-            badge.setFixedSize(30, 30)
-            badge.setToolTip(tooltip)
-            badge.setCursor(Qt.PointingHandCursor)
-            badge.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: #edf6ff;
-                    border: 1px solid #bcdcf7;
-                    border-radius: 15px;
-                    color: #3e7eb8;
-                    font-family: {UI_FONT};
-                    font-size: 8px;
-                    font-weight: 700;
-                    padding: 0;
-                }}
-                QPushButton:hover {{
-                    background-color: #d9edff;
-                    border-color: #78afe2;
-                    color: #276da9;
-                }}
-                """
-            )
-            return badge
-
-        for index, source in enumerate(visible_sources):
-            url = source["url"]
-            domain = source.get("domain", "")
-            label = (
-                domain.lower()
-                .replace("www.", "")
-                .split(".")[0]
-                .upper()[:4]
-                or "↗"
-            )
-
-            badge = make_badge(
-                label,
-                "打开来源：" + (domain or url),
-            )
-            badge.clicked.connect(
-                lambda checked=False, target=url:
-                QDesktopServices.openUrl(QUrl(target))
-            )
-            self.source_layout.addWidget(
-                badge,
-                0,
-                index,
-            )
-
-        if hidden_sources:
-            more_badge = make_badge(
-                "↗ +" + str(len(hidden_sources)),
-                i18n.t("more_sources"),
-            )
-
-            def show_source_menu():
-                menu = ModernMenu(self, width=300)
-                for source in hidden_sources:
-                    url = source["url"]
-                    domain = source.get("domain", "") or url
-                    content_type = source.get(
-                        "content_type",
-                        "",
-                    )
-
-                    subtitle = (
-                        content_type
-                        if content_type and content_type != "NEWS"
-                        else i18n.t("source_open")
-                    )
-                    menu.add_modern_item(
-                        domain,
-                        subtitle,
-                        lambda target=url: QDesktopServices.openUrl(QUrl(target)),
-                    )
-
-                menu.exec(
-                    more_badge.mapToGlobal(
-                        more_badge.rect().bottomLeft()
-                    )
-                )
-
-            more_badge.clicked.connect(show_source_menu)
-            self.source_layout.addWidget(
-                more_badge,
-                0,
-                len(visible_sources),
-            )
-
-        self.adjustSize()
-        self.updateGeometry()
+        return (
+            self.result_cards.find_card_by_url(url)
+            or self.source_cards.find_card_by_url(url)
+        )
 
 class ChatArea(QWidget):
     def __init__(self, show_welcome=True, preferences=None):
         super().__init__()
         self._preferences = ui_preferences.normalize_preferences(preferences)
+        self._responsive_resize_pending = False
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -2207,6 +2998,7 @@ class ChatArea(QWidget):
             cards=cards,
             preferences=self._preferences,
         )
+        widget.set_available_width(self.scroll.viewport().width())
         self.message_layout.addWidget(widget)
         self.scroll_to_bottom()
         return widget
@@ -2227,11 +3019,39 @@ class ChatArea(QWidget):
             ),
         )
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._responsive_resize_pending:
+            return
+        self._responsive_resize_pending = True
+        QTimer.singleShot(0, self._apply_responsive_message_widths)
+
+    def _apply_responsive_message_widths(self):
+        self._responsive_resize_pending = False
+        viewport_width = self.scroll.viewport().width()
+        for index in range(self.message_layout.count()):
+            widget = self.message_layout.itemAt(index).widget()
+            if isinstance(widget, MessageWidget):
+                widget.set_available_width(viewport_width)
+        self.message_layout.invalidate()
+        self.container.updateGeometry()
+
     def clear_messages(self):
         while self.message_layout.count():
             item = self.message_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
+
+    def find_card_by_url(self, url):
+        """Prefer the newest matching card when a reply triggers a UI action."""
+
+        for index in range(self.message_layout.count() - 1, -1, -1):
+            widget = self.message_layout.itemAt(index).widget()
+            if isinstance(widget, MessageWidget):
+                card = widget.find_card_by_url(url)
+                if card is not None:
+                    return card
+        return None
 
 
 class InputArea(QWidget):
@@ -3188,6 +4008,8 @@ class BekkiWindow(QWidget):
         )
 
         self.ui_preferences = ui_preferences.load_preferences()
+        self._windowed_geometry = None
+        self._windowed_was_maximized = False
         self.header = HeaderWidget()
         self.chat = ChatArea(
             show_welcome=show_welcome,
@@ -3243,6 +4065,107 @@ class BekkiWindow(QWidget):
             root_layout
         )
 
+        # Theater mode is a layer inside the Bekki window.  The active card's
+        # existing video host is moved here, so playback position and audio do
+        # not restart and no browser window or second Qt window is opened.
+        self._theater_card_ref = None
+        self._companion_watch_handler = None
+        self._companion_watch_enabled = False
+        self._companion_watch_generation = 0
+        self._companion_watch_inflight = False
+        self._companion_watch_inflight_kind = ""
+        self._companion_watch_last_signature = None
+        self._companion_watch_auto_count = 0
+        self._companion_watch_pending_message = ""
+        self._companion_watch_timer = QTimer(self)
+        self._companion_watch_timer.setSingleShot(True)
+        self._companion_watch_timer.timeout.connect(
+            self._request_automatic_companion_reaction
+        )
+        self.theater_overlay = QFrame(self)
+        self.theater_overlay.setObjectName("theaterOverlay")
+        self.theater_overlay.setAttribute(Qt.WA_StyledBackground, True)
+        self.theater_overlay.setStyleSheet(
+            f"""
+            QFrame#theaterOverlay {{
+                background-color: #080d14;
+                border: none;
+            }}
+            QFrame#theaterToolbar {{
+                background-color: #111b27;
+                border: 1px solid #213449;
+                border-radius: 12px;
+            }}
+            QLabel#theaterTitle {{
+                color: #e9f5ff;
+                font-family: {UI_FONT};
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            QPushButton {{
+                background-color: #172638;
+                border: 1px solid #34516d;
+                border-radius: 9px;
+                color: #d9edff;
+                font-family: {UI_FONT};
+                font-size: 10px;
+                font-weight: 700;
+                padding: 7px 11px;
+            }}
+            QPushButton:hover {{
+                background-color: #21364d;
+                border-color: #5f91bd;
+            }}
+            """
+        )
+        theater_layout = QVBoxLayout(self.theater_overlay)
+        theater_layout.setContentsMargins(18, 14, 18, 18)
+        theater_layout.setSpacing(12)
+
+        theater_toolbar = QFrame()
+        theater_toolbar.setObjectName("theaterToolbar")
+        theater_toolbar_layout = QHBoxLayout(theater_toolbar)
+        theater_toolbar_layout.setContentsMargins(12, 8, 10, 8)
+        theater_toolbar_layout.setSpacing(8)
+        self.theater_title = QLabel("Bekki 影院模式")
+        self.theater_title.setObjectName("theaterTitle")
+        self.theater_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        theater_toolbar_layout.addWidget(self.theater_title, 1)
+        self.theater_companion_button = QPushButton("Bekki 陪看  ○")
+        self.theater_companion_button.setToolTip(
+            "在视频右下角打开可输入、可回复的陪看对话框"
+        )
+        self.theater_fullscreen_button = QPushButton("Bekki 全屏  ⛶")
+        self.theater_stop_button = QPushButton("停止播放  ■")
+        self.theater_exit_button = QPushButton("退出影院  ×")
+        theater_toolbar_layout.addWidget(self.theater_companion_button)
+        theater_toolbar_layout.addWidget(self.theater_fullscreen_button)
+        theater_toolbar_layout.addWidget(self.theater_stop_button)
+        theater_toolbar_layout.addWidget(self.theater_exit_button)
+        theater_layout.addWidget(theater_toolbar)
+
+        self.theater_video_host = QFrame()
+        self.theater_video_host.setObjectName("theaterVideoHost")
+        self.theater_video_host.setStyleSheet(
+            "QFrame#theaterVideoHost{background:#05080c;border:none;}"
+        )
+        self.theater_video_layout = QVBoxLayout(self.theater_video_host)
+        self.theater_video_layout.setContentsMargins(0, 0, 0, 0)
+        self.theater_video_layout.setSpacing(0)
+        self.theater_video_layout.setAlignment(Qt.AlignCenter)
+        theater_layout.addWidget(self.theater_video_host, 1)
+        self.theater_overlay.setGeometry(self.rect())
+        self.theater_overlay.setVisible(False)
+
+        self.theater_fullscreen_button.clicked.connect(self.toggle_fullscreen)
+        self.theater_companion_button.clicked.connect(
+            self._toggle_companion_watch
+        )
+        self.theater_stop_button.clicked.connect(self._stop_theater_playback)
+        self.theater_exit_button.clicked.connect(
+            lambda _checked=False: self.exit_theater_mode()
+        )
+
         self.header.connect_history_toggle(
             self.toggle_sidebar
         )
@@ -3254,6 +4177,522 @@ class BekkiWindow(QWidget):
         self.header.connect_settings(
             self.open_appearance_settings
         )
+
+        self.header.connect_fullscreen_toggle(
+            self.toggle_fullscreen
+        )
+
+        self._fullscreen_shortcut = QShortcut(
+            QKeySequence("F11"),
+            self,
+        )
+        self._fullscreen_shortcut.setContext(Qt.ApplicationShortcut)
+        self._fullscreen_shortcut.activated.connect(self.toggle_fullscreen)
+        self._exit_fullscreen_shortcut = QShortcut(
+            QKeySequence("Esc"),
+            self,
+        )
+        self._exit_fullscreen_shortcut.setContext(Qt.ApplicationShortcut)
+        self._exit_fullscreen_shortcut.activated.connect(
+            self._exit_fullscreen_if_active
+        )
+
+    def toggle_fullscreen(self):
+        """Toggle the entire Bekki workspace without losing window geometry."""
+
+        if self.isFullScreen():
+            if self._windowed_was_maximized:
+                self.showMaximized()
+            else:
+                saved_geometry = self._windowed_geometry
+                self.showNormal()
+                if saved_geometry is not None:
+                    self.setGeometry(saved_geometry)
+        else:
+            self._windowed_geometry = self.geometry()
+            self._windowed_was_maximized = self.isMaximized()
+            self.showFullScreen()
+        QTimer.singleShot(0, self._sync_fullscreen_ui)
+
+    def _exit_fullscreen_if_active(self):
+        if self.theater_overlay.isVisible():
+            self.exit_theater_mode()
+            return
+        if self.isFullScreen():
+            self.toggle_fullscreen()
+
+    def _sync_fullscreen_ui(self):
+        if _qt_object_is_alive(self.header):
+            self.header.set_fullscreen_state(self.isFullScreen())
+        if _qt_object_is_alive(self.theater_fullscreen_button):
+            self.theater_fullscreen_button.setText(
+                "退出全屏  ⛶" if self.isFullScreen() else "Bekki 全屏  ⛶"
+            )
+
+    def _active_theater_card(self):
+        card = self._theater_card_ref() if self._theater_card_ref else None
+        if isinstance(card, ResultCard) and _qt_object_is_alive(card):
+            return card
+        return None
+
+    def _theater_available_size(self):
+        width = self.theater_video_host.width()
+        height = self.theater_video_host.height()
+        if width < 280:
+            width = max(280, self.width() - 48)
+        if height < 180:
+            height = max(180, self.height() - 104)
+        return width, height
+
+    def connect_companion_watch(self, handler):
+        """Connect the bounded background model used only by theater mode."""
+
+        self._companion_watch_handler = handler
+
+    def companion_watch_active(self):
+        return bool(
+            self._companion_watch_enabled
+            and self._active_theater_card() is not None
+        )
+
+    def _toggle_companion_watch(self):
+        if self._companion_watch_enabled:
+            self._stop_companion_watch()
+        else:
+            self._start_companion_watch()
+
+    def _start_companion_watch(self):
+        card = self._active_theater_card()
+        if card is None or not card._video_active:
+            return False
+        self._companion_watch_generation += 1
+        self._companion_watch_enabled = True
+        self._companion_watch_inflight = False
+        self._companion_watch_inflight_kind = ""
+        self._companion_watch_last_signature = None
+        self._companion_watch_auto_count = 0
+        self._companion_watch_pending_message = ""
+        self.theater_companion_button.setText("Bekki 陪看  ●")
+        card._set_companion_overlay(True, reset=True)
+        card._append_companion_message("BEKKI", "我在这儿，边看边聊吧～")
+        self._schedule_companion_reaction(8_000)
+        print(
+            "[COMPANION WATCH]",
+            "active=true",
+            "generation=" + str(self._companion_watch_generation),
+        )
+        return True
+
+    def _stop_companion_watch(self):
+        was_active = self._companion_watch_enabled
+        self._companion_watch_timer.stop()
+        self._companion_watch_generation += 1
+        self._companion_watch_enabled = False
+        self._companion_watch_inflight = False
+        self._companion_watch_inflight_kind = ""
+        self._companion_watch_last_signature = None
+        self._companion_watch_auto_count = 0
+        self._companion_watch_pending_message = ""
+        if _qt_object_is_alive(self.theater_companion_button):
+            self.theater_companion_button.setText("Bekki 陪看  ○")
+        card = self._active_theater_card()
+        if card is not None:
+            card._set_companion_overlay(False)
+            card._set_companion_busy(False)
+        if was_active:
+            print("[COMPANION WATCH] active=false")
+
+    def _schedule_companion_reaction(self, delay_ms=30_000):
+        if self._companion_watch_enabled and self._active_theater_card() is not None:
+            self._companion_watch_timer.start(max(1000, int(delay_ms)))
+
+    def _ensure_companion_reaction(self, delay_ms=6000):
+        """Keep an earlier proactive deadline instead of postponing it."""
+
+        if not self._companion_watch_timer.isActive():
+            self._schedule_companion_reaction(delay_ms)
+
+    def _capture_companion_frame(self, card, request_kind):
+        """Capture the native WebView2 surface without opening another window."""
+
+        if card is None or not _qt_object_is_alive(card.video_host):
+            return None, None
+        host = card.video_host
+        try:
+            top_left = host.mapToGlobal(QPoint(0, 0))
+            center = host.mapToGlobal(host.rect().center())
+            screen = QApplication.screenAt(center) or self.screen()
+            geometry = screen.geometry()
+            pixmap = screen.grabWindow(
+                0,
+                top_left.x() - geometry.x(),
+                top_left.y() - geometry.y(),
+                host.width(),
+                host.height(),
+            )
+        except (AttributeError, RuntimeError):
+            pixmap = QPixmap()
+        if pixmap.isNull():
+            try:
+                pixmap = host.grab()
+            except RuntimeError:
+                return None, None
+        image = pixmap.toImage()
+        if image.isNull() or image.width() < 80 or image.height() < 80:
+            return None, None
+        is_answer = str(request_kind or "").strip().upper() == "USER_MESSAGE"
+        max_width, max_height = (1280, 720) if is_answer else (960, 540)
+        jpeg_quality = 84 if is_answer else 72
+        if image.width() > max_width or image.height() > max_height:
+            image = image.scaled(
+                max_width,
+                max_height,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        signature = self._companion_frame_signature(image)
+        buffer = QBuffer()
+        if not buffer.open(QIODevice.WriteOnly):
+            return None, None
+        try:
+            if not image.save(buffer, "JPG", jpeg_quality):
+                return None, None
+            encoded = base64.b64encode(bytes(buffer.data())).decode("ascii")
+        finally:
+            buffer.close()
+        print(
+            "[COMPANION WATCH FRAME]",
+            "kind=" + str(request_kind or "unknown"),
+            "size=" + str(image.width()) + "x" + str(image.height()),
+            "jpeg_kb=" + str(round(len(encoded) * 3 / 4 / 1024)),
+        )
+        return encoded, signature
+
+    @staticmethod
+    def _companion_frame_signature(image):
+        """Return a tiny perceptual signature from above the chat overlay."""
+
+        sample_height = max(1, round(image.height() * 0.68))
+        sample = image.copy(0, 0, image.width(), sample_height).scaled(
+            8,
+            8,
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        values = []
+        for y in range(8):
+            for x in range(8):
+                color = sample.pixelColor(x, y)
+                values.append(
+                    round(
+                        (color.red() * 0.299)
+                        + (color.green() * 0.587)
+                        + (color.blue() * 0.114)
+                    )
+                )
+        average = sum(values) / max(1, len(values))
+        signature = 0
+        for index, value in enumerate(values):
+            if value >= average:
+                signature |= 1 << index
+        return signature
+
+    def _request_automatic_companion_reaction(self):
+        if self._companion_watch_inflight:
+            self._schedule_companion_reaction(3500)
+            return
+        self._request_companion_frame("AUTO_REACTION")
+
+    def _request_companion_frame(self, request_kind, message=""):
+        card = self._active_theater_card()
+        if not self._companion_watch_enabled or card is None:
+            return False
+        request_kind = str(request_kind or "").strip().upper()
+        if request_kind not in {"AUTO_REACTION", "USER_MESSAGE"}:
+            return False
+        if self._companion_watch_inflight:
+            if request_kind == "USER_MESSAGE":
+                self._companion_watch_pending_message = str(message or "")[:320]
+            return False
+        image_base64, signature = self._capture_companion_frame(card, request_kind)
+        if not image_base64:
+            if request_kind == "USER_MESSAGE":
+                card._append_companion_message(
+                    "BEKKI",
+                    "这一幕我暂时没看清，不过我还在陪你看～",
+                )
+                card._set_companion_busy(False)
+            self._schedule_companion_reaction(8000)
+            return False
+        if (
+            request_kind == "AUTO_REACTION"
+            and self._companion_watch_last_signature is not None
+            and (signature ^ self._companion_watch_last_signature).bit_count() < 7
+        ):
+            self._schedule_companion_reaction(15_000)
+            return False
+        if request_kind == "AUTO_REACTION":
+            self._companion_watch_last_signature = signature
+        payload = {
+            "request_kind": request_kind,
+            "message": str(message or "")[:320],
+            "image_base64": image_base64,
+            "video_title": str(card.card.get("title") or "")[:220],
+            "platform": str(card._video_contract.get("platform") or "")[:40],
+            "video_url": str(card._video_contract.get("source_url") or "")[:2048],
+            "generation": self._companion_watch_generation,
+            "is_first_reaction": (
+                request_kind == "AUTO_REACTION"
+                and self._companion_watch_auto_count == 0
+            ),
+            "history": card.companion_history(),
+        }
+        handler = self._companion_watch_handler
+        accepted = bool(callable(handler) and handler(payload))
+        if not accepted:
+            if request_kind == "USER_MESSAGE":
+                card._append_companion_message(
+                    "BEKKI",
+                    "我现在正忙着处理另一件事，等一下再陪你聊～",
+                )
+                card._set_companion_busy(False)
+            self._schedule_companion_reaction(5000)
+            return False
+        self._companion_watch_inflight = True
+        self._companion_watch_inflight_kind = request_kind
+        if request_kind == "USER_MESSAGE":
+            card._set_companion_busy(True)
+        return True
+
+    def handle_companion_web_message(self, card, payload):
+        """Route wrapper input to the current theater session only."""
+
+        current = self._active_theater_card()
+        if (
+            not self._companion_watch_enabled
+            or current is None
+            or card is not current
+            or not isinstance(payload, dict)
+        ):
+            return False
+        message_type = str(payload.get("type") or "").strip()
+        if message_type == "companion_close":
+            self._stop_companion_watch()
+            return True
+        if message_type != "companion_message":
+            return False
+        message = re.sub(r"\s+", " ", str(payload.get("text") or "")).strip()[:320]
+        if not message:
+            card._set_companion_busy(False)
+            return False
+        card._remember_companion_message("YOU", message)
+        if self._companion_watch_inflight:
+            self._companion_watch_pending_message = message
+            return True
+        return self._request_companion_frame("USER_MESSAGE", message)
+
+    def deliver_companion_watch_reply(self, payload):
+        """Display a worker reply only in the theater session that requested it."""
+
+        card = self._active_theater_card()
+        if not isinstance(payload, dict) or card is None:
+            return False
+        if (
+            not self._companion_watch_enabled
+            or int(payload.get("generation") or -1)
+            != self._companion_watch_generation
+            or str(payload.get("video_url") or "")
+            != str(card._video_contract.get("source_url") or "")
+        ):
+            return False
+        request_kind = str(payload.get("request_kind") or "").strip().upper()
+        self._companion_watch_inflight = False
+        self._companion_watch_inflight_kind = ""
+        reply = re.sub(r"\s+", " ", str(payload.get("reply") or "")).strip()[:180]
+        if bool(payload.get("should_show")) and reply:
+            card._append_companion_message("BEKKI", reply)
+            if request_kind == "AUTO_REACTION":
+                self._companion_watch_auto_count += 1
+        pending = self._companion_watch_pending_message
+        self._companion_watch_pending_message = ""
+        if pending:
+            QTimer.singleShot(
+                80,
+                lambda text=pending: self._request_companion_frame(
+                    "USER_MESSAGE",
+                    text,
+                ),
+            )
+        else:
+            card._set_companion_busy(False)
+            if request_kind == "AUTO_REACTION":
+                self._schedule_companion_reaction(24_000)
+            else:
+                # Direct conversation must not push the original proactive
+                # deadline farther into the future.
+                self._ensure_companion_reaction(6000)
+        return True
+
+    def companion_watch_failed(self, payload):
+        card = self._active_theater_card()
+        if not isinstance(payload, dict) or card is None:
+            return False
+        if (
+            not self._companion_watch_enabled
+            or int(payload.get("generation") or -1)
+            != self._companion_watch_generation
+        ):
+            return False
+        request_kind = str(payload.get("request_kind") or "").strip().upper()
+        self._companion_watch_inflight = False
+        self._companion_watch_inflight_kind = ""
+        if request_kind == "USER_MESSAGE":
+            card._append_companion_message("BEKKI", "刚刚走神了一下，再问我一次吧～")
+        elif request_kind == "AUTO_REACTION":
+            # A failed first look must be allowed to retry even if the video
+            # happens to remain on the same frame.
+            self._companion_watch_last_signature = None
+        pending = self._companion_watch_pending_message
+        self._companion_watch_pending_message = ""
+        if pending:
+            QTimer.singleShot(
+                80,
+                lambda text=pending: self._request_companion_frame(
+                    "USER_MESSAGE",
+                    text,
+                ),
+            )
+        else:
+            card._set_companion_busy(False)
+            if request_kind == "AUTO_REACTION":
+                self._schedule_companion_reaction(8000)
+            else:
+                self._ensure_companion_reaction(6000)
+        return True
+
+    def enter_theater_mode(self, card):
+        """Move one already-authorized inline player into Bekki's theater."""
+
+        if (
+            not isinstance(card, ResultCard)
+            or not _qt_object_is_alive(card)
+            or not card._video_active
+            or not card._video_contract
+        ):
+            return False
+        current = self._active_theater_card()
+        if current is not None and current is not card:
+            # A theater switch is a playback switch, not a plain theater exit.
+            # Fully destroy the old player before attaching the next one.
+            current._stop_inline_video()
+        self._stop_companion_watch()
+        self._theater_card_ref = weakref.ref(card)
+        self.theater_title.setText(
+            "Bekki 影院模式 · "
+            + re.sub(r"\s+", " ", str(card.card.get("title") or "正在播放")).strip()[:90]
+        )
+        self.theater_overlay.setGeometry(self.rect())
+        self.theater_overlay.setVisible(True)
+        self.theater_overlay.raise_()
+        width, height = self._theater_available_size()
+        if not card._attach_video_host_to_theater(
+            self.theater_video_layout,
+            width,
+            height,
+        ):
+            self._theater_card_ref = None
+            self.theater_overlay.setVisible(False)
+            return False
+        self.theater_overlay.setFocus(Qt.OtherFocusReason)
+        QTimer.singleShot(0, self._sync_theater_geometry)
+        print(
+            "[INLINE VIDEO THEATER]",
+            "platform=" + str(card._video_contract.get("platform") or "unknown"),
+            "video_id=" + str(card._video_contract.get("video_id") or "unknown"),
+            "active=true",
+        )
+        return True
+
+    def exit_theater_mode(self, card=None):
+        """Return the player to its source card without stopping playback."""
+
+        current = self._active_theater_card()
+        if card is not None and current is not None and card is not current:
+            return False
+        self._stop_companion_watch()
+        target = current or (card if isinstance(card, ResultCard) else None)
+        if target is not None and _qt_object_is_alive(target):
+            target._restore_video_host_from_theater()
+        self._theater_card_ref = None
+        if _qt_object_is_alive(self.theater_overlay):
+            self.theater_overlay.setVisible(False)
+        if target is not None and _qt_object_is_alive(target):
+            target.setFocus(Qt.OtherFocusReason)
+        target_id = (
+            str((target._video_contract or {}).get("video_id") or "unknown")
+            if target is not None and _qt_object_is_alive(target)
+            else "unknown"
+        )
+        print("[INLINE VIDEO THEATER] video_id=" + target_id, "active=false")
+        return True
+
+    def _stop_theater_playback(self):
+        card = self._active_theater_card()
+        if card is not None:
+            card._stop_inline_video()
+        else:
+            self.theater_overlay.setVisible(False)
+
+    def _sync_theater_geometry(self):
+        if not _qt_object_is_alive(self.theater_overlay):
+            return
+        self.theater_overlay.setGeometry(self.rect())
+        if not self.theater_overlay.isVisible():
+            return
+        self.theater_overlay.raise_()
+        card = self._active_theater_card()
+        if card is not None:
+            width, height = self._theater_available_size()
+            card._resize_theater_surface(width, height)
+
+    def enter_theater_for_url(self, url):
+        """Start and enlarge the newest result card matching a backend action."""
+
+        card = self.chat.find_card_by_url(url)
+        if card is None or card._video_contract is None:
+            print("[INLINE VIDEO THEATER] target_not_found", str(url or "")[:220])
+            return False
+        if card._theater_active:
+            return True
+        card._toggle_theater_mode()
+        return True
+
+    def perform_ui_action(self, action):
+        """Execute a closed, backend-authored UI action on Qt's main thread."""
+
+        if not isinstance(action, dict):
+            return False
+        action_type = str(action.get("type") or "").strip()
+        if action_type == "enter_theater_mode":
+            return self.enter_theater_for_url(action.get("url"))
+        print("[UI ACTION IGNORED]", action_type[:80])
+        return False
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            QTimer.singleShot(0, self._sync_fullscreen_ui)
+            QTimer.singleShot(0, self._sync_theater_geometry)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self._sync_theater_geometry)
+
+    def closeEvent(self, event):
+        card = self._active_theater_card()
+        if card is not None:
+            card._stop_inline_video(refresh=False)
+        super().closeEvent(event)
 
     def open_appearance_settings(self):
         dialog = AppearanceDialog(self.ui_preferences, self)
@@ -3339,6 +4778,9 @@ class BekkiWindow(QWidget):
         )
 
     def clear_chat(self):
+        card = self._active_theater_card()
+        if card is not None:
+            card._stop_inline_video(refresh=False)
         self.chat.clear_messages()
 
     def toggle_sidebar(self):
@@ -3353,19 +4795,21 @@ class BekkiWindow(QWidget):
             self.sidebar.setVisible(
                 True
             )
-            self.resize(
-                680,
-                self.height(),
-            )
+            if not self.isFullScreen() and not self.isMaximized():
+                self.resize(
+                    680,
+                    self.height(),
+                )
 
         else:
             self.sidebar.setVisible(
                 False
             )
-            self.resize(
-                440,
-                self.height(),
-            )
+            if not self.isFullScreen() and not self.isMaximized():
+                self.resize(
+                    440,
+                    self.height(),
+                )
 
     def toggle_task_drawer(self):
         opening = (
@@ -3379,19 +4823,21 @@ class BekkiWindow(QWidget):
             self.task_drawer.setVisible(
                 True
             )
-            self.resize(
-                720,
-                self.height(),
-            )
+            if not self.isFullScreen() and not self.isMaximized():
+                self.resize(
+                    720,
+                    self.height(),
+                )
 
         else:
             self.task_drawer.setVisible(
                 False
             )
-            self.resize(
-                440,
-                self.height(),
-            )
+            if not self.isFullScreen() and not self.isMaximized():
+                self.resize(
+                    440,
+                    self.height(),
+                )
 
     def set_tasks(self, task_items):
         self.task_drawer.set_tasks(

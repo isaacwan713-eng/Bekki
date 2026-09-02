@@ -1,0 +1,6 @@
+{
+  "heif-convert": "../../native/libheif/libheif/bin/heif-convert.exe",
+  "JxrDecApp": "../../native/jxrlib/jxrlib/bin/JxrDecApp.exe",
+  "pdfinfo": "../../native/poppler/Library/bin/pdfinfo.exe",
+  "pdftoppm": "../../native/poppler/Library/bin/pdftoppm.exe"
+}

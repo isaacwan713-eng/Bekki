@@ -20,16 +20,16 @@ if (
     $sourceRoot.TrimEnd($rootTrimCharacters) -eq
     $targetRoot.TrimEnd($rootTrimCharacters)
 ) {
-    throw "Extract Bekki Screenshot Multipass OCR V1.10.27 outside the installed AI-Assistant folder."
+    throw "Extract Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 outside the installed AI-Assistant folder."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "main.py"))) {
-    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: main.py is missing."
+    throw "Invalid Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 package: main.py is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "BEKKI_BUILD.json"))) {
-    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: BEKKI_BUILD.json is missing."
+    throw "Invalid Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 package: BEKKI_BUILD.json is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "WINDOWS_OCR.ps1"))) {
-    throw "Invalid Bekki Screenshot Multipass OCR V1.10.27 package: WINDOWS_OCR.ps1 is missing."
+    throw "Invalid Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 package: WINDOWS_OCR.ps1 is missing."
 }
 if (Test-Path $targetRoot) {
     if (-not (Test-Path (Join-Path $targetRoot "main.py"))) {
@@ -48,7 +48,8 @@ New-Item -ItemType Directory -Path $backupRoot | Out-Null
 $replaceDirectories = @("assets", "casper", "nerv", "prompts", "tests")
 $protectedNames = @(
     ".git", ".venv", "venv", "data", "build", "dist",
-    "__pycache__", "casper_browser_profile", "logs"
+    "__pycache__", "casper_browser_profile", "social_browser_profile",
+    "unified_browser_profile", "logs"
 )
 $createdRootFiles = [System.Collections.Generic.List[string]]::new()
 $backedUpRootFiles = [System.Collections.Generic.List[string]]::new()
@@ -191,13 +192,25 @@ try {
             throw "Could not install the pywinauto desktop dependency."
         }
     }
+    & $python -c "import qtwebview2"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Installing the Edge WebView2 player dependency..."
+        & $python -m pip install "qtwebview2==0.5.0"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not install the qtwebview2 player dependency."
+        }
+    }
     $compileFiles = @(
-        "main.py", "magi.py", "melchior.py", "model_runtime.py",
+        "main.py", "ui.py", "social_video.py", "companion_watch.py",
+        "media_watch.py", "video_sites.py",
+        "magi.py", "melchior.py", "model_runtime.py",
+        "managed_browser.py",
         "knowledge.py", "knowledge_retrieval.py",
         "tools.py", "vision.py", "windows_ocr.py", "worker.py", "casper\core.py",
         "casper\adapters.py", "casper\browser.py", "casper\external_ai.py",
         "casper\knowledge.py", "casper\knowledge_retrieval.py",
-        "casper\external_ai_desktop.py",
+        "casper\external_ai_desktop.py", "casper\ui.py",
+        "casper\social_video.py",
         "nerv\core.py", "nerv\curiosity.py", "nerv\objective_fact.py",
         "nerv\external_fact_fallback.py", "nerv\knowledge_curator.py",
         "nerv\knowledge_verification.py",
@@ -223,13 +236,13 @@ try {
 } catch {
     Restore-StableRuntime
     throw (
-        "Bekki Screenshot Multipass OCR V1.10.27 installation failed and the previous runtime was " +
+        "Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 installation failed and the previous runtime was " +
         "restored. Backup retained at: " + $backupRoot +
         [Environment]::NewLine + $_.Exception.Message
     )
 }
 
-Write-Host "Bekki Screenshot Multipass OCR V1.10.27 installed successfully."
+Write-Host "Bekki Verified Video Site + Companion Bridge Hotfix V1.10.47.3 installed successfully."
 Write-Host "Target: $targetRoot"
 Write-Host "Backup: $backupRoot"
 Write-Host "Preserved: data, .env, .git, .venv, build, dist"

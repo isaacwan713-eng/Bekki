@@ -4,7 +4,12 @@
 
 """Validation for Bekki multimodal result cards."""
 
+import os
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
+
+import message_markdown
 
 
 VALID_CARD_TYPES = {
@@ -30,6 +35,7 @@ MAX_TITLE_LENGTH = 180
 MAX_SUMMARY_LENGTH = 600
 MAX_URL_LENGTH = 2048
 MAX_SECTIONS = 8
+MAX_CONTEXT_MARKDOWN_LENGTH = message_markdown.MAX_CARD_CONTEXT_MARKDOWN
 
 
 def _clean_text(
@@ -84,6 +90,36 @@ def _clean_https_url(value):
     return value
 
 
+def _social_media_cache_root():
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Bekki"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / "Bekki"
+    else:
+        base = Path.home() / ".local" / "share" / "Bekki"
+    return (base / "social_media_cache").resolve()
+
+
+def _clean_local_image_path(value):
+    """Accept only existing raster files created in Bekki's evidence cache."""
+
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    try:
+        path = Path(value.strip()).expanduser().resolve()
+        cache_root = _social_media_cache_root()
+        path.relative_to(cache_root)
+        if not path.is_file():
+            return ""
+        if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            return ""
+        if path.stat().st_size > 8 * 1024 * 1024:
+            return ""
+    except (OSError, ValueError):
+        return ""
+    return str(path)
+
+
 def _clean_metadata(metadata):
     if not isinstance(metadata, dict):
         return {}
@@ -94,11 +130,24 @@ def _clean_metadata(metadata):
         "price",
         "currency",
         "merchant",
+        "brand",
+        "brand_reliability",
+        "profile_fit",
         "stock",
         "rating",
         "review_count",
         "location",
         "captured_at",
+        "popularity_status",
+        "popularity_evidence",
+        "likes",
+        "comments",
+        "shares",
+        "duration",
+        "timestamp",
+        "post_title",
+        "evidence_level",
+        "link_target",
     }
 
     cleaned = {}
@@ -122,11 +171,10 @@ def _clean_image(image):
     if not isinstance(image, dict):
         return None
 
-    image_url = _clean_https_url(
-        image.get("url")
-    )
+    image_url = _clean_https_url(image.get("url"))
+    local_path = _clean_local_image_path(image.get("local_path"))
 
-    if not image_url:
+    if not image_url and not local_path:
         return None
 
     source_url = _clean_https_url(
@@ -135,6 +183,7 @@ def _clean_image(image):
 
     return {
         "url": image_url,
+        "local_path": local_path,
         "alt": _clean_text(
             image.get("alt"),
             200,
@@ -142,7 +191,41 @@ def _clean_image(image):
         "source_url": (
             source_url or None
         ),
+        "label": _clean_text(image.get("label"), 40),
+        "kind": _clean_text(image.get("kind"), 24),
+        "timestamp": _clean_text(image.get("timestamp"), 40),
     }
+
+
+def _clean_images(items, fallback=None):
+    cleaned = []
+    seen = set()
+    if isinstance(items, list):
+        gallery_contract = any(
+            isinstance(item, dict)
+            and str(item.get("kind") or "").strip().lower()
+            in {"media", "text", "search_preview"}
+            for item in items[:4]
+        )
+        image_limit = 4 if gallery_contract else 2
+        candidates = items[:image_limit]
+    else:
+        image_limit = 2
+        candidates = []
+    if fallback is not None:
+        candidates.append(fallback)
+    for item in candidates:
+        image = _clean_image(item)
+        if not image:
+            continue
+        key = image.get("local_path") or image.get("url")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(image)
+        if len(cleaned) >= image_limit:
+            break
+    return cleaned
 
 
 def _clean_requirements(items):
@@ -277,6 +360,8 @@ def clean_card(card):
         except ValueError:
             domain = ""
 
+    images = _clean_images(card.get("images"), card.get("image"))
+    images = images[:4 if card_type == "social_post" else 1]
     return {
         "type": card_type,
         "title": title,
@@ -284,11 +369,14 @@ def clean_card(card):
             card.get("summary"),
             MAX_SUMMARY_LENGTH,
         ),
+        "context_markdown": message_markdown.bounded_markdown(
+            card.get("context_markdown"),
+            MAX_CONTEXT_MARKDOWN_LENGTH,
+        ),
         "url": url,
         "domain": domain,
-        "image": _clean_image(
-            card.get("image")
-        ),
+        "image": images[0] if images else None,
+        "images": images,
         "metadata": _clean_metadata(
             card.get("metadata")
         ),
@@ -333,3 +421,100 @@ def clean_cards(cards):
             break
 
     return cleaned
+
+
+def source_to_card(source):
+    """Convert one search source into the same bound evidence contract as a card."""
+
+    if not isinstance(source, dict):
+        return None
+    url = _clean_https_url(source.get("url"))
+    if not url:
+        return None
+    domain = _clean_text(source.get("domain"), 120)
+    title = _clean_text(source.get("title"), MAX_TITLE_LENGTH) or domain or "来源"
+    summary = _clean_text(
+        source.get("description") or source.get("summary"),
+        MAX_SUMMARY_LENGTH,
+    )
+    content_type = str(source.get("content_type") or "").upper()
+    card_type = "news" if content_type == "NEWS" else "article"
+    image_url = source.get("image_url")
+    image = (
+        {
+            "url": image_url,
+            "alt": title,
+            "source_url": url,
+            "label": "来源图片",
+            "kind": "media",
+        }
+        if image_url
+        else None
+    )
+    return clean_card(
+        {
+            "type": card_type,
+            "title": title,
+            "summary": summary,
+            "url": url,
+            "domain": domain,
+            "image": image,
+            "metadata": {
+                "published_at": source.get("published") or "",
+            },
+            "requirements": [],
+        }
+    )
+
+
+def is_concrete_social_post_url(value):
+    """Return True only for a platform-native post/detail URL, not search UI."""
+
+    url = _clean_https_url(value)
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = str(parsed.hostname or "").casefold().rstrip(".")
+    path = str(parsed.path or "").casefold()
+
+    def on_domain(domain):
+        return host == domain or host.endswith("." + domain)
+
+    if on_domain("xiaohongshu.com") or on_domain("rednote.com"):
+        return path.startswith("/explore/") or path.startswith(
+            "/discovery/item/"
+        )
+    if on_domain("reddit.com"):
+        parts = [part for part in path.split("/") if part]
+        return len(parts) >= 4 and parts[0] == "r" and parts[2] == "comments"
+    if on_domain("bilibili.com"):
+        return path.startswith("/video/") or path.startswith("/bangumi/play/")
+    if on_domain("twitter.com") or on_domain("x.com"):
+        parts = [part for part in path.split("/") if part]
+        return len(parts) >= 3 and parts[1] == "status"
+    if on_domain("instagram.com"):
+        return path.startswith("/p/") or path.startswith("/reel/")
+    return False
+
+
+def cards_from_sources(sources, exclude_urls=None, limit=5):
+    """Keep source order while removing links already represented by result cards."""
+
+    if not isinstance(sources, list):
+        return []
+    excluded = {
+        str(value).strip()
+        for value in (exclude_urls or [])
+        if str(value).strip()
+    }
+    cards = []
+    seen = set(excluded)
+    for source in sources:
+        card = source_to_card(source)
+        if not card or card["url"] in seen:
+            continue
+        seen.add(card["url"])
+        cards.append(card)
+        if len(cards) >= max(1, min(int(limit or 5), 8)):
+            break
+    return cards

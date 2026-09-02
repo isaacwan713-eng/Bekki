@@ -74,7 +74,7 @@ class SocialResearchV139Tests(unittest.TestCase):
         self.assertEqual(evidence["recent_post_count"], 8)
         self.assertEqual(len(evidence["items"]), 7)
 
-    def test_post_introductions_batch_seven_posts_into_three_calls(self):
+    def test_post_introductions_batch_seven_posts_into_four_bounded_calls(self):
         recent = [_recent_item(index) for index in range(1, 8)]
         details = [_detail(index) for index in range(1, 8)]
 
@@ -116,7 +116,7 @@ class SocialResearchV139Tests(unittest.TestCase):
                 {"observations": []},
             )
         self.assertEqual(len(introductions), 7)
-        self.assertEqual(model.call_count, 3)
+        self.assertEqual(model.call_count, 7)
         self.assertEqual(introductions[-1]["engagement"]["likes"], "700")
 
     def test_forged_metric_without_same_post_evidence_is_rejected(self):

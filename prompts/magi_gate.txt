@@ -84,13 +84,44 @@ Classify by the requested outcome, never by isolated keywords:
 - "帮我问 ChatGPT：为什么猫会呼噜" -> COMMAND because it sends a message
   through an external service
 
-In the same judgment, classify explicit named social-platform research:
+In the same judgment, distinguish platform-native research from a cross-site
+discussion roundup:
+- A request whose final outcome is to find something to watch or play is
+  MEDIA_WATCH, even when Bilibili or YouTube is explicitly named. Examples:
+  "我想看名侦探柯南", "去 B 站找一个下饭视频", and "在 YouTube 播放
+  aespa MV". Keep social_scope OTHER and social_platforms [] because the named
+  website is a hard watch-search condition extracted downstream, not a request
+  to summarize posts. Researching or summarizing videos remains SOCIAL_RESEARCH.
 - social_scope is SOCIAL_RESEARCH only when the user explicitly asks to
-  search, inspect, or summarize X/Twitter, Instagram, or Xiaohongshu posts.
-- Set social_platforms to the requested values from x, instagram,
-  xiaohongshu. "去小红书搜索最近的亲子餐厅推荐" is SEARCH with
+  search, inspect, or summarize X/Twitter, Instagram, Xiaohongshu,
+  Bilibili/B站/哔哩哔哩, YouTube/油管 (including YouTube Shorts), or Reddit
+  posts/videos.
+- Set social_platforms to the requested values from bilibili, instagram,
+  reddit, x, xiaohongshu, youtube. "去小红书搜索最近的亲子餐厅推荐" is SEARCH with
   social_scope SOCIAL_RESEARCH and social_platforms ["xiaohongshu"].
+- "去B站搜索又一充电中" uses social_platforms ["bilibili"].
+- "去 YouTube 搜索 aespa live clips" uses social_platforms ["youtube"].
+- "去Reddit看看大家怎么评价Microduck" uses social_platforms ["reddit"].
 - Mentioning a platform without asking to inspect its content is OTHER.
+- DISCUSSION_FEED is a SEARCH outcome for an open-ended request to collect and
+  synthesize what multiple public posts, Q&A threads, fan discussions, forum
+  pages, or community sources say. Use it when no supported native platform
+  was requested, or when the requested source set includes sites such as
+  Zhihu, Quora, Tieba, or independent forums. Keep social_scope OTHER and
+  social_platforms [] for DISCUSSION_FEED; general web discovery finds the
+  discussion pages.
+- A mixed question containing both a closed yes/no clause and an open request
+  for alleged reasons, interpretations, timelines, or viewpoints is
+  DISCUSSION_FEED when answering it requires comparing multiple discussions.
+  The roundup may give a bounded observation about the yes/no clause, but must
+  not turn repeated community claims into confirmed fact.
+- "卡黄闹翻了吗？" -> CLAIM_CHECK because it asks only whether one claim is
+  true.
+- "卡黄是闹翻了吗，她们为什么会闹翻？" -> DISCUSSION_FEED because its
+  open causal clause requires a multi-source discussion summary.
+- "总结知乎、贴吧和论坛里对卡黄关系变化的不同说法" -> DISCUSSION_FEED.
+- "在 B 站搜卡黄为什么闹翻" -> SOCIAL_RESEARCH with ["bilibili"], because
+  the user selected a supported native platform.
 - Every non-social request and every LOCAL/COMMAND lane uses social_scope
   OTHER and an empty social_platforms array.
 - Named-platform research takes precedence over the subject inside the posts.
@@ -101,10 +132,15 @@ In the same judgment, classify explicit named social-platform research:
 
 For every SEARCH lane, also classify the requested search outcome:
 - NEWS_FEED: broad current updates, recent news, or multiple headlines.
+- DISCUSSION_FEED: the cross-site, multi-source discussion roundup described
+  above. It summarizes attributed viewpoints and alleged explanations without
+  requiring the sources to agree.
 - FACT_LOOKUP: one changing fact such as a schedule, score, price, lineup, or
   availability.
 - CLAIM_CHECK: verify whether one explicit claim is true.
 - SOCIAL_RESEARCH: the explicit named-platform research described above.
+- MEDIA_WATCH: find a specific or random piece of media for the user to watch;
+  a named website is a hard retrieval condition.
 - SHOPPING_RESEARCH: concrete merchant listings, price, stock, or seller.
 - RECOMMENDATION_RESEARCH: decide which real-world options are worth choosing.
 - OTHER: SEARCH applies but none of the closed outcomes is reliable.
@@ -114,6 +150,8 @@ SHOPPING_RESEARCH, using PRODUCT, RESTAURANT, LOCAL_SERVICE, or
 HEALTHCARE_PROVIDER. SHOPPING_RESEARCH always uses PRODUCT. Otherwise return
 null. Examples:
 - "曼联最近有什么新闻" -> search_scope NEWS_FEED.
+- "大家为什么说这两位艺人闹翻了？整理不同帖子里的说法" ->
+  search_scope DISCUSSION_FEED.
 - "曼联下一场比赛是什么时候" -> search_scope FACT_LOOKUP.
 - "曼联已经签下某球员是真的吗" -> search_scope CLAIM_CHECK.
 - "推荐几家圣盖博好吃的中餐厅" -> search_scope
@@ -124,6 +162,9 @@ null. Examples:
   recommendation_domain null.
 - "去小红书搜索美国麦当劳新出的玩具" -> search_scope SOCIAL_RESEARCH
   and recommendation_domain null, not RECOMMENDATION_RESEARCH + PRODUCT.
+- "我现在想看名侦探柯南" -> search_scope MEDIA_WATCH.
+- "去 B 站找一个下饭视频" -> search_scope MEDIA_WATCH with social_scope
+  OTHER and social_platforms []; B 站 remains a hard downstream site condition.
 - Every LOCAL or COMMAND lane uses search_scope OTHER and
   recommendation_domain null.
 

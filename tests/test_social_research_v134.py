@@ -168,7 +168,13 @@ class SocialResearchV134Tests(unittest.TestCase):
             }
         ]
         with patch.object(
-            tools, "build_social_query", return_value="Arcadia 牛肉面"
+            tools,
+            "build_social_query_plan",
+            return_value={
+                "query": "Arcadia 牛肉面",
+                "selection_mode": "RELEVANCE",
+                "recency_days": None,
+            },
         ), patch.object(tools.time, "sleep", return_value=None), patch.object(
             tools.social_browser,
             "open_social_search",
@@ -201,7 +207,8 @@ class SocialResearchV134Tests(unittest.TestCase):
         self.assertEqual(result["cards"][0]["type"], "social_post")
         self.assertIsNotNone(result["cards"][0]["image"])
         self.assertIn("social_post_summaries", result)
-        self.assertIn("1. 《Arcadia清汤牛肉面》", result["direct_reply"])
+        self.assertNotIn("1. 《Arcadia清汤牛肉面》", result["direct_reply"])
+        self.assertEqual(result["cards"][0]["title"], "Arcadia清汤牛肉面")
 
 
 if __name__ == "__main__":

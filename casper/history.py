@@ -12,8 +12,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import datetime
-
+import conversation_time
 import result_cards
 
 
@@ -23,6 +22,10 @@ MAX_MESSAGES_PER_SESSION = 200
 _SOURCE_FIELDS = {
     "domain",
     "url",
+    "title",
+    "description",
+    "image_url",
+    "published",
     "source_score",
     "is_concrete_news",
     "content_type",
@@ -66,9 +69,7 @@ def _history_path():
 
 
 def _now():
-    return datetime.now().isoformat(
-        timespec="seconds"
-    )
+    return conversation_time.now_iso()
 
 
 def _new_session(
@@ -87,7 +88,7 @@ def _new_store():
     session = _new_session()
 
     return {
-        "version": 4,
+        "version": 6,
         "active_session_id": (
             session["id"]
         ),
@@ -243,6 +244,7 @@ def _clean_message(
     return {
         "role": role,
         "text": text,
+        "content_format": "markdown",
         "sources": (
             _clean_sources(
                 message.get(
@@ -268,11 +270,8 @@ def _clean_message(
                 )
             )
         ),
-        "created_at": (
-            message.get(
-                "created_at"
-            )
-            or _now()
+        "created_at": conversation_time.normalize_timestamp(
+            message.get("created_at")
         ),
     }
 
@@ -296,11 +295,8 @@ def _clean_session(
     if not session_id:
         return None
 
-    created_at = (
-        session.get(
-            "created_at"
-        )
-        or _now()
+    created_at = conversation_time.normalize_timestamp(
+        session.get("created_at")
     )
 
     messages = session.get(
@@ -342,11 +338,8 @@ def _clean_session(
             )
         )[:80],
         "created_at": created_at,
-        "updated_at": (
-            session.get(
-                "updated_at"
-            )
-            or created_at
+        "updated_at": conversation_time.normalize_timestamp(
+            session.get("updated_at") or created_at
         ),
         "messages": (
             cleaned_messages
@@ -415,7 +408,7 @@ def _migrate_flat_history(
             break
 
     return {
-        "version": 4,
+        "version": 6,
         "active_session_id": (
             session["id"]
         ),
@@ -502,7 +495,7 @@ def _normalise(
         )
 
     result = {
-        "version": 4,
+        "version": 6,
         "active_session_id": (
             active_session_id
         ),
@@ -721,6 +714,7 @@ def append_message(
         {
             "role": role,
             "text": text,
+            "content_format": "markdown",
             "sources": (
                 _clean_sources(
                     sources

@@ -114,11 +114,15 @@ class SocialResearchV1394Tests(unittest.TestCase):
             _detail("帖子 B", ""),
             _detail("帖子 C", "frame-c"),
         ]
-        captured = {}
+        captured = []
 
         def model(_prompt_path, input_text, **kwargs):
-            captured["packet"] = json.loads(input_text)
-            captured["images"] = kwargs.get("images")
+            captured.append(
+                {
+                    "packet": json.loads(input_text),
+                    "images": kwargs.get("images"),
+                }
+            )
             return {"items": []}
 
         with patch.object(tools, "run_ai_prompt", side_effect=model):
@@ -128,12 +132,19 @@ class SocialResearchV1394Tests(unittest.TestCase):
                 details,
                 {"observations": []},
             )
-        opened = captured["packet"]["opened_post_details"]
-        self.assertEqual(captured["images"], ["frame-a", "frame-c"])
+        self.assertEqual(len(captured), 3)
+        first_opened = captured[0]["packet"]["opened_post_details"]
+        second_opened = captured[1]["packet"]["opened_post_details"]
+        third_opened = captured[2]["packet"]["opened_post_details"]
+        self.assertEqual(captured[0]["images"], ["frame-a"])
+        self.assertIsNone(captured[1]["images"])
+        self.assertEqual(captured[2]["images"], ["frame-c"])
         self.assertEqual(
-            [item["visual_image_number"] for item in opened],
-            [1, None, 2],
+            [item["visual_image_number"] for item in first_opened],
+            [1],
         )
+        self.assertIsNone(second_opened[0]["visual_image_number"])
+        self.assertEqual(third_opened[0]["visual_image_number"], 1)
 
     def test_visually_bound_like_count_is_accepted(self):
         with patch.object(

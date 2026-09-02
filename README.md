@@ -1,8 +1,42 @@
 🩵 Bekki AI
 
-Current installed source patch: **Screenshot Multipass OCR V1.10.27**
-(`bekki-screenshot-multipass-ocr-v1-10-27-20260830`), built on Screenshot
-Current Evidence V1.10.26, Screenshot OCR Fusion V1.10.25, Screenshot Local
+Current installed source patch: **Verified Video Site + Companion Bridge Hotfix V1.10.47.3**
+(`bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902`), built on
+Companion Watch Switch Hotfix V1.10.47.2,
+Companion Watch Recognition Hotfix V1.10.47.1, Companion Watch V1.10.47,
+Media Watch Native Discovery Hotfix V1.10.46.1,
+Inline Social Video Theater + Watch Search V1.10.46,
+Inline Social Video Audio Policy Hotfix V1.10.45.1,
+Inline Social Video Audio + Bekki Fullscreen V1.10.45,
+Inline Social Video WebView2 Lifecycle Hotfix V1.10.44.1,
+Inline Social Video WebView2 V1.10.44, Inline Social Video
+Compatibility Hotfix V1.10.43.1, Inline Social Video V1.10.43,
+YouTube Recency and Channel Hotfix V1.10.42.1,
+YouTube Social Evidence V1.10.42,
+Discussion Extract Resilience V1.10.41.8.2,
+Xiaohongshu Evidence Hotfix V1.10.41.8.1, Discussion Feed V1.10.41.8,
+Social Claim Grounding V1.10.41.7,
+User Message Completeness V1.10.41.6, Responsive Conversation Width V1.10.41.5,
+Bilibili Video Evidence V1.10.41.4,
+Social Evidence Binding V1.10.41.3,
+Social Visual Resilience V1.10.41.2,
+Social Price Grounding Hotfix V1.10.41.1, Unified Result Blocks V1.10.41,
+Markdown Layout Hotfix V1.10.40.1,
+Markdown Evidence V1.10.40, Social Evidence Package
+V1.10.39, Social Evidence UI
+V1.10.38, Social Comprehension V1.10.37,
+Social Context Budget V1.10.36,
+Bilibili First-Load Retry V1.10.35,
+Unified Browser V1.10.34,
+Bilibili Native Response V1.10.33,
+Bilibili Render Recovery
+V1.10.32, Bilibili Card-First DOM V1.10.31,
+Bilibili Visible
+Results V1.10.30, Social Relevance
+Scope V1.10.29, Bilibili and Reddit Social Search V1.10.28,
+Screenshot Multipass OCR V1.10.27, Screenshot
+Current Evidence V1.10.26, Screenshot OCR
+Fusion V1.10.25, Screenshot Local
 Route Contract V1.10.24, Completed
 Historical Milestone Knowledge V1.10.23.2,
 Curiosity Foundation
@@ -35,6 +69,468 @@ Screenshot Search V1, UI Personalization V1,
 NERV Knowledge Verification V1.4, External AI Desktop V1.3.2, NERV Learning V1.3, and
 Stable V1.3.9.5. On startup the
 authoritative root entry point prints this build ID and its full loaded path.
+
+Verified Video Site + Companion Bridge Hotfix V1.10.47.3 separates a domain
+named in a watch request from a website Bekki has actually verified as a video
+source. An unfamiliar literal domain is opened in the managed browser and must
+show repeatable same-site video detail pages plus video taxonomy or real media
+structure. User wording alone never registers it. A rejected site stops before
+the general web-search fallback, so an ordinary page cannot be presented as a
+watch result merely because its URL contains `watch` or `video`.
+
+Verified sites are stored in the preserved local data directory with their
+observed same-domain search URL and public display aliases. For example,
+`iyf.tv` can learn its native `/search/{query}` route and return the exact
+`名侦探柯南` show page. Verification means the site is a discoverable video
+source; it does not falsely grant inline theater compatibility, so a source
+without a supported player contract remains an honest link-only card.
+
+This build also replaces raw WebView2 messages in Bekki Companion Watch with
+qtwebview2's `DictJsBridge` RPC contract. Companion messages no longer enter
+the library's internal message parser as bare JSON strings, eliminating the
+`TypeError: string indices must be integers` bridge traceback. This build
+includes V1.10.47.2.
+
+Companion Watch Switch Hotfix V1.10.47.2 makes playback ownership exclusive
+across result cards and Bekki theater mode. Starting a second video first mutes
+and calls native WebView2 `Stop()` on the previous player, detaches its event
+handlers, and disposes its view before the new player is created. If the old
+player cannot confirm it stopped, the new player is not started. Late WebView2
+initialization from a superseded card is quarantined so it cannot resume in the
+background. Switch, stop, theater, and audio logs now include video IDs for
+clear runtime verification. Plainly exiting theater still returns the current
+player to its card without stopping it. This build includes V1.10.47.1.
+
+Companion Watch Recognition Hotfix V1.10.47.1 prevents direct conversation
+from postponing Bekki's proactive deadline. The first usable-scene reaction is
+attempted about eight seconds after enabling companion mode; later static
+frames remain deduplicated. Direct questions now use `gemma4:12b` with a
+higher-detail frame of up to 1280×720 at JPEG quality 84, while background
+reactions retain the lightweight `gemma4:e4b` path. The answer prompt requires
+concrete visible cues, honors user corrections, and no longer bounces an
+observation question back to the user. WebView messages are JSON strings, which
+removes qtwebview2's misleading `invalid message` diagnostic. Frame size and
+encoded size are logged as `[COMPANION WATCH FRAME]`. This build includes
+V1.10.47.
+
+Companion Watch V1.10.47 adds an opt-in `Bekki 陪看` control to theater mode.
+It opens a collapsible conversation panel over the lower-right of the active
+YouTube or Bilibili video, so the user can type and receive replies without
+leaving the player or writing into the main chat history. Bekki may also make a
+short, low-frequency reaction when the visible frame meaningfully changes.
+This first version reads pixels and the verified card title only; it never
+claims to hear video audio. Static/paused frames are perceptually deduplicated,
+the low-load `gemma4:e4b` model is serialized behind normal requests and NERV,
+and session generations discard replies after the user exits theater, stops
+playback, or switches videos. The panel is off by default. This build includes
+V1.10.46.1.
+
+Media Watch Native Discovery Hotfix V1.10.46.1 searches Bilibili and YouTube
+on their native rendered search pages before using a general web engine. A
+valid native video card is scored and selected directly; Google/Bing is used
+only when native discovery returns no relevant result. Bilibili's structured
+search response now preserves the real title, description, author, date, and
+cover for the watch card. Explicit site conditions remain hard boundaries, and
+generic media suffixes such as `视频` can be removed for a bounded subject match
+(`下饭视频` may match a title containing `下饭`) without admitting unrelated
+results. This build includes V1.10.46.
+
+Inline Social Video Theater + Watch Search V1.10.46 adds `MEDIA_WATCH`, a
+dedicated search outcome that stays separate from news, claim checks, and
+social-post research. A named website is a hard condition: `去 B 站找一个下饭
+视频` searches only Bilibili, randomly selects one relevant playable result,
+and `换一个` excludes the prior URL. Named works use exact selection and fail
+closed instead of substituting commentary, clips, trailers, or unrelated
+videos. Without a named site, Bekki searches supported watch sources and
+prioritizes Bilibili/YouTube pages it can play inline. Unsupported sites remain
+honest link-only results.
+
+Each playable result asks whether to enter theater mode. Replying `可以` or
+clicking `影院模式` moves the existing WebView2 player into a dark layer inside
+the same Bekki window; it does not open another page or restart the video.
+Playback position and audio are preserved, only one player remains active,
+Esc exits theater before exiting Bekki fullscreen, and the theater toolbar can
+stop playback or toggle whole-window fullscreen. Cards are still paused until
+the user explicitly starts or approves playback. This build includes
+V1.10.45.1.
+
+Inline Social Video Audio Policy Hotfix V1.10.45.1 configures WebView2's
+Chromium runtime with `--autoplay-policy=no-user-gesture-required` before the
+first browser environment is created. Bekki still creates a player only after
+the user deliberately clicks `在 Bekki 播放`, and navigation remains bound to
+the verified YouTube/Bilibili player. This bridges the native Qt click to the
+browser media policy so Bilibili can start audible playback instead of staying
+at `muted=false, playing=false`. Audio state is rechecked at 250 ms, 1 second,
+and 2.5 seconds for slower iframe startup. This build includes V1.10.45.
+
+Inline Social Video Audio + Bekki Fullscreen V1.10.45 explicitly requests
+unmuted Bilibili playback after the user clicks `在 Bekki 播放`. It sets the
+documented Bilibili `muted=0` player parameter, clears WebView2's global mute
+state during initialization and after the embedded player loads, and logs the
+observable WebView2 audio state as `[INLINE VIDEO AUDIO]`. Cards remain static
+and paused until clicked. Bekki also gains a header fullscreen control plus
+F11 to enter or leave fullscreen and Esc to exit, while preserving the prior
+normal or maximized window state. Sidebar and task-drawer toggles no longer
+shrink a maximized/fullscreen workspace. This build includes V1.10.44.1.
+
+Inline Social Video WebView2 Lifecycle Hotfix V1.10.44.1 fixes switching away
+from a video card that Qt has already destroyed. The active-player slot now
+checks the underlying C++ object's validity, card destruction clears stale
+references, and every stop/restore operation safely tolerates repeated cleanup
+or already-deleted child widgets. A stale prior card can no longer block the
+next YouTube or Bilibili player. This build includes V1.10.44.
+
+Inline Social Video WebView2 V1.10.44 replaces the codec-limited QtWebEngine
+player with one Edge WebView2 backend shared by YouTube, YouTube Shorts and
+Bilibili. A virtual Bekki HTTPS wrapper gives YouTube a verifiable parent
+referrer, while the installed Edge runtime supplies the normal browser media
+codec stack required by Bilibili. Players remain absent until clicked, only one
+card can play at once, and stopping restores the evidence cover. Main-frame
+navigation, popups and downloads are blocked; the separate `打开原帖` action is
+unchanged. The preserved WebView2 profile also provides the common browser
+surface needed for a later Bekki co-watching state layer. This build includes
+V1.10.43.1.
+
+Inline Social Video Compatibility Hotfix V1.10.43.1 attempted to fix YouTube embed error
+153 by loading the verified player inside a referrer-bearing iframe wrapper,
+adding YouTube `origin` and `widget_referrer` identity, and preserving the
+platform Referer on iframe and media requests. It removes QtWebEngine's product
+token from the otherwise native Chromium user agent to avoid false unsupported-
+browser detection. Bilibili receives the same persistent Referer handling.
+Each play attempt logs H.264, VP9 and AV1 support as `[INLINE VIDEO CODECS]`, so
+a Qt build without a required proprietary codec is distinguishable from a page
+identity failure. This build includes V1.10.43.
+
+Inline Social Video V1.10.43 adds lazy, in-card playback for verified YouTube
+videos, YouTube Shorts and Bilibili videos. Every result remains a static cover
+until the user clicks `在 Bekki 播放`; the player then replaces that card's
+preview without opening a new page. Starting a second video stops and disposes
+the first player, while `停止播放` restores the original evidence images.
+Shorts use a bounded vertical surface and standard videos follow the responsive
+card width. Player popups and main-frame navigation outside the verified embed
+are blocked, the session uses memory-only cookies/cache, and `打开原帖` remains
+an explicit separate fallback. This build includes V1.10.42.1.
+
+YouTube Recency and Channel Hotfix V1.10.42.1 fixes explicit recent-channel
+requests such as `去油管找最近 7 天 @aespa 的 Shorts`. YouTube's `New` badge is
+no longer treated as a timestamp or rejected before detail inspection. An
+undated grid card proceeds provisionally to its exact video, then survives only
+when the opened video's publication metadata falls inside the requested
+window. A missing or out-of-window opened date fails closed.
+
+An exact `@handle Shorts` query now opens the channel-owned Shorts tab rather
+than the general search grid. The opened video's channel handle must match the
+requested handle, and the real opened-video channel replaces any model-authored
+search-card author. Third-party Shorts that merely mention the artist in a
+title, hashtag, or @mention are excluded. This build includes V1.10.42.
+
+YouTube Social Evidence V1.10.42 adds YouTube/油管 as a first-class native
+`SOCIAL_RESEARCH` platform alongside Bilibili. Literal search terms, channel
+names, `@handles`, video IDs and an explicitly requested `Shorts` facet remain
+unchanged. Search discovery accepts only rendered video, Shorts and live-video
+cards; channel pages, playlists, search/navigation links and unrelated watch
+links fail closed. Standard watch URLs, Shorts URLs, live URLs and `youtu.be`
+short links resolve to bounded canonical video targets. A first empty YouTube
+result render receives one same-tab reload, while a bounded cookie-choice
+interstitial may be dismissed without touching sign-in controls.
+
+Opened-video evidence is isolated to the current video's title, channel,
+publication date and description from YouTube player/microformat metadata.
+Recommendations, comments, neighbouring Shorts and page chrome are excluded.
+Each card may show the native video thumbnail plus at most one decoded,
+non-black, distinct player frame; ads and full watch-page screenshots are never
+used as video evidence. The same rules apply to Shorts. An opened ISO
+publication date overrides a conflicting relative search-card inference before
+an explicit recency window is enforced. This build includes V1.10.41.8.2.
+
+Discussion Extract Resilience V1.10.41.8.2 prevents one long or malformed
+discussion-source JSON object from erasing an otherwise successful cross-site
+roundup. Selected pages are extracted in batches of at most two. A truncated
+array keeps every fully closed source object, and only missing source indices
+are retried individually with compact evidence. A source that still fails is
+omitted without discarding other batches, so readable Zhihu, Tieba, forum, Q&A
+and indexed-post evidence can still produce the answer and its bound cards.
+Pairing identities explicitly grounded by the sources are named once in the
+synthesis. NERV Curiosity may not split a two-character fandom pairing into
+“two words” or ask again for identities already stated by a grounded reply.
+This build includes Xiaohongshu Evidence Hotfix V1.10.41.8.1.
+
+Xiaohongshu Evidence Hotfix V1.10.41.8.1 makes the visible post detail the
+authority for dates and media. Detail labels such as `Feb 22` or `4天前`
+override a search-card date inferred from `昨天`; a conflicting result outside
+the requested recency window is removed instead of being relabeled as recent.
+Each inspected result must also pass a structured entity, category, and
+relation gate before it can reach summaries or cards. A bounded variant remains
+valid (for example, a larger insulated cup or another aespa member's Nongshim
+photocard), while a generic Winter card without the Nongshim relation and a
+plush keychain in a photocard search are excluded. Xiaohongshu cards now retain
+only clear, non-placeholder media from the opened post. Native video posts add
+up to two distinct non-black player frames; blurred preview images and generic
+page screenshots are omitted. This build includes Discussion Feed V1.10.41.8.
+
+Discussion Feed V1.10.41.8 adds a dedicated `DISCUSSION_FEED` route for open,
+cross-site summaries of forum threads, Q&A pages, fan discussions, Zhihu,
+Quora, Tieba and web-indexed posts. A closed question such as “卡黄闹翻了吗？”
+remains `CLAIM_CHECK`; a mixed question such as “卡黄是闹翻了吗，她们为什么
+会闹翻？” is led by its open causal-summary requirement and uses
+`DISCUSSION_FEED`, never 3→5→7. Explicit supported native platforms such as
+Bilibili, YouTube, Xiaohongshu and Reddit still use `SOCIAL_RESEARCH`. Discussion pages
+are read separately, their attributed explanations and disagreements are
+synthesized without a consensus vote, and each selected source keeps its own
+context, optional page image and link card. Repeated community claims are not
+promoted to confirmed facts. This build includes V1.10.41.7.
+
+User Message Completeness V1.10.41.6 adds a small measurement guard to
+naturally sized user bubbles. Chinese characters and other glyphs that Qt
+measures a few pixels too narrowly now receive extra horizontal room; when a
+message is near its responsive maximum, height is measured against a slightly
+narrower safe content width so the final character wraps instead of being
+clipped. Assistant responsive sizing and evidence-card widths are unchanged.
+
+Responsive Conversation Width V1.10.41.5 makes the assistant reply and its
+bound result cards react to the live chat viewport. The 350 px compact layout
+is preserved for ordinary windows, while wide or maximized windows scale the
+conversation column up to 760 px. Card context, screenshots, video covers and
+sampled frames reflow together instead of leaving most of the window empty;
+short user bubbles remain compact. Curiosity Writer output now has enough
+generation budget to finish its schema-bound JSON and retries one truncated
+response. A parse failure is reported as `writer_invalid_output` instead of
+the misleading `no_curiosity`; that latter reason is now reserved for an
+intentional `proposal=null` decision.
+
+Bilibili Video Evidence V1.10.41.4 replaces generic video-page screenshots
+with bounded video evidence. Each Bilibili card prefers the native cover and
+adds at most one decoded player frame only when it is non-black and distinct;
+black/loading frames are discarded. The former full-page `正文` thumbnail is no
+longer shown. Video text is bounded to current title, UP author, publication
+time and description, excluding the related-video rail. A cover or sampled
+frame is never treated as a transcript or complete video summary. Xiaohongshu,
+Reddit, the persistent minimized browser profile, model sizes and context
+budgets are unchanged.
+
+Social Evidence Binding V1.10.41.3 isolates the currently opened
+Xiaohongshu note from related-post shelves before any local-model summary is
+generated. Once title-bound post screenshots are available, Bekki skips the
+lower-value search-page overview vision pass in every social ranking mode,
+not only PRICE mode. Only resolved post titles enter the final per-post
+summaries and cards when grounded targets exist. Repeated OCR/model runs such
+as the same card label dozens of times are collapsed before display. A card
+whose link is only a platform search page now says “查看搜索页”, while a concrete
+post URL keeps “打开原帖”; search-preview evidence remains explicitly labeled.
+The model, 8192-token social context, screenshot limits, minimized persistent
+browser profile, and 16 GB VRAM coexistence target are unchanged.
+
+Social Visual Resilience V1.10.41.2 keeps social evidence usable when a
+foreground game leaves too little VRAM for an optional vision request. PRICE
+searches no longer run the low-value search-page overview vision pass, and any
+remaining overview failure is non-fatal: title resolution, post screenshots,
+text extraction, deterministic price parsing, cards, and links continue. A
+fresh-DOM reader can recover Xiaohongshu result cards even when reactive nodes
+detach. Marketplace forms `30👝`, `35🍞`, `均7/1`, and `330💼` are retained as
+prices with an unknown currency, and `柚小卡` joins the request-scoped Karina
+alias group. Price-image response fields are bounded to avoid truncated JSON.
+Generic platform search pages are no longer rendered as duplicate empty
+“小红书” or Reddit cards. The model remains `gemma4:12b`, social context stays
+at 8192 tokens, and screenshot limits and the persistent browser profile are
+unchanged.
+
+Social Price Grounding Hotfix V1.10.41.1 separates visible search-page
+interaction counts from prices throughout PRICE-mode social research. A value
+such as the `8` beside a Xiaohongshu result can no longer become a price merely
+because a duplicated title begins with “出”; price cards and price rankings now
+require a grounded price observation. Unknown-currency marketplace shorthand
+such as `330💼`, `卡价 250`, and `1.9k` remains valid. The request-scoped verified
+alias group for Karina also recognizes the platform-native names 柳智敏、柚卡
+and 纯柚 without allowing the model to invent other identity aliases. Reactive
+Xiaohongshu title clicks get one fresh-DOM recovery attempt. PRICE summaries are
+deterministic, do not repeat per-post values already owned by cards, and state
+clearly when no verifiable price was read. Model sizes, the 8192-token social
+context, screenshot limits, and the 16 GB GPU operating target are unchanged.
+
+Unified Result Blocks V1.10.41 removes the duplicated recommendation or post
+list from the main Bekki bubble whenever matching result cards exist. The main
+bubble now keeps only the overall conclusion or cross-result synthesis. Each
+recommendation or social result owns its complete explanation, supported
+strengths and tradeoffs, matching image or placeholder, and matching source
+link in one ordered card. Social synthesis findings are bound by the original
+post title even when the visible card title is a restaurant or product name.
+The same card-first contract is included in both full and lightweight final
+response prompts for ordinary search, recommendation search, and social
+research. Model sizes, the 8192-token social context, screenshot limits, and
+the 16 GB GPU operating target are unchanged.
+
+Markdown Layout Hotfix V1.10.40.1 measures rich Markdown with the same Qt text
+document used to render it. User bubbles keep their compact width without
+clipping the final line, Bekki bubbles are top-aligned without large blank
+areas, and expensive whole-message geometry refreshes are deferred until the
+result handoff returns. Recommendation recovery now collects a fresh evidence
+batch and always runs the second candidate-and-audit pass. An explicit budget
+may be verified from an independent reviewed price or official MSRP/list price
+without being described as a live checkout quote. If no candidate passes, the
+reply lists the rejected candidates and evidence gaps; reading sources remain
+clearly labeled leads rather than replacing the requested recommendation.
+
+Markdown Evidence V1.10.40 renders every user and Bekki chat bubble through a
+bounded safe-Markdown layer while retaining JSON as the model/runtime
+transport. Search evidence is no longer displayed as detached link badges.
+Each ordinary search source, recommendation candidate, news result, product,
+place, or social post is one ordered block: its own Markdown context, its own
+image (or an explicit unavailable-image placeholder), then its matching HTTPS
+link. Duplicate source URLs already represented by a richer result card are
+removed. Recommendation metadata, requirement matches, supporting facts, and
+pros/cons stay attached to the relevant candidate. Existing chat history is
+upgraded in place because plain text remains valid Markdown. The V1.10.39
+social media limits remain unchanged: Xiaohongshu may show three original
+post images plus one body-text capture, while Reddit shows one post-body
+capture. The local model, 8192-token context, persistent minimized Edge
+profile, and 16 GB GPU operating target are unchanged.
+
+Social Evidence Package V1.10.39 makes the displayed evidence match each
+platform. An opened Xiaohongshu post can show its first three original post
+images in order plus one complete body-text capture; an opened Reddit post
+shows exactly one post-body capture. Each card links directly to the original
+post, while a small search-card crop is retained only as an explicitly labeled
+fallback when the post cannot be opened. The local 12B model sees at most two
+images per call; a four-asset Xiaohongshu post uses two bounded visual passes,
+and two Reddit text posts share one text-only pass. Reddit searches preserve
+problem/limitation intent, rank DISCUSSION requests by visible comment counts,
+and scope conclusions to the verified sample. Price Top-N requests use PRICE
+rather than popularity; contextual values such as `330💼`, `250`, `190`, and
+`1.9k` remain prices with unknown currency unless a unit is visibly shown.
+Bilibili now requires a native search response or a real image-bearing video
+card, so its footer BV link cannot suppress the single first-load refresh.
+The persistent minimized Edge profile, `gemma4:12b`, and `num_ctx=8192` remain
+unchanged for practical use alongside a foreground game.
+
+Social Evidence UI V1.10.38 keeps Bekki's local 12B model and 8192-token
+context while making social results visibly auditable. Up to two title-bound
+post or search-card screenshots are cached locally and displayed beneath the
+reply; clicking an image opens the cached evidence. Search-only cards are
+clearly labeled and cannot invent a missing restaurant, seller, or product
+identity. Price-like values in an obvious listing, menu, or card-price chart
+remain usable even without a shown currency (`250`, `190`, `1.9k`, `15🍞`),
+with the currency reported as unknown and asking/displayed prices kept
+separate from completed sales. Reddit requests are adapted to platform-native
+search language, explicit “most discussed” requests sort by comments within
+the requested time window, and aggregate claims need at least three opened
+posts. Fast CDP screenshot fallback avoids the prior 30-second font wait, and
+generic Rednote shells or Reddit login artwork cannot become post evidence.
+
+Social Comprehension V1.10.37 replaces the restaurant-shaped social detail
+schema with universal post understanding. Each selected post is isolated in
+its own bounded multimodal call and receives up to two title-bound views: a
+dominant-media crop and a wider page frame. Text findings require exact visible
+quotes; image findings remain calibrated pixel observations. The detail model
+no longer guesses engagement metrics. A separate bounded synthesis compares
+posts to answer the user's actual task, detects location, currency, identity,
+unit, and price-binding conflicts, and refuses an unsupported Top-N result.
+Malformed vision JSON retries once as text-only without retaining image claims.
+Reddit compact relative dates and explicit subreddit scope are enforced. The
+shared Edge window stays minimized during automation and no longer receives a
+bring-to-front command; interactive login uses the same persistent profile and
+saved website session. The model remains gemma4:12b with an 8192 context.
+
+Social Context Budget V1.10.36 fixes the case where successful Bilibili
+research opened five real post pages but the optional introduction pass sent
+8519 prompt tokens into an 8192-token model context, causing all completed
+evidence and cards to be discarded. The model context remains at 8192 to
+preserve practical 16 GB GPU headroom for a foreground game. Each introduction
+batch now contains at most two posts, 500 characters of search-card text and
+1300 characters of opened-page text per post, and a 1200-token output budget.
+One failed enrichment batch is skipped without discarding grounded titles,
+authors, dates, interaction counts, links, images, the direct reply, or cards.
+The controller also has a final evidence-only fallback for unexpected
+introduction errors. No new model, search provider, AI role, or arbitration
+gate was added.
+
+Bilibili First-Load Retry V1.10.35 fixes the observed case where Bilibili's
+first search navigation showed an empty result area but one manual refresh
+rendered the results. Before accepting any Bilibili page snapshot, Bekki now
+checks both native response candidates and rendered cards. If both are empty,
+it reloads that same tab exactly once, reattaches the native-response listener,
+waits for the result grid, and samples only the post-reload page. A successful
+first load is never reloaded, and a persistently empty page is not placed in an
+unbounded retry loop. New Bekki Edge launches also suppress Edge's translation
+prompt; an already-running Bekki Edge receives that flag after it is closed and
+started again. No new search provider, AI role, or arbitration gate was added.
+
+Unified Browser V1.10.34 replaces Bekki's separate social browser, Casper
+research browser, and temporary rendered-page fallback with one persistent
+normal Microsoft Edge session. All web search, news, recommendations, product
+pages, downloads, and social research now use port 9225 and one isolated Bekki
+profile. It starts minimized, shares cookies and login state across Bekki web
+tasks, and is shown only for a user handoff. A task closes only the tabs it
+opened and never restarts the shared browser. The retired 9223 and 9224 Bekki
+sessions are cleaned once by exact legacy port and profile markers; personal
+Edge sessions are not targeted. No new AI role or arbitration gate was added.
+
+Bilibili Native Response V1.10.33 addresses the remaining case where a real
+Edge user agent still received only Bilibili's navigation shell. Bilibili
+searches now use Bekki's dedicated normal Edge process in minimized mode. The
+same page pass also captures successful structured search responses issued by
+that Bilibili page, converts only bounded public video rows into grounded
+candidates, and then opens each selected real video page through the existing
+detail reader. Non-success responses, risk-control replies, login, consent,
+CAPTCHA, and other platform controls remain fail-closed. No third-party search
+service, direct API credential, new AI role, or arbitration gate was added.
+
+Bilibili Render Recovery V1.10.32 fixes the case where Bilibili returned its
+compatibility/navigation shell to Bekki's managed headless Edge instead of the
+real result grid. Before navigation, the Bilibili tab now reports the actual
+connected Microsoft Edge version in a normal Windows Edge user agent and uses
+Chinese-first browser language preferences. The DOM reader also follows
+bounded open shadow roots and infers a card only from a compact image-bearing
+ancestor. A lone legacy `/video/` link in page chrome is rejected rather than
+being presented as search evidence. Existing login, consent, CAPTCHA, and
+platform access controls remain fail-closed; no new AI role or arbitration
+gate was added.
+
+Bilibili Card-First DOM V1.10.31 fixes the remaining case where two generic
+profile/navigation links survived but the much larger visible video result
+list did not. The same browser pass now selects all `/video/` and
+`/bangumi/play/` links before scanning ordinary anchors, recognizes Bilibili's
+current card containers, reads up to 12 same-page frames, and keeps real video
+cards ahead of generic profile links. A bounded seven-second result wait
+allows the SPA list to attach before capture. Diagnostic logs now report total
+anchors, video links, video cards, frame count, and three candidate samples,
+so a future platform-loading failure can be distinguished from a parser
+failure. No new AI role or arbitration gate was added.
+
+Bilibili Visible Results V1.10.30 fixes a rendered Bilibili search page being
+reported as empty when generic page text contained only navigation and footer
+content. The existing browser reader now scans a bounded larger anchor set,
+merges duplicate links, recognizes visible Bilibili result-card containers,
+and places their literal text before generic page chrome in the existing
+Social Evidence call. This preserves titles, authors, dates, and visible
+interaction labels that were already present on the loaded page. Bilibili
+thumbnail URLs ending in a transformed `.jpg@...avif` suffix are normalized to
+the same source image's original JPEG URL so Qt can render both new and
+previously stored result cards. No screenshot supplied by the user becomes
+runtime evidence, and no new AI role, semantic classifier, or arbitration gate
+was added.
+
+Social Relevance Scope V1.10.29 makes the existing Social Query AI choose both
+the source-language query and its evidence scope in one call. If the user does
+not request a time window, Bekki searches and ranks by semantic relevance to
+the complete question; old or undated posts are not removed merely for age,
+and visible interaction is only a secondary signal. RECENT mode and its strict
+date validation remain available only for explicit freshness requests such as
+"最近一周". The same scope controls the platform's native sort, evidence
+selection, post summaries, cards, and direct reply. Replies use the actual
+requested platform name instead of assuming Xiaohongshu. No new AI role,
+semantic Python classifier, or arbitration gate was added.
+
+Bilibili and Reddit Social Search V1.10.28 extends the existing MAGI,
+Melchior, and Casper social-search path to Bilibili and Reddit. It opens each
+platform's native search page in Bekki's existing managed Edge profile,
+preserves source-language names, aliases, slang, UIDs, BV/AV identifiers, and
+subreddit expressions in the AI-built query, and accepts only bounded public
+content/profile URLs from the requested platform. Reddit text posts no longer
+need an image to become evidence, while the existing image-first filtering for
+Xiaohongshu and Instagram remains unchanged. No AI role, semantic Python
+classifier, or arbitration gate was added. Login, consent, CAPTCHA, and other
+platform protections remain user-controlled and fail closed when the page
+cannot be read.
 
 Screenshot Multipass OCR V1.10.27 gives the existing local OCR adapter three
 geometric readings of a short panoramic UI screenshot: full, enlarged left,

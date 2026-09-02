@@ -332,6 +332,57 @@ class LiveAIContractTests(unittest.TestCase):
         self.assertTrue(str(result.get("requested_period") or "").strip())
         self.assertIs(result.get("allow_previous_period"), False)
 
+    def test_bilibili_and_reddit_social_route_and_query_contract(self):
+        import magi
+        import tools
+
+        cases = (
+            (
+                "去B站搜索 又一充电中 袁雨桢",
+                "bilibili",
+                ("又一充电中", "袁雨桢"),
+            ),
+            (
+                "去Reddit搜索 microduck review r/robotics",
+                "reddit",
+                ("microduck", "review", "r/robotics"),
+            ),
+        )
+        for message, platform, required_terms in cases:
+            with self.subTest(platform=platform):
+                route = magi.route_request(message)
+                self.assertEqual(route.get("lane"), "SEARCH")
+                self.assertEqual(
+                    route.get("social_scope"), "SOCIAL_RESEARCH"
+                )
+                self.assertEqual(
+                    route.get("search_scope"), "SOCIAL_RESEARCH"
+                )
+                self.assertEqual(route.get("social_platforms"), [platform])
+                query = tools.build_social_query(message, [platform])
+                for term in required_terms:
+                    self.assertIn(term, query)
+
+    def test_social_query_time_scope_contract(self):
+        import tools
+
+        relevance = tools.build_social_query_plan(
+            "去B站搜索 又一充电中 袁雨桢",
+            ["bilibili"],
+        )
+        self.assertEqual(relevance.get("selection_mode"), "RELEVANCE")
+        self.assertIsNone(relevance.get("recency_days"))
+        self.assertIn("又一充电中", relevance.get("query", ""))
+        self.assertIn("袁雨桢", relevance.get("query", ""))
+
+        recent = tools.build_social_query_plan(
+            "去B站搜索最近一周 又一充电中",
+            ["bilibili"],
+        )
+        self.assertEqual(recent.get("selection_mode"), "RECENT")
+        self.assertEqual(recent.get("recency_days"), 7)
+        self.assertIn("又一充电中", recent.get("query", ""))
+
     def test_completed_historical_milestone_scope_and_lifecycle_contract(self):
         from casper import browser
         from nerv import external_fact_fallback

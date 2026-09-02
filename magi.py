@@ -15,12 +15,21 @@ import tools
 
 VALID_LANES = {"SEARCH", "LOCAL", "COMMAND"}
 VALID_SOCIAL_SCOPES = {"SOCIAL_RESEARCH", "OTHER"}
-VALID_SOCIAL_PLATFORMS = {"xiaohongshu", "instagram", "x"}
+VALID_SOCIAL_PLATFORMS = {
+    "bilibili",
+    "instagram",
+    "reddit",
+    "x",
+    "xiaohongshu",
+    "youtube",
+}
 VALID_SEARCH_SCOPES = {
     "NEWS_FEED",
+    "DISCUSSION_FEED",
     "FACT_LOOKUP",
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
+    "MEDIA_WATCH",
     "SHOPPING_RESEARCH",
     "RECOMMENDATION_RESEARCH",
     "OTHER",

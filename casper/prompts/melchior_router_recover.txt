@@ -28,7 +28,7 @@ ambiguous, use LOCAL_ANSWER so Bekki can clarify rather than guess a search.
 }
 
 The response_mode value must be exactly one of:
-LOCAL_ANSWER, NEWS_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH,
+LOCAL_ANSWER, NEWS_FEED, DISCUSSION_FEED, FACT_LOOKUP, CLAIM_CHECK, SOCIAL_RESEARCH, MEDIA_WATCH,
 SHOPPING_RESEARCH, RECOMMENDATION_RESEARCH, TASK_ACTION, NERV_SKILL_ACTION,
 EXTERNAL_AI_ACTION, DEVICE_ACTION.
 The JSON above is only a shape example.
@@ -38,6 +38,8 @@ Rules:
 - Use interaction_mode COMPANION only for emotional support, venting,
   reassurance, celebration, or relational conversation; otherwise use TASK.
   COMPANION is valid only with LOCAL_ANSWER.
+- Explaining an active image or document is TASK with IMAGE or DOCUMENT. Warm
+  wording alone never turns an attachment-reading task into COMPANION.
 - Use the smallest context_profile: MINIMAL for self-contained requests,
   CONVERSATION for real follow-ups, MEMORY for stored personal facts,
   NERV_LEARNING only for asking what verified reusable skills Bekki learned,
@@ -58,7 +60,13 @@ Rules:
 - Asking which products, restaurants, local services or providers are worth
   choosing is RECOMMENDATION_RESEARCH with the corresponding domain.
 - Current single facts are FACT_LOOKUP; broad current digests are NEWS_FEED;
-  verifying a claim is CLAIM_CHECK; explicit social search is SOCIAL_RESEARCH.
+  verifying one closed claim is CLAIM_CHECK; explicit supported native social
+  search is SOCIAL_RESEARCH. An open cross-site synthesis of forum, Q&A, fan,
+  Zhihu, Quora, Tieba, or other discussion sources is DISCUSSION_FEED. A mixed
+  yes/no plus "why/what do different posts say" request is DISCUSSION_FEED.
+- Finding a specific or random item for the user to watch is MEDIA_WATCH. A
+  named playback website is a hard downstream source condition, so MEDIA_WATCH
+  keeps social_platforms empty. Researching posts/videos is SOCIAL_RESEARCH.
 - Creating, listing, completing, canceling, or deleting reminders/tasks is
   TASK_ACTION because it reads or changes Bekki's task store. "我有哪些提醒"
   is TASK_ACTION, not LOCAL_ANSWER. A direct request to open or launch a local

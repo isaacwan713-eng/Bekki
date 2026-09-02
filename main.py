@@ -17,6 +17,8 @@ import melchior
 import magi
 import history
 import location
+import media_watch
+import social_video
 import presence
 import balthasar
 import casper
@@ -24,11 +26,12 @@ import emotion
 import localization as i18n
 import knowledge
 import knowledge_retrieval
+import companion_watch
 from nerv import NervCore
 from nerv import external_fact_fallback
 from nerv import objective_fact
 
-from PySide6.QtCore import QObject, QThread, Slot, QTimer
+from PySide6.QtCore import QObject, QThread, Signal, Slot, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,7 +46,7 @@ from worker import AIWorker
 import context as context_manager
 
 
-BEKKI_BUILD_ID = "bekki-screenshot-multipass-ocr-v1-10-27-20260830"
+BEKKI_BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"
 print("[BEKKI BUILD]", BEKKI_BUILD_ID, os.path.abspath(__file__))
 
 MAX_RECENT_MESSAGES = 6
@@ -292,6 +295,7 @@ current_worker = None
 curiosity_thread = None
 knowledge_curator_thread = None
 stable_knowledge_review_thread = None
+companion_watch_thread = None
 screen_snip_attempts = 0
 
 
@@ -471,6 +475,90 @@ def _fact_lookup_failure_reply(search_result):
         "使用本地模型的记忆猜测。请稍后再试一次。"
     )
 
+
+def _claim_check_failure_reply(search_result):
+    """Fail closed when a claim check did not produce accepted evidence."""
+
+    if not isinstance(search_result, dict):
+        status = "NO_RESULT"
+    else:
+        status = str(search_result.get("status") or "").upper().strip()
+        judgment = search_result.get("judgment")
+        if status == "OK" and isinstance(judgment, dict):
+            canonical_answer = str(
+                judgment.get("canonical_answer") or ""
+            ).strip()
+            if judgment.get("need_more_sources") is False and canonical_answer:
+                return None
+    return (
+        "这次没有取得足够的可核实证据，因此我暂时不能判断这项说法是否"
+        "成立，更不能据此断言相关人物已经闹翻或解释原因。"
+        "搜索未完成不等于传闻为假，请稍后再试一次。"
+    )
+
+
+def _social_research_failure_reply(search_result):
+    """Fail closed when platform-native social research did not execute."""
+
+    status = str(
+        (search_result or {}).get("status")
+        if isinstance(search_result, dict)
+        else "NO_RESULT"
+    ).upper().strip()
+    if status == "OK":
+        return None
+    if status == "NO_PLATFORM":
+        return (
+            "这次没有选定可执行的社交平台，因此实际上没有完成社媒搜索。"
+            "我不能把零条证据写成‘没有官方消息’或据此判断传闻真假。"
+        )
+    return (
+        "这次社媒搜索没有成功读到可用内容，所以我暂时不能可靠地判断"
+        "相关传闻，也不会用本地模型的猜测补写结论。请稍后再试一次。"
+    )
+
+
+def _discussion_feed_failure_reply(search_result):
+    """Fail closed when the cross-site discussion roundup has no evidence."""
+
+    status = str(
+        (search_result or {}).get("status")
+        if isinstance(search_result, dict)
+        else "NO_RESULT"
+    ).upper().strip()
+    if status == "OK" and (search_result or {}).get("feed"):
+        return None
+    return (
+        "这次跨站搜索没有读到足够相关的帖子、问答或论坛内容，所以我暂时"
+        "不能总结大家为什么这样说，也不会把零条讨论写成传闻已证实或已"
+        "证伪。请稍后再试一次。"
+    )
+
+
+def _media_watch_result_payload(search_result, session_id=""):
+    """Return the controller-owned watch reply and persist one bounded choice."""
+
+    value = search_result if isinstance(search_result, dict) else {}
+    cards = result_cards.clean_cards(value.get("cards", []))
+    direct_reply = str(value.get("direct_reply") or "").strip()
+    if not direct_reply:
+        direct_reply = (
+            "这次观看搜索没有成功完成，所以我没有选中任何视频，也不会用"
+            "标题相似但无关的内容补位。请稍后再试，或指定 B 站、YouTube "
+            "等一个网站。"
+        )
+    pending_action = value.get("pending_action")
+    if isinstance(pending_action, dict) and pending_action:
+        memory.save_pending_action(pending_action, session_id=session_id)
+        print("[MEDIA WATCH PENDING] theater_choice")
+    return {
+        "reply": direct_reply,
+        "response_mode": "MEDIA_WATCH",
+        "sources": [],
+        "highlights": [],
+        "cards": cards,
+    }
+
 def get_ai_response(
     message,
     search_result=None,
@@ -511,8 +599,10 @@ def get_ai_response(
         "LOCAL_ANSWER",
         "FACT_LOOKUP",
         "NEWS_FEED",
+        "DISCUSSION_FEED",
         "CLAIM_CHECK",
         "SOCIAL_RESEARCH",
+        "MEDIA_WATCH",
         "SHOPPING_RESEARCH",
         "RECOMMENDATION_RESEARCH",
     }
@@ -551,6 +641,54 @@ def get_ai_response(
         )
         return {
             "reply": fact_failure_reply,
+            "highlights": [],
+            "memory": None,
+            "pending_action": None,
+        }
+    claim_failure_reply = (
+        _claim_check_failure_reply(search_result)
+        if response_mode == "CLAIM_CHECK"
+        else None
+    )
+    if claim_failure_reply:
+        print(
+            "[CLAIM CHECK FINAL SAFE STOP]",
+            str((search_result or {}).get("status") or "NO_RESULT"),
+        )
+        return {
+            "reply": claim_failure_reply,
+            "highlights": [],
+            "memory": None,
+            "pending_action": None,
+        }
+    social_failure_reply = (
+        _social_research_failure_reply(search_result)
+        if response_mode == "SOCIAL_RESEARCH"
+        else None
+    )
+    if social_failure_reply:
+        print(
+            "[SOCIAL FINAL SAFE STOP]",
+            str((search_result or {}).get("status") or "NO_RESULT"),
+        )
+        return {
+            "reply": social_failure_reply,
+            "highlights": [],
+            "memory": None,
+            "pending_action": None,
+        }
+    discussion_failure_reply = (
+        _discussion_feed_failure_reply(search_result)
+        if response_mode == "DISCUSSION_FEED"
+        else None
+    )
+    if discussion_failure_reply:
+        print(
+            "[DISCUSSION FINAL SAFE STOP]",
+            str((search_result or {}).get("status") or "NO_RESULT"),
+        )
+        return {
+            "reply": discussion_failure_reply,
             "highlights": [],
             "memory": None,
             "pending_action": None,
@@ -653,17 +791,20 @@ def get_ai_response(
         melchior_instruction += (
             "\n\nMELCHIOR SOCIAL_RESEARCH RULE:\n"
             "Use only the supplied structured social evidence.\n"
-            "State recent_post_count and the requested time window when available.\n"
+            "Use the supplied platform names; never assume Xiaohongshu.\n"
+            "Respect selection_mode. For RECENT, state the requested time window "
+            "and do not use items outside it. For RELEVANCE, do not invent a time "
+            "window and keep semantic relevance as the primary order; visible "
+            "engagement is secondary.\n"
             "Describe what social posts are discussing, not what is proven.\n"
             "Clearly distinguish rumors, reposts, opinions, and confirmed facts.\n"
             "Do not use prior conversation as evidence.\n"
             "Do not invent social posts, dates, authors, or engagement.\n"
-            "Do not use items outside the requested time window.\n"
             "Briefly describe every supplied post_summary, up to seven posts. "
             "Keep each description simple and preserve restaurant names exactly "
             "instead of translating them.\n"
-            "Then identify up to three supplied recommendation cards as the posts "
-            "with the highest validated visible engagement. If fewer than three "
+            "Then identify up to three supplied recommendation cards using the "
+            "active selection_mode order. If fewer than three "
             "cards are supplied, present only those and never pad the list.\n"
             "Report likes, comments, and shares only when their labels and values "
             "were visibly grounded. Do not rename an unlabeled search-page "
@@ -674,6 +815,25 @@ def get_ai_response(
             "marks it as unknown.\n"
             "If there are no usable items, say the page had no readable "
             "social results.\n"
+        )
+
+    if (
+        melchior_plan
+        and melchior_plan.get("response_mode") == "DISCUSSION_FEED"
+    ):
+        melchior_instruction += (
+            "\n\nMELCHIOR DISCUSSION_FEED RULE:\n"
+            "Use only the supplied attributed discussion evidence.\n"
+            "This is not NEWS_FEED and not CLAIM_CHECK: do not call the sources "
+            "news, do not run a consensus vote, and do not treat repetition as "
+            "confirmation.\n"
+            "Summarize recurring explanations, single-source interpretations, "
+            "timeline/context, and visible disagreement separately.\n"
+            "For a mixed yes/no plus why question, first state what this readable "
+            "sample can or cannot establish, then present the alleged reasons.\n"
+            "Keep every source's claim attributed and preserve uncertainty.\n"
+            "Cards own the per-source context, image when available, and link; "
+            "do not paste raw URLs into the reply.\n"
         )
 
     if (
@@ -944,9 +1104,11 @@ def get_ai_response(
         "gemma4:12b"
         if final_response_mode in {
             "NEWS_FEED",
+            "DISCUSSION_FEED",
             "FACT_LOOKUP",
             "CLAIM_CHECK",
             "SOCIAL_RESEARCH",
+            "MEDIA_WATCH",
             "SHOPPING_RESEARCH",
             "RECOMMENDATION_RESEARCH",
         }
@@ -1225,6 +1387,76 @@ def process_request(message, status_callback):
         "[NERV CONTEXT]",
         "magi_items=" + str(0 if not nerv_magi_context else 1),
     )
+
+    if pending and pending.get("type") == "media_watch_choice":
+        verdict = media_watch.classify_followup(message)
+        payload = pending.get("approval_payload") or {}
+        print("[MEDIA WATCH FOLLOWUP]", verdict)
+        if verdict == "ENTER_THEATER":
+            selected_url = str(payload.get("selected_url") or "").strip()
+            selected_card = payload.get("selected_card")
+            cards = result_cards.clean_cards(
+                [selected_card] if isinstance(selected_card, dict) else []
+            )
+            memory.clear_pending_action()
+            if social_video.social_video_contract(selected_url) is None:
+                return {
+                    "reply": "刚才选中的页面现在不符合 Bekki 的内嵌播放条件，没有进入影院模式。",
+                    "response_mode": "MEDIA_WATCH",
+                    "sources": [],
+                    "highlights": [],
+                    "cards": cards,
+                }
+            return {
+                "reply": "好，正在 Bekki 里进入影院模式。",
+                "response_mode": "MEDIA_WATCH",
+                "sources": [],
+                "highlights": [],
+                "cards": cards,
+                "ui_action": {
+                    "type": "enter_theater_mode",
+                    "url": selected_url,
+                },
+            }
+        if verdict == "NEXT":
+            memory.clear_pending_action()
+            from casper import browser as casper_browser
+
+            try:
+                next_result = casper_browser.media_watch_controller(
+                    str(pending.get("original_request") or message),
+                    status_callback=status_callback,
+                    preplanned=payload.get("plan"),
+                    excluded_urls=payload.get("excluded_urls", []),
+                )
+            except Exception as error:
+                print("[MEDIA WATCH NEXT FAILED]", repr(error))
+                next_result = {
+                    "status": "BROWSER_UNAVAILABLE",
+                    "cards": [],
+                    "direct_reply": (
+                        "这次没有成功换到下一条，刚才的选择已结束。"
+                        "请稍后重新发起观看搜索。"
+                    ),
+                }
+            return _media_watch_result_payload(
+                next_result,
+                session_id=active_session.get("id", ""),
+            )
+        if verdict == "CANCEL":
+            memory.clear_pending_action()
+            return {
+                "reply": "好，不进入影院模式。刚才的观看页面仍保留在卡片里。",
+                "response_mode": "MEDIA_WATCH",
+                "sources": [],
+                "highlights": [],
+                "cards": [],
+            }
+        # A complete new request suspends this short-lived choice and routes
+        # normally. Clear it now so a failed or link-only replacement search
+        # cannot leave “可以” pointing at an older video.
+        memory.clear_pending_action()
+        pending = None
 
     if pending and pending.get("type") == "nerv_skill_forget_confirmation":
         verdict = nerv_core.classify_skill_forget_confirmation(message, pending)
@@ -2272,6 +2504,12 @@ def process_request(message, status_callback):
                     "cards": [],
                 }
 
+    if response_mode == "MEDIA_WATCH":
+        return _media_watch_result_payload(
+            search_result,
+            session_id=active_session.get("id", ""),
+        )
+
     # Python, not the main model, owns an insufficient claim-check verdict.
     if response_mode == "CLAIM_CHECK":
         judgment = (
@@ -2298,6 +2536,14 @@ def process_request(message, status_callback):
                     {
                         "domain": item.get("domain", ""),
                         "url": item.get("url", ""),
+                        "title": item.get("title", ""),
+                        "description": (
+                            item.get("description")
+                            or item.get("summary")
+                            or ""
+                        ),
+                        "image_url": item.get("image_url", ""),
+                        "published": item.get("published", ""),
                         "source_score": item.get(
                             "source_score",
                             50,
@@ -2481,7 +2727,9 @@ def process_request(message, status_callback):
         "reply",
         "",
     )
-    if response_mode in {"SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH"}:
+    if response_mode in {
+        "DISCUSSION_FEED", "SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH",
+    }:
         # Cards own external navigation, so accidental model URLs do not
         # appear as a web page inside the reply bubble.
         reply = re.sub(r"https?://\S+", "", reply).strip()
@@ -2511,7 +2759,9 @@ def process_request(message, status_callback):
             "FACT_LOOKUP",
             "CLAIM_CHECK",
             "NEWS_FEED",
+            "DISCUSSION_FEED",
             "SOCIAL_RESEARCH",
+            "MEDIA_WATCH",
             "SHOPPING_RESEARCH",
             "RECOMMENDATION_RESEARCH",
         }
@@ -2524,12 +2774,43 @@ def process_request(message, status_callback):
 
             if not url or url in seen_urls:
                 continue
+            if (
+                response_mode == "SOCIAL_RESEARCH"
+                and not result_cards.is_concrete_social_post_url(url)
+            ):
+                # A platform search page is navigation context, not a post.
+                # Rendering it as a generic "小红书"/"Reddit" card creates a
+                # duplicate empty block with no matching post screenshot.
+                continue
 
             seen_urls.add(url)
             sources.append(
                 {
                     "domain": item.get("domain", ""),
                     "url": url,
+                    "title": (
+                        item.get("title")
+                        or item.get("post_title")
+                        or item.get("name")
+                        or item.get("domain", "")
+                    ),
+                    "description": (
+                        item.get("description")
+                        or item.get("summary")
+                        or item.get("page_summary")
+                        or ""
+                    ),
+                    "image_url": (
+                        item.get("image_url")
+                        or item.get("thumbnail_url")
+                        or ""
+                    ),
+                    "published": (
+                        item.get("published")
+                        or item.get("published_at")
+                        or item.get("resolved_date")
+                        or ""
+                    ),
                     "source_score": item.get(
                         "source_score",
                         50,
@@ -2808,10 +3089,22 @@ def _run_daily_curiosity():
         curiosity_thread = None
 
 
+def _companion_watch_owns_idle_time():
+    """Keep maintenance models out of an active theater companion session."""
+
+    if companion_watch_thread is not None and companion_watch_thread.is_alive():
+        return True
+    active_window = globals().get("window")
+    checker = getattr(active_window, "companion_watch_active", None)
+    return bool(callable(checker) and checker())
+
+
 def check_daily_curiosity():
     """Start the bounded daily curiosity pass only while the app is idle."""
     global curiosity_thread
     if current_thread is not None:
+        return
+    if _companion_watch_owns_idle_time():
         return
     if (
         knowledge_curator_thread is not None
@@ -2863,6 +3156,8 @@ def check_daily_knowledge_curator():
     global knowledge_curator_thread
     if current_thread is not None:
         return
+    if _companion_watch_owns_idle_time():
+        return
     if curiosity_thread is not None and curiosity_thread.is_alive():
         return
     if (
@@ -2912,6 +3207,8 @@ def check_daily_stable_knowledge_review():
     """Start at most one bounded random stable-Knowledge review while idle."""
     global stable_knowledge_review_thread
     if current_thread is not None:
+        return
+    if _companion_watch_owns_idle_time():
         return
     if curiosity_thread is not None and curiosity_thread.is_alive():
         return
@@ -3009,11 +3306,14 @@ class RequestUIBridge(QObject):
                 "LOCAL_ANSWER",
             )
 
+            ui_action = payload.get("ui_action")
+
         else:
             reply = str(payload)
             sources = []
             highlights = []
             cards = []
+            ui_action = None
             response_mode = (
                 "LOCAL_ANSWER"
             )
@@ -3040,6 +3340,15 @@ class RequestUIBridge(QObject):
             )
             self.thinking_widget.set_cards(
                 cards
+            )
+
+        if isinstance(ui_action, dict):
+            # set_cards() creates the target synchronously; defer the action
+            # one event-loop turn so WebView creation and layout run on Qt's
+            # UI thread after the response widget has finished updating.
+            QTimer.singleShot(
+                0,
+                lambda action=dict(ui_action): window.perform_ui_action(action),
             )
 
         save_message(
@@ -3088,12 +3397,85 @@ class RequestUIBridge(QObject):
         window.set_busy(False)
         window.focus_input()
 
+
+class CompanionWatchBridge(QObject):
+    """Deliver daemon-thread companion results back onto Qt's UI thread."""
+
+    reply_ready = Signal(object)
+    reply_failed = Signal(object)
+
+    @Slot(object)
+    def on_reply_ready(self, payload):
+        window.deliver_companion_watch_reply(payload)
+
+    @Slot(object)
+    def on_reply_failed(self, payload):
+        window.companion_watch_failed(payload)
+
+
+def _run_companion_watch(payload):
+    global companion_watch_thread
+    result = None
+    failure = None
+    try:
+        result = companion_watch.generate_reply(payload)
+    except Exception as error:
+        print("[COMPANION WATCH ERROR]", type(error).__name__, repr(error)[:500])
+        failure = {
+            "request_kind": str(payload.get("request_kind") or ""),
+            "video_url": str(payload.get("video_url") or ""),
+            "generation": int(payload.get("generation") or 0),
+        }
+    finally:
+        # Clear the gate before emitting so a user message queued behind an
+        # automatic reaction can start as soon as its UI callback runs.
+        companion_watch_thread = None
+    if result is not None:
+        companion_watch_bridge.reply_ready.emit(result)
+    elif failure is not None:
+        companion_watch_bridge.reply_failed.emit(failure)
+
+
+def request_companion_watch(payload):
+    """Start one low-priority frame request without blocking video playback."""
+
+    global companion_watch_thread
+    if not isinstance(payload, dict) or current_thread is not None:
+        return False
+    for background_thread in (
+        curiosity_thread,
+        knowledge_curator_thread,
+        stable_knowledge_review_thread,
+    ):
+        if background_thread is not None and background_thread.is_alive():
+            return False
+    if companion_watch_thread is not None and companion_watch_thread.is_alive():
+        return False
+    companion_watch_thread = threading.Thread(
+        target=_run_companion_watch,
+        args=(dict(payload),),
+        name="BekkiCompanionWatch",
+        daemon=True,
+    )
+    companion_watch_thread.start()
+    print(
+        "[COMPANION WATCH REQUEST]",
+        "kind=" + str(payload.get("request_kind") or "unknown"),
+        "generation=" + str(payload.get("generation") or 0),
+    )
+    return True
+
+
 def send_message():
     global current_thread, current_worker
 
     # Only one request at a time for now. This keeps conversation, memory and
     # pending actions deterministic while the UI remains responsive.
     if current_thread is not None:
+        return
+    if companion_watch_thread is not None and companion_watch_thread.is_alive():
+        window.set_status("Bekki 正在陪你看这一幕…")
+        QTimer.singleShot(500, send_message)
         return
     if curiosity_thread is not None and curiosity_thread.is_alive():
         window.set_status("NERV 正在完成今天的一个好奇问题…")
@@ -3694,6 +4076,14 @@ rebuild_conversation()
 window = BekkiWindow(show_welcome=False)
 
 ui_bridge = RequestUIBridge()
+companion_watch_bridge = CompanionWatchBridge()
+companion_watch_bridge.reply_ready.connect(
+    companion_watch_bridge.on_reply_ready
+)
+companion_watch_bridge.reply_failed.connect(
+    companion_watch_bridge.on_reply_failed
+)
+window.connect_companion_watch(request_companion_watch)
 task_tray = QSystemTrayIcon(
     window.windowIcon(),
     app,

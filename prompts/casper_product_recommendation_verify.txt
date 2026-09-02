@@ -35,9 +35,12 @@ Rules:
   recommendation summary as proof. Use only `verification_sources` belonging
   to that candidate. A Google AI Overview is a useful lead, not privileged
   truth; compare it against the indexed snippets and flag internal conflicts.
-- Merchant price, stock, seller, checkout, and purchase claims are out of
-  scope. Official manufacturer specifications and independent editorial or
-  professional sources are acceptable.
+- Live merchant price, stock, seller, checkout, and purchase claims are out of
+  scope. When the user explicitly supplied a budget criterion, an independent
+  editorial tested/reviewed price or official manufacturer MSRP/list price may
+  SUPPORT that budget check. Label it as non-live evidence; never reinterpret
+  it as current checkout availability. Official manufacturer specifications
+  and independent editorial or professional sources are acceptable.
 - Cite one or more source indexes for every PASS. If a search snippet is too
   incomplete and opening one supplied source page could realistically settle
   the missing check, use NEEDS_PAGE. If `page_escalation` is true, never return

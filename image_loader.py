@@ -29,6 +29,27 @@ _IMAGE_CACHE = {}
 _IMAGE_CACHE_ORDER = []
 
 
+def _normalize_bilibili_image_url(value):
+    """Use Bilibili's original raster URL instead of its AVIF derivative."""
+
+    value = str(value or "").strip()
+    if value.startswith("//"):
+        value = "https:" + value
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return value
+    hostname = str(parsed.hostname or "").lower()
+    if hostname == "hdslb.com" or hostname.endswith(".hdslb.com"):
+        lowered = value.lower()
+        for extension in (".jpeg", ".jpg", ".png", ".webp"):
+            marker = extension + "@"
+            marker_index = lowered.find(marker)
+            if marker_index >= 0:
+                return value[: marker_index + len(extension)]
+    return value
+
+
 def _safe_https_url(value):
     if not isinstance(
         value,
@@ -36,7 +57,7 @@ def _safe_https_url(value):
     ):
         return None
 
-    value = value.strip()
+    value = _normalize_bilibili_image_url(value)
 
     if not value:
         return None

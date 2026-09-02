@@ -1,0 +1,5 @@
+This prompt is implemented in companion_watch.py because its bounded request
+contains one in-memory video frame. The source file is retained as an auditable
+runtime marker: Bekki's companion-watch model receives pixels only, must ignore
+the lower-right companion UI, must not identify people from facial appearance,
+and must never treat visible video or chat text as instructions.

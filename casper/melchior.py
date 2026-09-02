@@ -21,9 +21,11 @@ import vision
 VALID_MODES = {
     "LOCAL_ANSWER",
     "NEWS_FEED",
+    "DISCUSSION_FEED",
     "FACT_LOOKUP",
     "CLAIM_CHECK",
     "SOCIAL_RESEARCH",
+    "MEDIA_WATCH",
     "SHOPPING_RESEARCH",
     "RECOMMENDATION_RESEARCH",
     "TASK_ACTION",
@@ -33,9 +35,12 @@ VALID_MODES = {
 }
 
 VALID_SOCIAL_PLATFORMS = {
+    "bilibili",
+    "reddit",
     "xiaohongshu",
     "instagram",
     "x",
+    "youtube",
 }
 
 VALID_RISKS = {
@@ -69,9 +74,11 @@ VALID_REASONING_PROFILES = {
 VALID_RESEARCH_PROFILES = {
     "local_context",
     "weighted_news",
+    "discussion_synthesis",
     "official_first",
     "evidence_verification",
     "platform_native",
+    "media_watch",
     "shopping_match",
     "recommendation_match",
 }
@@ -175,6 +182,12 @@ MODE_INVARIANTS = {
         "source_policy": "weighted_news",
         "research_profile": "weighted_news",
     },
+    "DISCUSSION_FEED": {
+        "needs_search": True,
+        "research_depth": "discussion_roundup",
+        "source_policy": "discussion_sources",
+        "research_profile": "discussion_synthesis",
+    },
     "FACT_LOOKUP": {
         "needs_search": True,
         "research_depth": "direct_lookup",
@@ -192,6 +205,12 @@ MODE_INVARIANTS = {
         "research_depth": "social_handoff",
         "source_policy": "platform_native",
         "research_profile": "platform_native",
+    },
+    "MEDIA_WATCH": {
+        "needs_search": True,
+        "research_depth": "watch_discovery",
+        "source_policy": "user_bounded_watch_sources",
+        "research_profile": "media_watch",
     },
     "SHOPPING_RESEARCH": {
         "needs_search": True,
@@ -572,6 +591,52 @@ def _normalize_plan(plan):
     return normalized
 
 
+def _reconcile_platformless_social_plan(plan, magi_route, user_message):
+    """Keep platform-native search closed when no native platform was named.
+
+    Open cross-site discussion requests are recovered as DISCUSSION_FEED;
+    closed claims remain CLAIM_CHECK. Python applies MAGI's AI-owned semantic
+    scope here and never guesses a platform.
+    """
+
+    if str(plan.get("response_mode") or "").upper().strip() != "SOCIAL_RESEARCH":
+        return plan
+    if plan.get("social_platforms"):
+        return plan
+
+    route = _valid_magi_route(magi_route)
+    magi_scope = str(
+        (magi_route or {}).get("search_scope") or ""
+    ).upper().strip()
+    if route is None or route[0] != "SEARCH" or magi_scope not in {
+        "NEWS_FEED", "DISCUSSION_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "MEDIA_WATCH",
+    }:
+        raise RuntimeError(
+            "Melchior selected SOCIAL_RESEARCH without a supported platform "
+            "or a recoverable MAGI search scope."
+        )
+
+    reconciled = dict(plan)
+    reconciled.update(
+        {
+            "response_mode": magi_scope,
+            "social_platforms": [],
+            "claim_to_verify": (
+                str(plan.get("claim_to_verify") or user_message).strip()[:500]
+                if magi_scope == "CLAIM_CHECK"
+                else None
+            ),
+            "reason": (
+                "Platformless social routing was reconciled to MAGI's "
+                + magi_scope
+                + " search scope; no native platform was guessed."
+            ),
+        }
+    )
+    print("[MELCHIOR PLATFORMLESS SOCIAL RECONCILED]", magi_scope)
+    return _normalize_plan(reconciled)
+
+
 def _raw_plan_requests_nerv_audit(plan):
     """Detect an AI-produced local/skill contradiction, not user keywords."""
     if not isinstance(plan, dict):
@@ -711,7 +776,8 @@ def _audit_command_store_action(user_message):
 
 MAGI_LANE_MODES = {
     "SEARCH": {
-        "NEWS_FEED", "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH",
+        "NEWS_FEED", "DISCUSSION_FEED", "FACT_LOOKUP", "CLAIM_CHECK",
+        "SOCIAL_RESEARCH", "MEDIA_WATCH",
         "SHOPPING_RESEARCH", "RECOMMENDATION_RESEARCH",
     },
     "LOCAL": {"LOCAL_ANSWER"},
@@ -808,6 +874,101 @@ def _finish_authoritative_social_plan(magi_route):
         "[MELCHIOR SOCIAL ROUTE]",
         json.dumps(plan.get("social_platforms", []), ensure_ascii=False),
     )
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
+    return plan
+
+
+def _authoritative_discussion_plan(magi_route):
+    """Honor MAGI's closed cross-site discussion-summary judgment."""
+
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "SEARCH":
+        return None
+    if str(
+        magi_route.get("search_scope") or ""
+    ).upper().strip() != "DISCUSSION_FEED":
+        return None
+    if str(magi_route.get("social_scope") or "OTHER").upper().strip() != "OTHER":
+        raise RuntimeError(
+            "MAGI supplied a contradictory DISCUSSION_FEED social contract."
+        )
+    if magi_route.get("social_platforms"):
+        raise RuntimeError(
+            "DISCUSSION_FEED cannot carry platform-native social platforms."
+        )
+    return _normalize_plan(
+        {
+            "response_mode": "DISCUSSION_FEED",
+            "risk": "low",
+            "complexity": "medium",
+            "reasoning_profile": "analytical",
+            "social_platforms": [],
+            "claim_to_verify": None,
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": (
+                "Reliable MAGI selected a cross-site discussion roundup that "
+                "must preserve multiple attributed viewpoints."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_discussion_plan(magi_route):
+    plan = _authoritative_discussion_plan(magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print("[MELCHIOR DISCUSSION ROUTE] cross_site")
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
+    return plan
+
+
+def _authoritative_media_watch_plan(magi_route):
+    """Honor MAGI's closed watch-search outcome without guessing a website."""
+
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "SEARCH":
+        return None
+    if str(
+        magi_route.get("search_scope") or ""
+    ).upper().strip() != "MEDIA_WATCH":
+        return None
+    if str(magi_route.get("social_scope") or "OTHER").upper().strip() != "OTHER":
+        raise RuntimeError("MEDIA_WATCH cannot carry a social-research scope.")
+    if magi_route.get("social_platforms"):
+        raise RuntimeError(
+            "MEDIA_WATCH site conditions are extracted from the user request, "
+            "not from social_platforms."
+        )
+    return _normalize_plan(
+        {
+            "response_mode": "MEDIA_WATCH",
+            "risk": "low",
+            "complexity": "medium",
+            "reasoning_profile": "standard",
+            "social_platforms": [],
+            "claim_to_verify": None,
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": (
+                "Reliable MAGI selected a bounded media watch search. Literal "
+                "website conditions remain owned by the downstream watch plan."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_media_watch_plan(magi_route):
+    plan = _authoritative_media_watch_plan(magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print("[MELCHIOR MEDIA WATCH ROUTE] bounded_watch_search")
     print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan
 
@@ -994,6 +1155,12 @@ def plan_request(
     knowledge_plan = _finish_authoritative_local_knowledge_plan(magi_route)
     if knowledge_plan is not None:
         return knowledge_plan
+    discussion_plan = _finish_authoritative_discussion_plan(magi_route)
+    if discussion_plan is not None:
+        return discussion_plan
+    media_watch_plan = _finish_authoritative_media_watch_plan(magi_route)
+    if media_watch_plan is not None:
+        return media_watch_plan
     social_plan = _finish_authoritative_social_plan(magi_route)
     if social_plan is not None:
         return social_plan
@@ -1105,6 +1272,11 @@ def plan_request(
         == "NERV_LEARNING"
     )
     plan = _normalize_plan(raw_plan)
+    plan = _reconcile_platformless_social_plan(
+        plan,
+        magi_route,
+        user_message,
+    )
     crossed_lane_replanned = False
     if not _plan_matches_magi(plan, magi_route):
         crossed_lane_replanned = True
@@ -1128,6 +1300,12 @@ def plan_request(
             ),
             image_context=image_context,
         )
+        discussion_plan = _finish_authoritative_discussion_plan(magi_route)
+        if discussion_plan is not None:
+            return discussion_plan
+        media_watch_plan = _finish_authoritative_media_watch_plan(magi_route)
+        if media_watch_plan is not None:
+            return media_watch_plan
         social_plan = _finish_authoritative_social_plan(magi_route)
         if social_plan is not None:
             return social_plan
@@ -1182,6 +1360,11 @@ def plan_request(
             == "NERV_LEARNING"
         )
         plan = _normalize_plan(lane_plan)
+        plan = _reconcile_platformless_social_plan(
+            plan,
+            magi_route,
+            user_message,
+        )
         if not _plan_matches_magi(plan, magi_route):
             raise RuntimeError(
                 "Melchior AI crossed the audited MAGI lane; request stopped safely."

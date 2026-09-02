@@ -3,16 +3,29 @@
 # Created by YW49
 # Copyright (c) 2026 YW49. All rights reserved.
 
+from PyInstaller.utils.hooks import collect_all
+
+qtwebview2_datas, qtwebview2_binaries, qtwebview2_hiddenimports = collect_all(
+    'qtwebview2'
+)
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=qtwebview2_binaries,
     datas=[
         ('assets', 'assets'),
         ('prompts', 'prompts'),
         ('WINDOWS_OCR.ps1', '.'),
-    ],
-    hiddenimports=[],
+    ] + qtwebview2_datas,
+    hiddenimports=[
+        'qtwebview2',
+        'video_sites',
+        'qtpy',
+        'pythonnet',
+        'clr',
+        'clr_loader',
+    ] + qtwebview2_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

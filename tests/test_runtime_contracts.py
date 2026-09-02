@@ -147,19 +147,19 @@ class RuntimeTopologyTests(unittest.TestCase):
             ).exists()
         )
 
-    def test_runtime_build_id_is_screenshot_multipass_ocr_v1_10_27(self):
+    def test_runtime_build_id_is_media_watch_native_discovery_v1_10_46_1(self):
         source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
         manifest = json.loads(
             (PROJECT_ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8")
         )
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-screenshot-multipass-ocr-v1-10-27-20260830"',
+            'BEKKI_BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"',
             source,
         )
         self.assertIn('print("[BEKKI BUILD]", BEKKI_BUILD_ID', source)
         self.assertEqual(
             manifest["build_id"],
-            "bekki-screenshot-multipass-ocr-v1-10-27-20260830",
+            "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
         )
         self.assertEqual(manifest["package_id"], manifest["build_id"])
 

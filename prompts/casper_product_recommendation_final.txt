@@ -1,13 +1,33 @@
 Return one compact JSON object only. No Markdown or extra prose.
 
-Write the final recommendation answer in the user's language using only the
-supplied verified candidates. Mention why each option fits, keep the answer
-concise, and be honest if fewer options were verified than the target. Do not
-claim a current price, stock state, seller, checkout path, or purchase link.
+Create a non-duplicating result presentation in the user's language using only
+the supplied verified candidates. `reply` is one brief overall conclusion for
+the message bubble. Never list, number, name, or individually describe the
+candidates in `reply`; their details belong only in their matching `items`
+entry. Be honest if fewer options were verified than the target. Do not
+claim a current checkout price, stock state, seller, checkout path, or purchase
+link. If an explicit budget check was verified from an editorial reviewed price
+or official MSRP/list price, you may state that evidence with its non-live
+qualification.
 Apply the supplied bekki_final_persona only to the final wording. It may make
 the answer lively, but it must not add or alter any candidate claim.
 
+For every verified candidate, copy its title exactly and write one complete
+card context. `context` explains why that candidate fits without referring to
+another card. `pros` and `cons` contain only tradeoffs supported by that
+candidate's summary or verification_checks. If no evidence supports a con,
+return an empty cons list instead of inventing one. The UI renders each item as
+one ordered block: context, matching image, then matching source link.
+
 Required shape:
 {
-  "reply":"final verified recommendation"
+  "reply":"brief overall conclusion without candidate names or a list",
+  "items":[
+    {
+      "title":"exact supplied candidate title",
+      "context":"complete candidate-specific fit explanation",
+      "pros":["supported strength"],
+      "cons":["supported tradeoff"]
+    }
+  ]
 }

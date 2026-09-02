@@ -23,6 +23,128 @@ DEFAULT_DAILY_LIMIT = 10
 MAX_DAILY_LIMIT = 10
 DAILY_LIMIT_VERSION = 2
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
+_QUOTED_LABEL_RE = re.compile(
+    r'["“「『]([^"”」』\r\n]{2,12})["”」』]'
+)
+_IDENTITY_QUESTION_RE = re.compile(
+    r"指代哪些(?:人物|人|群体)|指的是谁|具体是谁|是哪两个人|"
+    r"who\s+(?:does|do|is|are).{0,24}(?:refer|represent|mean)",
+    re.IGNORECASE,
+)
+
+
+def _quoted_labels(value):
+    return [
+        match.group(1).strip()
+        for match in _QUOTED_LABEL_RE.finditer(str(value or ""))
+        if match.group(1).strip()
+    ]
+
+
+def _splits_compound_fandom_label(question, user_message):
+    """Reject the observed failure mode that treats 卡黄 as two terms."""
+
+    text = str(question or "")
+    markers = (
+        "这两个词", "两个词分别", "两个字分别", "每个字",
+        "分别指代",
+    )
+    if not any(marker in text for marker in markers):
+        return False
+    message = str(user_message or "")
+    return any(
+        len(label) == 2
+        and all(_CJK_RE.fullmatch(character) for character in label)
+        and label in message
+        for label in _quoted_labels(text)
+    )
+
+
+def _reasks_identity_already_grounded(
+    question,
+    user_message,
+    assistant_reply,
+    assistant_grounding,
+):
+    """Reject a nickname identity question only when the reply states it."""
+
+    if assistant_grounding not in {
+        "EXTERNAL_EVIDENCE_AVAILABLE", "VERIFIED_KNOWLEDGE",
+    }:
+        return False
+    question = str(question or "")
+    if _IDENTITY_QUESTION_RE.search(question) is None:
+        return False
+    message = str(user_message or "")
+    reply = str(assistant_reply or "")
+    name_pair = r"[\u3400-\u9fff]{2,4}\s*(?:与|和|、)\s*[\u3400-\u9fff]{2,4}"
+    for label in _quoted_labels(question):
+        if label not in message and label not in reply:
+            continue
+        escaped = re.escape(label)
+        explicit_patterns = (
+            rf"{escaped}[^。！？\r\n]{{0,10}}(?:指代|指的是|即|也就是)"
+            rf"[^。！？\r\n]{{0,10}}{name_pair}",
+            rf"{escaped}\s*[（(]\s*{name_pair}\s*[）)]",
+            rf"{name_pair}\s*[（(]\s*{escaped}\s*[）)]",
+        )
+        if any(re.search(pattern, reply) for pattern in explicit_patterns):
+            return True
+    return False
+
+
+def _compact_writer_recovery_packet(packet):
+    """Bound retry context after malformed Writer JSON without changing meaning."""
+
+    packet = packet if isinstance(packet, dict) else {}
+    turn = packet.get("completed_turn")
+    turn = turn if isinstance(turn, dict) else {}
+    history = []
+    for item in packet.get("recent_curiosity_history", [])[-6:]:
+        if not isinstance(item, dict):
+            continue
+        history.append(
+            {
+                "id": str(item.get("id") or "")[:120],
+                "question": str(item.get("question") or "")[:240],
+                "state": str(item.get("state") or "")[:40],
+                "topic_stage": str(item.get("topic_stage") or "")[:40],
+                "question_depth": str(item.get("question_depth") or "")[:40],
+                "foundation_facet": str(
+                    item.get("foundation_facet") or ""
+                )[:50],
+            }
+        )
+    knowledge = []
+    for item in packet.get("active_topic_knowledge", [])[:6]:
+        if not isinstance(item, dict):
+            continue
+        knowledge.append(
+            {
+                "id": str(item.get("id") or "")[:160],
+                "subject": str(item.get("subject") or "")[:180],
+                "claim": str(item.get("claim") or "")[:600],
+                "facet": str(item.get("facet") or "")[:120],
+            }
+        )
+    return {
+        "recovery_reason": "FIRST_WRITER_OUTPUT_WAS_INVALID_OR_TRUNCATED",
+        "curiosity_seed": packet.get("curiosity_seed", {}),
+        "completed_turn": {
+            "user_message": str(turn.get("user_message") or "")[:1200],
+            "bekki_reply": str(turn.get("bekki_reply") or "")[:1200],
+            "assistant_grounding": str(
+                turn.get("assistant_grounding") or ""
+            )[:80],
+            "response_mode": str(turn.get("response_mode") or "")[:80],
+        },
+        "existing_draft_questions": [
+            str(value)[:240]
+            for value in packet.get("existing_draft_questions", [])[-8:]
+        ],
+        "recent_curiosity_history": history,
+        "active_topic_knowledge": knowledge,
+    }
 
 
 class CuriosityJournal:
@@ -117,7 +239,9 @@ class CuriosityJournal:
             "FACT_LOOKUP",
             "CLAIM_CHECK",
             "NEWS_FEED",
+            "DISCUSSION_FEED",
             "SOCIAL_RESEARCH",
+            "MEDIA_WATCH",
             "SHOPPING_RESEARCH",
             "RECOMMENDATION_RESEARCH",
             "VERIFIED_KNOWLEDGE",
@@ -234,16 +358,51 @@ class CuriosityJournal:
                 json.dumps(packet, ensure_ascii=False, separators=(",", ":")),
                 expect_json=True,
                 num_ctx=6144,
-                num_predict=700,
+                num_predict=1200,
                 think=False,
                 model_name="gemma4:12b",
                 json_schema=CURIOSITY_WRITER_SCHEMA,
             )
+            # A real semantic decline is {"proposal": null}. ``None`` means
+            # the schema-bound output could not be parsed (commonly because
+            # generation ended at its length limit). Retry once with enough
+            # room to close the required object instead of misreporting that
+            # transport/format failure as "no curiosity".
+            if raw is None:
+                recovery_packet = _compact_writer_recovery_packet(packet)
+                print(
+                    "[NERV CURIOSITY WRITER RETRY]",
+                    "reason=invalid_or_truncated_json",
+                    "mode=compact",
+                    "packet_chars=" + str(len(json.dumps(
+                        recovery_packet,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ))),
+                )
+                raw = self.model_call(
+                    "prompts/nerv_curiosity_writer_recover.txt",
+                    json.dumps(
+                        recovery_packet,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    expect_json=True,
+                    num_ctx=4096,
+                    num_predict=1600,
+                    think=False,
+                    model_name="gemma4:12b",
+                    json_schema=CURIOSITY_WRITER_SCHEMA,
+                )
         finally:
             self._release("gemma4:12b", "WRITER")
-        proposal = raw.get("proposal") if isinstance(raw, dict) else None
-        if not isinstance(proposal, dict):
+        if not isinstance(raw, dict):
+            return {"status": "ignored", "reason": "writer_invalid_output"}
+        proposal = raw.get("proposal")
+        if proposal is None:
             return {"status": "ignored", "reason": "no_curiosity"}
+        if not isinstance(proposal, dict):
+            return {"status": "ignored", "reason": "writer_invalid_contract"}
         question = governance.compact_text(proposal.get("question"), 800)
         reason = governance.compact_text(proposal.get("reason"), 600)
         trigger = governance.compact_text(proposal.get("trigger_summary"), 400)
@@ -306,6 +465,15 @@ class CuriosityJournal:
             rejection_reasons.append("extremely_low_confidence")
         if not language_matches:
             rejection_reasons.append("language_mismatch")
+        if _splits_compound_fandom_label(question, message):
+            rejection_reasons.append("compound_label_split")
+        if _reasks_identity_already_grounded(
+            question,
+            message,
+            assistant_reply,
+            assistant_grounding,
+        ):
+            rejection_reasons.append("grounded_identity_reask")
         if topic_stage not in {
             "NEW_OR_SPARSE", "DEVELOPING", "SUSTAINED"
         }:

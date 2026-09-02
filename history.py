@@ -22,6 +22,10 @@ MAX_MESSAGES_PER_SESSION = 200
 _SOURCE_FIELDS = {
     "domain",
     "url",
+    "title",
+    "description",
+    "image_url",
+    "published",
     "source_score",
     "is_concrete_news",
     "content_type",
@@ -84,7 +88,7 @@ def _new_store():
     session = _new_session()
 
     return {
-        "version": 5,
+        "version": 6,
         "active_session_id": (
             session["id"]
         ),
@@ -240,6 +244,7 @@ def _clean_message(
     return {
         "role": role,
         "text": text,
+        "content_format": "markdown",
         "sources": (
             _clean_sources(
                 message.get(
@@ -403,7 +408,7 @@ def _migrate_flat_history(
             break
 
     return {
-        "version": 5,
+        "version": 6,
         "active_session_id": (
             session["id"]
         ),
@@ -490,7 +495,7 @@ def _normalise(
         )
 
     result = {
-        "version": 5,
+        "version": 6,
         "active_session_id": (
             active_session_id
         ),
@@ -709,6 +714,7 @@ def append_message(
         {
             "role": role,
             "text": text,
+            "content_format": "markdown",
             "sources": (
                 _clean_sources(
                     sources
