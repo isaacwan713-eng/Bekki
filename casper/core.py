@@ -77,6 +77,7 @@ def execute(
                 "NO_READABLE_SOCIAL_PAGE",
                 "NO_RELEVANT_DISCUSSION",
                 "NO_WATCH_RESULT",
+                "SOURCE_SCOPE_UNSUPPORTED",
             }:
                 result["status"] = "limited_evidence"
         result["audit_log"].append(

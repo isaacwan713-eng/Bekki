@@ -230,6 +230,7 @@ def social_search_url(
     selection_mode="RELEVANCE",
     ranking_mode="DEFAULT",
     recency_days=None,
+    search_kind="all",
 ):
     selection_mode = str(selection_mode or "RELEVANCE").strip().upper()
     if selection_mode not in {"RECENT", "RELEVANCE"}:
@@ -238,8 +239,13 @@ def social_search_url(
     if ranking_mode not in {"DEFAULT", "DISCUSSION", "POPULARITY", "PRICE"}:
         ranking_mode = "DEFAULT"
     if platform == "bilibili":
+        search_path = (
+            "upuser"
+            if str(search_kind or "all").strip().casefold() == "profile"
+            else "all"
+        )
         return (
-            "https://search.bilibili.com/all?keyword="
+            "https://search.bilibili.com/" + search_path + "?keyword="
             + quote(query)
             + ("&order=pubdate" if selection_mode == "RECENT" else "&order=totalrank")
         )
@@ -390,6 +396,7 @@ def open_social_search(
     selection_mode="RELEVANCE",
     ranking_mode="DEFAULT",
     recency_days=None,
+    search_kind="all",
 ):
     """Open a social search in Bekki's managed Edge session."""
 
@@ -405,6 +412,7 @@ def open_social_search(
         selection_mode,
         ranking_mode=ranking_mode,
         recency_days=recency_days,
+        search_kind=search_kind,
     )
 
     with sync_playwright() as playwright:
@@ -701,6 +709,56 @@ def _normalize_social_image_url(platform, value):
                 value = value[: marker_index + len(extension)]
                 break
     return value[:2048]
+
+
+def _recover_bilibili_user_profile_candidate(candidate):
+    """Recognize one visible /upuser card when Bilibili renames its CSS classes."""
+
+    value = dict(candidate) if isinstance(candidate, dict) else {}
+    if (
+        value.get("bilibili_user_search") is not True
+        or value.get("dom_card_matched") is not True
+        or not value.get("image_url")
+    ):
+        return value
+    try:
+        parsed = urlparse(str(value.get("url") or ""))
+    except ValueError:
+        return value
+    if (
+        str(parsed.hostname or "").casefold() != "space.bilibili.com"
+        or not str(parsed.path or "").strip("/").isdigit()
+    ):
+        return value
+    visible_text = " ".join(
+        str(value.get("visible_text") or "").split()
+    ).strip()
+    if (
+        not 8 <= len(visible_text) <= 650
+        or "粉丝" not in visible_text
+        or "视频" not in visible_text
+        or "关注" not in visible_text
+    ):
+        return value
+    profile_name = " ".join(
+        str(value.get("profile_name") or "").split()
+    ).strip()
+    if not profile_name:
+        profile_name = re.split(
+            r"\d+(?:\.\d+)?[万亿]?\s*粉丝",
+            visible_text,
+            maxsplit=1,
+        )[0].strip()
+        profile_name = re.sub(
+            r"\s*(?:lv)\s*\d+\s*$", "", profile_name,
+            flags=re.IGNORECASE,
+        ).strip()
+    if not profile_name or len(profile_name) > 160:
+        return value
+    value["profile_name"] = profile_name
+    value["profile_result_matched"] = True
+    value["source_kind"] = "profile_result"
+    return value
 
 
 def _capture_page_jpeg(page, quality=68, timeout_ms=SOCIAL_SCREENSHOT_TIMEOUT_MS):
@@ -1183,6 +1241,76 @@ def _bounded_xiaohongshu_post_text(page):
     return ("CURRENT NOTE:\n" + "\n".join(parts))[:8000]
 
 
+def _bilibili_video_identity(value):
+    """Return one normalized Bilibili video identity from a direct URL."""
+
+    try:
+        path = str(urlparse(str(value or "")).path or "")
+    except ValueError:
+        return ""
+    match = re.search(r"/video/((?:BV)[A-Za-z0-9]+|av\d+)(?:/|$)", path, re.I)
+    return match.group(1).casefold() if match else ""
+
+
+def _wait_for_bilibili_video_detail(page, expected_url="", timeout_ms=4800):
+    """Wait for evidence bound to the requested Bilibili video, not page chrome."""
+
+    expected_identity = _bilibili_video_identity(expected_url)
+    try:
+        page.wait_for_function(
+            r"""
+            (expectedIdentity) => {
+                const pathMatch = String(location.pathname || '').match(
+                    /\/video\/((?:BV)[A-Za-z0-9]+|av\d+)(?:\/|$)/i
+                );
+                const currentIdentity = pathMatch ? pathMatch[1].toLowerCase() : '';
+                if (expectedIdentity && currentIdentity !== expectedIdentity) {
+                    return false;
+                }
+                const state = window.__INITIAL_STATE__ || {};
+                const video = state.videoData || state.videoInfo || {};
+                const meta = (selector) => {
+                    const node = document.querySelector(selector);
+                    return node ? (
+                        node.content || node.getAttribute('content') || ''
+                    ).trim() : '';
+                };
+                const visible = (selector) => {
+                    const node = document.querySelector(selector);
+                    return node ? (
+                        node.innerText || node.textContent || ''
+                    ).replace(/\s+/g, ' ').trim() : '';
+                };
+                const title = video.title || visible('h1.video-title, .video-title') ||
+                    meta('meta[property="og:title"]');
+                const description = video.desc || visible(
+                    '.desc-info-text, .basic-desc-info, .video-desc-container, .desc-v2'
+                ) || meta('meta[name="description"]');
+                const cover = video.pic || meta('meta[property="og:image"]') ||
+                    meta('meta[itemprop="image"]');
+                const player = document.querySelector(
+                    '#bilibili-player video, .bpx-player-video-wrap video, video'
+                );
+                const decodedFrame = Boolean(
+                    player && player.readyState >= 2 &&
+                    player.videoWidth >= 320 && player.videoHeight >= 180
+                );
+                return Boolean(title && (description || cover || decodedFrame));
+            }
+            """,
+            expected_identity,
+            timeout=min(max(int(timeout_ms or 0), 1000), 8000),
+        )
+        return True
+    except Exception:
+        print(
+            "[SOCIAL BILIBILI DETAIL WAIT]",
+            "bound_metadata_not_ready",
+            "video=" + (expected_identity or "unknown"),
+        )
+        return False
+
+
 def _bilibili_video_metadata(page):
     """Read current-video metadata without touching the recommendation rail."""
 
@@ -1197,19 +1325,76 @@ def _bilibili_video_metadata(page):
                     const node = document.querySelector(selector);
                     return node ? (node.content || node.getAttribute('content') || '') : '';
                 };
+                const visible = (selector) => {
+                    const node = document.querySelector(selector);
+                    return node ? (
+                        node.innerText || node.textContent || ''
+                    ).replace(/\s+/g, ' ').trim() : '';
+                };
+                const structuredVideos = [];
+                const addStructured = (value) => {
+                    if (!value || typeof value !== 'object') return;
+                    if (Array.isArray(value)) {
+                        for (const child of value) addStructured(child);
+                        return;
+                    }
+                    const types = Array.isArray(value['@type']) ?
+                        value['@type'] : [value['@type']];
+                    if (types.some((item) => String(item || '').toLowerCase() === 'videoobject')) {
+                        structuredVideos.push(value);
+                    }
+                    if (Array.isArray(value['@graph'])) addStructured(value['@graph']);
+                };
+                for (const node of document.querySelectorAll(
+                    'script[type="application/ld+json"]'
+                )) {
+                    try { addStructured(JSON.parse(node.textContent || '')); }
+                    catch (_error) {}
+                }
+                const pathMatch = String(location.pathname || '').match(
+                    /\/video\/((?:BV)[A-Za-z0-9]+|av\d+)(?:\/|$)/i
+                );
+                const pathIdentity = pathMatch ? pathMatch[1].toLowerCase() : '';
+                const structured = structuredVideos.find((value) => {
+                    const mainEntity = value.mainEntityOfPage;
+                    const references = [
+                        value.url,
+                        value['@id'],
+                        typeof mainEntity === 'string' ? mainEntity : (
+                            mainEntity && (mainEntity['@id'] || mainEntity.url)
+                        ),
+                    ].map((item) => String(item || '').toLowerCase()).join(' ');
+                    return Boolean(pathIdentity && references.includes(pathIdentity));
+                }) || (structuredVideos.length === 1 ? structuredVideos[0] : {});
+                const structuredAuthor = typeof structured.author === 'string' ?
+                    structured.author : (
+                        structured.author && structured.author.name
+                    ) || '';
+                const structuredCover = Array.isArray(structured.thumbnailUrl) ?
+                    structured.thumbnailUrl[0] : structured.thumbnailUrl || '';
                 const playerVideo = document.querySelector(
                     '#bilibili-player video, .bpx-player-video-wrap video, video'
                 );
                 return {
-                    title: video.title || meta('meta[property="og:title"]') || '',
-                    description: video.desc || meta('meta[name="description"]') || '',
-                    author: owner.name || meta('meta[name="author"]') || '',
-                    cover: video.pic || meta('meta[property="og:image"]') ||
+                    title: video.title || structured.name ||
+                        visible('h1.video-title, .video-title') ||
+                        meta('meta[property="og:title"]') || document.title || '',
+                    description: video.desc || structured.description || visible(
+                        '.desc-info-text, .basic-desc-info, ' +
+                        '.video-desc-container, .desc-v2'
+                    ) || meta('meta[name="description"]') || '',
+                    author: owner.name || structuredAuthor ||
+                        visible('.up-name, .up-info-container .up-name') ||
+                        meta('meta[name="author"]') || '',
+                    cover: video.pic || structuredCover ||
+                        meta('meta[property="og:image"]') ||
                         meta('meta[itemprop="image"]') ||
                         (playerVideo ? (playerVideo.poster || '') : ''),
                     published_at: video.pubdate || video.ctime ||
+                        structured.uploadDate || structured.datePublished ||
                         meta('meta[itemprop="uploadDate"]') || '',
-                    bvid: video.bvid || state.bvid || '',
+                    bvid: video.bvid || state.bvid ||
+                        (pathMatch ? pathMatch[1] : ''),
                 };
             }
             """
@@ -1219,10 +1404,10 @@ def _bilibili_video_metadata(page):
     return payload if isinstance(payload, dict) else {}
 
 
-def _bounded_bilibili_video_text(page, expected_title=""):
+def _bounded_bilibili_video_text(page, expected_title="", metadata=None):
     """Read only the current Bilibili video's title, author and description."""
 
-    metadata = _bilibili_video_metadata(page)
+    metadata = metadata if isinstance(metadata, dict) else _bilibili_video_metadata(page)
     parts = []
     seen = set()
 
@@ -1981,32 +2166,46 @@ def _capture_social_post_assets(page, platform, fallback_image_url=""):
     assets = []
     if platform == "bilibili":
         known_hashes = []
-        for cover_url in _bilibili_cover_urls(page, fallback_image_url):
-            image_bytes = _download_post_image_jpeg(page, cover_url)
-            if not _meaningful_raster_evidence(image_bytes):
-                continue
-            if not _raster_is_distinct(image_bytes, known_hashes):
-                continue
-            assets.append(
-                {
-                    "kind": "video_cover",
-                    "label": "视频封面",
-                    "image_bytes": image_bytes,
-                }
+        for attempt in range(2):
+            for cover_url in _bilibili_cover_urls(page, fallback_image_url):
+                image_bytes = _download_post_image_jpeg(page, cover_url)
+                if not _meaningful_raster_evidence(image_bytes):
+                    continue
+                if not _raster_is_distinct(image_bytes, known_hashes):
+                    continue
+                assets.append(
+                    {
+                        "kind": "video_cover",
+                        "label": "视频封面",
+                        "image_bytes": image_bytes,
+                    }
+                )
+                break
+            frame_bytes = _capture_bilibili_video_frame(page)
+            if (
+                _meaningful_raster_evidence(frame_bytes)
+                and _raster_is_distinct(frame_bytes, known_hashes)
+            ):
+                assets.append(
+                    {
+                        "kind": "video_frame",
+                        "label": "视频帧 1",
+                        "image_bytes": frame_bytes,
+                    }
+                )
+            if assets or attempt:
+                break
+            print(
+                "[SOCIAL BILIBILI VISUAL RETRY]",
+                "reason=zero_bound_assets",
             )
-            break
-        frame_bytes = _capture_bilibili_video_frame(page)
-        if (
-            _meaningful_raster_evidence(frame_bytes)
-            and _raster_is_distinct(frame_bytes, known_hashes)
-        ):
-            assets.append(
-                {
-                    "kind": "video_frame",
-                    "label": "视频帧 1",
-                    "image_bytes": frame_bytes,
-                }
+            _wait_for_bilibili_video_detail(
+                page, str(getattr(page, "url", "") or "")
             )
+            try:
+                page.wait_for_timeout(700)
+            except Exception:
+                pass
         print(
             "[SOCIAL BILIBILI VISUAL ASSETS]",
             "cover=" + str(sum(item["kind"] == "video_cover" for item in assets)),
@@ -2251,6 +2450,16 @@ def _extract_bilibili_search_response_candidates(payload):
             record.get("author") or record.get("up_name")
             or record.get("uname"), 160
         )
+        author_url = ""
+        try:
+            author_mid = int(
+                record.get("mid") or record.get("author_mid")
+                or record.get("up_mid") or 0
+            )
+            if author_mid > 0:
+                author_url = "https://space.bilibili.com/" + str(author_mid)
+        except (TypeError, ValueError):
+            author_url = ""
         description = _plain_bilibili_text(
             record.get("description") or record.get("desc"), 360
         )
@@ -2291,6 +2500,7 @@ def _extract_bilibili_search_response_candidates(payload):
                 "title": title,
                 "description": description,
                 "author": author,
+                "author_url": author_url,
                 "published": published_at,
                 "visible_text": " ".join(text_parts)[:1400],
                 "image_url": image_url,
@@ -2363,7 +2573,11 @@ def _store_bilibili_search_response(cache_key, response):
     )
 
 
-def _extract_post_candidates(page, platform):
+def _extract_post_candidates(
+    page,
+    platform,
+    include_profile_candidates=False,
+):
     """Collect visible post links and their real image URLs from the result grid."""
 
     extraction_script = r"""
@@ -2396,6 +2610,69 @@ def _extract_post_candidates(page, platform):
                     }
                     return items;
                 };
+                const isBilibiliUserSearch = (
+                    location.hostname === 'search.bilibili.com' &&
+                    /^\/upuser(?:\/|$)/.test(location.pathname)
+                );
+                const bilibiliProfileSelector = [
+                    '.user-list .user-item',
+                    '.user-list-item',
+                    '.bili-user-profile',
+                    '[class*="user-list"] > [class*="user-item"]',
+                    '[class*="user-list"] [class*="user-card"]'
+                ].join(', ');
+                const bilibiliVideoCardSelector = [
+                    '.bili-video-card',
+                    '.video-list-item',
+                    '.search-all-list-item',
+                    '[class*="bili-video-card"]',
+                    '[class*="video-list-item"]'
+                ].join(', ');
+                const bilibiliSpaceIdentity = (value) => {
+                    try {
+                        const parsed = new URL(value, location.href);
+                        if (parsed.hostname !== 'space.bilibili.com') return '';
+                        const identity = parsed.pathname.split('/').filter(Boolean)[0] || '';
+                        return /^\d+$/.test(identity) ? identity : '';
+                    } catch (_error) {
+                        return '';
+                    }
+                };
+                const looksLikeBilibiliProfileCard = (node, identity) => {
+                    if (!node || !identity || !node.querySelectorAll) return false;
+                    if (node === document.body || node === document.documentElement) {
+                        return false;
+                    }
+                    if (node.closest && node.closest(bilibiliVideoCardSelector)) {
+                        return false;
+                    }
+                    const text = (node.innerText || '').replace(/\s+/g, ' ').trim();
+                    if (
+                        text.length < 8 || text.length > 650 ||
+                        !/粉丝/.test(text) || !/视频/.test(text) ||
+                        !/关注/.test(text) || !node.querySelector('img')
+                    ) {
+                        return false;
+                    }
+                    const identities = new Set(
+                        Array.from(node.querySelectorAll(
+                            'a[href*="space.bilibili.com"]'
+                        )).map((item) => bilibiliSpaceIdentity(item.href || ''))
+                            .filter(Boolean)
+                    );
+                    return identities.size === 1 && identities.has(identity);
+                };
+                const inferBilibiliProfileCard = (anchor, identity) => {
+                    if (!isBilibiliUserSearch || !identity) return null;
+                    let node = anchor;
+                    for (let depth = 0; depth < 8 && node; depth++) {
+                        if (looksLikeBilibiliProfileCard(node, identity)) {
+                            return node;
+                        }
+                        node = node.parentElement;
+                    }
+                    return null;
+                };
                 const cardSelector = [
                     '.bili-video-card',
                     '.video-list-item',
@@ -2423,7 +2700,28 @@ def _extract_post_candidates(page, platform):
                     if (!anchor) return;
                     const href = anchor.href || '';
                     if (!href) return;
-                    const matchedCard = anchor.closest(cardSelector);
+                    let profileCard = null;
+                    const profileIdentity = bilibiliSpaceIdentity(href);
+                    if (
+                        isBilibiliUserSearch &&
+                        Boolean(profileIdentity)
+                    ) {
+                        const candidateProfileCard = anchor.closest(
+                            bilibiliProfileSelector
+                        );
+                        if (
+                            candidateProfileCard &&
+                            !candidateProfileCard.closest(bilibiliVideoCardSelector)
+                        ) {
+                            profileCard = candidateProfileCard;
+                        }
+                        if (!profileCard) {
+                            profileCard = inferBilibiliProfileCard(
+                                anchor, profileIdentity
+                            );
+                        }
+                    }
+                    const matchedCard = profileCard || anchor.closest(cardSelector);
                     let container = matchedCard || anchor;
                     let inferredCard = false;
                     let fallbackContainer = null;
@@ -2454,6 +2752,54 @@ def _extract_post_candidates(page, platform):
                     }
                     const image = anchor.querySelector('img') ||
                         (container.querySelector && container.querySelector('img'));
+                    const authorAnchor = (
+                        container.querySelector && container.querySelector(
+                            'a[href*="space.bilibili.com"]'
+                        )
+                    );
+                    const author = authorAnchor ? (
+                        authorAnchor.getAttribute('title') ||
+                        authorAnchor.getAttribute('aria-label') ||
+                        authorAnchor.innerText || ''
+                    ).replace(/\s+/g, ' ').trim() : '';
+                    const authorUrl = authorAnchor ? (authorAnchor.href || '') : '';
+                    const profileNameNode = profileCard && profileCard.querySelector(
+                        '.up-name, [class*="user-name"], ' +
+                        '[class*="user-info"] [class*="name"], ' +
+                        '[class*="uname"], [class*="nickname"]'
+                    );
+                    const profileCardText = profileCard ? (
+                        profileCard.innerText || ''
+                    ).replace(/\s+/g, ' ').trim() : '';
+                    const profileNameBeforeMetrics = profileCardText
+                        .split(/\d+(?:\.\d+)?[万亿]?\s*粉丝/, 1)[0]
+                        .replace(/\s*(?:LV|Lv|lv)\s*\d+\s*$/, '')
+                        .trim();
+                    const profileName = profileCard ? (
+                        (profileNameNode && (
+                            profileNameNode.getAttribute('title') ||
+                            profileNameNode.getAttribute('aria-label') ||
+                            profileNameNode.innerText
+                        )) || anchor.getAttribute('title') ||
+                        anchor.getAttribute('aria-label') ||
+                        anchor.innerText || profileNameBeforeMetrics || ''
+                    ).replace(/\s+/g, ' ').trim()
+                        .replace(/\s+(?:LV|Lv|lv)\s*\d+\s*$/, '') : '';
+                    const verificationNode = profileCard && profileCard.querySelector(
+                        '[class*="official"], [class*="verify"], ' +
+                        '[class*="verified"], [class~="auth-icon"]'
+                    );
+                    const verificationText = verificationNode ? (
+                        verificationNode.getAttribute('title') ||
+                        verificationNode.getAttribute('aria-label') ||
+                        verificationNode.innerText || ''
+                    ).replace(/\s+/g, ' ').trim() : '';
+                    const profileVerified = Boolean(verificationNode) && (
+                        /官方|认证|verified|official/i.test(verificationText) ||
+                        /official|verify|verified|auth-icon/i.test(
+                            verificationNode.className || ''
+                        )
+                    );
                     const titleNode = container.querySelector && container.querySelector(
                         '.bili-video-card__info--tit, ' +
                         '[class*="video-card__info--tit"], a#video-title, ' +
@@ -2501,6 +2847,12 @@ def _extract_post_candidates(page, platform):
                         // A site footer may contain a /video/ link, but that
                         // alone never proves it is a rendered search card.
                         dom_card_matched: Boolean(matchedCard) || inferredCard,
+                        author: author.slice(0, 160),
+                        author_url: authorUrl,
+                        profile_name: profileName.slice(0, 160),
+                        profile_result_matched: Boolean(profileCard),
+                        profile_verified: profileVerified,
+                        bilibili_user_search: isBilibiliUserSearch,
                     };
                     const previous = output.get(href);
                     if (!previous) {
@@ -2519,6 +2871,19 @@ def _extract_post_candidates(page, platform):
                     }
                     if (item.dom_card_matched) {
                         previous.dom_card_matched = true;
+                    }
+                    if (!previous.author && item.author) {
+                        previous.author = item.author;
+                        previous.author_url = item.author_url;
+                    }
+                    if (!previous.profile_name && item.profile_name) {
+                        previous.profile_name = item.profile_name;
+                    }
+                    if (item.profile_result_matched) {
+                        previous.profile_result_matched = true;
+                    }
+                    if (item.profile_verified) {
+                        previous.profile_verified = true;
                     }
                 };
 
@@ -2586,7 +2951,19 @@ def _extract_post_candidates(page, platform):
             ).strip()[:40],
             "dom_card_matched": bool(item.get("dom_card_matched")),
             "dom_card_signal_present": "dom_card_matched" in item,
+            "author": str(item.get("author") or "").strip()[:160],
+            "author_url": str(item.get("author_url") or "").strip()[:2000],
+            "profile_name": str(item.get("profile_name") or "").strip()[:160],
+            "profile_result_matched": (
+                item.get("profile_result_matched") is True
+            ),
+            "profile_verified": item.get("profile_verified") is True,
+            "bilibili_user_search": (
+                item.get("bilibili_user_search") is True
+            ),
         }
+        if platform == "bilibili" and include_profile_candidates:
+            candidate = _recover_bilibili_user_profile_candidate(candidate)
         previous = candidates_by_url.get(url)
         if previous is None:
             candidates_by_url[url] = candidate
@@ -2602,6 +2979,15 @@ def _extract_post_candidates(page, platform):
             previous["dom_card_matched"] = True
         if candidate["dom_card_signal_present"]:
             previous["dom_card_signal_present"] = True
+        if not previous.get("author") and candidate.get("author"):
+            previous["author"] = candidate["author"]
+            previous["author_url"] = candidate["author_url"]
+        if not previous.get("profile_name") and candidate.get("profile_name"):
+            previous["profile_name"] = candidate["profile_name"]
+        if candidate.get("profile_result_matched"):
+            previous["profile_result_matched"] = True
+        if candidate.get("profile_verified"):
+            previous["profile_verified"] = True
     candidates = list(candidates_by_url.values())
     if platform == "bilibili":
         result_cards = [
@@ -2636,10 +3022,27 @@ def _extract_post_candidates(page, platform):
         ]
         for item in result_cards:
             item["source_kind"] = "result_card"
+        profile_cards = []
+        if include_profile_candidates:
+            for item in candidates:
+                try:
+                    hostname = str(
+                        urlparse(item.get("url") or "").hostname or ""
+                    ).lower()
+                except ValueError:
+                    continue
+                if (
+                    hostname == "space.bilibili.com"
+                    and item.get("profile_result_matched") is True
+                    and 4 <= len(str(item.get("visible_text") or "")) <= 600
+                ):
+                    profile_cards.append(item)
+            for item in profile_cards:
+                item["source_kind"] = "profile_result"
         # A raw /video/ URL in site chrome is not search evidence. Bilibili's
         # compatibility page contains one such legacy link, which previously
         # became a false result when the real grid did not render.
-        candidates = result_cards
+        candidates = (profile_cards + result_cards)[:MAX_POST_CANDIDATES]
     elif platform == "youtube":
         result_cards = [
             item for item in candidates
@@ -3028,6 +3431,7 @@ def resolve_social_post_targets(platform, post_titles, expected_url=None):
         page_context = getattr(page, "context", None)
         if page_context is not None:
             managed_browser.keep_page_background(page_context, page)
+
         try:
             page.evaluate("() => window.scrollTo(0, 0)")
             page.wait_for_timeout(600)
@@ -3247,6 +3651,7 @@ def resolve_social_post_targets(platform, post_titles, expected_url=None):
 def inspect_active_social_page(
     platform,
     expected_url=None,
+    include_profile_candidates=False,
 ):
     """Read the social page, retrying one empty Bilibili first load in place."""
 
@@ -3280,8 +3685,37 @@ def inspect_active_social_page(
         if page_context is not None:
             managed_browser.keep_page_background(page_context, page)
 
+        def extract_candidates():
+            if include_profile_candidates:
+                return _extract_post_candidates(
+                    page,
+                    platform,
+                    include_profile_candidates=True,
+                )
+            # Retain the historical two-argument call for compatibility with
+            # existing integrations and test doubles.
+            return _extract_post_candidates(page, platform)
+
         response_cache_key = ""
         if platform == "bilibili":
+            try:
+                bilibili_path = str(
+                    urlparse(expected_url or page.url).path or ""
+                ).lower()
+            except ValueError:
+                bilibili_path = ""
+            bilibili_user_search = bilibili_path.startswith("/upuser")
+            bilibili_result_selector = (
+                '.user-list .user-item, .user-list-item, '
+                '.bili-user-profile, '
+                '[class*="user-list"] > [class*="user-item"]'
+                if bilibili_user_search else
+                '.bili-video-card, .video-list-item, '
+                '.search-all-list-item, [class*="bili-video-card"]'
+            )
+            bilibili_wait_label = (
+                "no_profile_card" if bilibili_user_search else "no_video_card"
+            )
             response_cache_key = _bilibili_search_cache_key(
                 expected_url or page.url
             )
@@ -3297,24 +3731,22 @@ def inspect_active_social_page(
                 )
             try:
                 page.wait_for_selector(
-                    (
-                        '.bili-video-card, .video-list-item, '
-                        '.search-all-list-item, [class*="bili-video-card"]'
-                    ),
+                    bilibili_result_selector,
                     state="attached",
                     timeout=7000,
                 )
             except Exception:
-                print("[SOCIAL RESULT WAIT] no_video_card_after_7s")
+                print(
+                    "[SOCIAL RESULT WAIT]",
+                    bilibili_wait_label + "_after_7s",
+                )
 
             initial_response_candidates = list(
                 _BILIBILI_SEARCH_RESPONSE_CANDIDATES.get(
                     response_cache_key, []
                 )
             )
-            initial_dom_candidates = _extract_post_candidates(
-                page, platform
-            )
+            initial_dom_candidates = extract_candidates()
             if not initial_response_candidates and not initial_dom_candidates:
                 print("[SOCIAL BILIBILI EMPTY FIRST LOAD]", "reload=1")
                 try:
@@ -3330,26 +3762,21 @@ def inspect_active_social_page(
                 page.wait_for_timeout(3500)
                 try:
                     page.wait_for_selector(
-                        (
-                            '.bili-video-card, .video-list-item, '
-                            '.search-all-list-item, [class*="bili-video-card"]'
-                        ),
+                        bilibili_result_selector,
                         state="attached",
                         timeout=10000,
                     )
                 except Exception:
                     print(
                         "[SOCIAL BILIBILI RELOAD WAIT]",
-                        "no_video_card_after_10s",
+                        bilibili_wait_label + "_after_10s",
                     )
                 initial_response_candidates = list(
                     _BILIBILI_SEARCH_RESPONSE_CANDIDATES.get(
                         response_cache_key, []
                     )
                 )
-                initial_dom_candidates = _extract_post_candidates(
-                    page, platform
-                )
+                initial_dom_candidates = extract_candidates()
                 print(
                     "[SOCIAL BILIBILI RELOAD RESULT]",
                     "native=" + str(len(initial_response_candidates)),
@@ -3372,7 +3799,7 @@ def inspect_active_social_page(
             except Exception:
                 print("[SOCIAL YOUTUBE RESULT WAIT] no_video_card_after_8s")
             initial_response_candidates = []
-            initial_dom_candidates = _extract_post_candidates(page, platform)
+            initial_dom_candidates = extract_candidates()
             if not initial_dom_candidates:
                 print("[SOCIAL YOUTUBE EMPTY FIRST LOAD]", "reload=1")
                 try:
@@ -3394,7 +3821,7 @@ def inspect_active_social_page(
                         "[SOCIAL YOUTUBE RELOAD WAIT]",
                         "no_video_card_after_10s",
                     )
-                initial_dom_candidates = _extract_post_candidates(page, platform)
+                initial_dom_candidates = extract_candidates()
                 print(
                     "[SOCIAL YOUTUBE RELOAD RESULT]",
                     "dom=" + str(len(initial_dom_candidates)),
@@ -3416,13 +3843,23 @@ def inspect_active_social_page(
         for index in range(4):
             snapshot = page.locator("body").inner_text(timeout=15000)
             snapshots.append(snapshot)
-            iteration_candidates = _extract_post_candidates(page, platform)
+            iteration_candidates = extract_candidates()
             if index == 0:
-                iteration_candidates = (
-                    response_candidates
-                    + initial_dom_candidates
-                    + iteration_candidates
-                )
+                if include_profile_candidates:
+                    # The native response contains only videos. Give the DOM's
+                    # bounded account cards a chance to enter the fact set
+                    # before a full 30-video response exhausts the limit.
+                    iteration_candidates = (
+                        initial_dom_candidates
+                        + response_candidates
+                        + iteration_candidates
+                    )
+                else:
+                    iteration_candidates = (
+                        response_candidates
+                        + initial_dom_candidates
+                        + iteration_candidates
+                    )
             for candidate in iteration_candidates:
                 url = str(candidate.get("url") or "").strip()
                 if not url or url in seen_candidate_urls:
@@ -3802,11 +4239,30 @@ def inspect_social_post_details(targets):
                         )
                     except Exception:
                         print("[SOCIAL YOUTUBE DETAIL WAIT] player_not_attached")
+                elif target["platform"] == "bilibili":
+                    _wait_for_bilibili_video_detail(
+                        page, target["post_url"]
+                    )
                 page.wait_for_timeout(
                     2200 if target["platform"] == "youtube" else 1600
                 )
                 visible_text = page.locator("body").inner_text(timeout=12000)
                 actual_url = _allowed_social_url(target["platform"], page.url)
+                expected_bilibili_id = _bilibili_video_identity(
+                    target["post_url"]
+                )
+                actual_bilibili_id = _bilibili_video_identity(actual_url)
+                if (
+                    target["platform"] == "bilibili"
+                    and expected_bilibili_id
+                    and actual_bilibili_id != expected_bilibili_id
+                ):
+                    print(
+                        "[SOCIAL BILIBILI DETAIL ID MISMATCH]",
+                        "expected=" + expected_bilibili_id,
+                        "actual=" + actual_bilibili_id,
+                    )
+                    actual_url = ""
                 if (
                     target["platform"] == "youtube"
                     and _youtube_video_identity(actual_url)
@@ -3822,6 +4278,25 @@ def inspect_social_post_details(targets):
                     _youtube_video_metadata(page)
                     if target["platform"] == "youtube" else {}
                 )
+                bilibili_metadata = (
+                    _bilibili_video_metadata(page)
+                    if target["platform"] == "bilibili" else {}
+                )
+                bilibili_metadata_id = str(
+                    bilibili_metadata.get("bvid") or ""
+                ).strip().casefold()
+                if (
+                    target["platform"] == "bilibili"
+                    and expected_bilibili_id
+                    and bilibili_metadata_id
+                    and bilibili_metadata_id != expected_bilibili_id
+                ):
+                    print(
+                        "[SOCIAL BILIBILI PLAYER ID MISMATCH]",
+                        "expected=" + expected_bilibili_id,
+                        "player=" + bilibili_metadata_id,
+                    )
+                    actual_url = ""
                 youtube_metadata_id = str(
                     youtube_metadata.get("video_id") or ""
                 ).strip()
@@ -3838,7 +4313,13 @@ def inspect_social_post_details(targets):
                     )
                     actual_url = ""
                 readable_text = visible_text
-                if target["platform"] == "youtube":
+                if target["platform"] == "bilibili":
+                    readable_text = _bounded_bilibili_video_text(
+                        page,
+                        target["post_title"],
+                        metadata=bilibili_metadata,
+                    ) or visible_text
+                elif target["platform"] == "youtube":
                     readable_text = _bounded_youtube_video_text(
                         page,
                         target["post_title"],
@@ -3918,7 +4399,9 @@ def inspect_social_post_details(targets):
                     detail_visible_time = _xiaohongshu_visible_post_time(page)
                 elif target["platform"] == "bilibili":
                     bounded_video_text = _bounded_bilibili_video_text(
-                        page, target["post_title"]
+                        page,
+                        target["post_title"],
+                        metadata=bilibili_metadata,
                     )
                     detail_visible_text = (
                         bounded_video_text or target["search_visible_text"]
@@ -4110,3 +4593,32 @@ def close_social_browser():
         )
     finally:
         _BILIBILI_SEARCH_RESPONSE_CANDIDATES.clear()
+
+
+def close_social_search(expected_url):
+    """Close only the exact search tab opened for one bounded request."""
+
+    from playwright.sync_api import sync_playwright
+
+    expected_url = str(expected_url or "").strip()
+    if not expected_url or not cdp_is_ready():
+        return
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.connect_over_cdp(CDP_URL)
+            closed_count = 0
+            for context in browser.contexts:
+                for page in list(context.pages):
+                    if not matches_expected_social_search(
+                        page.url,
+                        expected_url,
+                    ):
+                        continue
+                    try:
+                        page.close(run_before_unload=False)
+                        closed_count += 1
+                    except Exception as error:
+                        print("[SOCIAL SEARCH TAB CLOSE ERROR]", repr(error))
+            print("[SOCIAL SEARCH TAB CLOSED]", closed_count)
+    except Exception as error:
+        print("[SOCIAL SEARCH TAB CLOSE ERROR]", repr(error))

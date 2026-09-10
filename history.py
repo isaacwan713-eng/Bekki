@@ -8,12 +8,12 @@ Chat history stores visible conversation content.
 It remains separate from Bekki's long-term memory.
 """
 
-import json
 import os
 import sys
 import uuid
 import conversation_time
 import result_cards
+import sqlite_storage
 
 
 MAX_SESSIONS = 50
@@ -514,26 +514,12 @@ def _normalise(
 
 def load_history():
     path = _history_path()
-
-    try:
-        with open(
-            path,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            data = json.load(file)
-
-    except (
-        FileNotFoundError,
-        OSError,
-        json.JSONDecodeError,
-    ) as error:
-        print(
-            "[HISTORY] load fallback:",
-            repr(error),
-        )
-
-        data = _new_store()
+    data = sqlite_storage.load_document(
+        "conversation",
+        "chat_history",
+        path,
+        _new_store(),
+    )
 
     history_data = _normalise(
         data
@@ -554,26 +540,12 @@ def save_history(
     )
 
     path = _history_path()
-    temporary_path = (
-        path + ".tmp"
-    )
-
     try:
-        with open(
-            temporary_path,
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                safe_data,
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
-
-        os.replace(
-            temporary_path,
+        sqlite_storage.save_document(
+            "conversation",
+            "chat_history",
             path,
+            safe_data,
         )
 
     except OSError as error:

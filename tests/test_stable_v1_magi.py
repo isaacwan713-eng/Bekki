@@ -197,12 +197,12 @@ class MagiLaneTests(unittest.TestCase):
         prompt = (PROJECT_ROOT / "prompts" / "magi_gate.txt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("social_scope SOCIAL_RESEARCH", prompt)
+        self.assertIn("social_scope is SOCIAL_RESEARCH", prompt)
         self.assertIn('["xiaohongshu"]', prompt)
-        self.assertIn('"去小红书搜索美国麦当劳新出的玩具"', prompt)
-        self.assertIn("not RECOMMENDATION_RESEARCH + PRODUCT", prompt)
+        self.assertIn('"去小红书总结罗兰岗餐厅推荐帖"', prompt)
+        self.assertIn("fixed Xiaohongshu source", prompt)
 
-    def test_social_product_conflict_gets_targeted_ai_recovery(self):
+    def test_xiaohongshu_source_does_not_replace_recommendation_purpose(self):
         contradictory = {
             "lane": "SEARCH",
             "confidence": 0.95,
@@ -212,19 +212,65 @@ class MagiLaneTests(unittest.TestCase):
             "search_scope": "RECOMMENDATION_RESEARCH",
             "recommendation_domain": "PRODUCT",
         }
-        repaired = {
-            **contradictory,
-            "search_scope": "SOCIAL_RESEARCH",
-            "recommendation_domain": None,
-        }
-        module = _load_magi([contradictory, repaired])
+        module = _load_magi([contradictory])
         result = module.route_request("去小红书搜索美国麦当劳新出的玩具")
-        self.assertEqual(result["source"], "ai_recovery")
-        self.assertEqual(result["search_scope"], "SOCIAL_RESEARCH")
-        self.assertIsNone(result["recommendation_domain"])
-        retry_packet = module._test_ai_calls[1][0][1]
-        self.assertIn("search_scope must also be SOCIAL_RESEARCH", retry_packet)
-        self.assertIn("recommendation_domain must be null", retry_packet)
+        self.assertEqual(result["source"], "ai_primary")
+        self.assertEqual(result["search_scope"], "RECOMMENDATION_RESEARCH")
+        self.assertEqual(result["recommendation_domain"], "PRODUCT")
+        self.assertEqual(result["social_scope"], "OTHER")
+        self.assertEqual(result["source_scope"], "FIXED_SITES")
+        self.assertEqual(result["requested_sites"], ["xiaohongshu.com"])
+
+    def test_named_bilibili_fact_overlap_is_normalized_without_second_ai(self):
+        module = _load_magi([{
+            "lane": "SEARCH",
+            "confidence": 0.9,
+            "reason": (
+                "Verify the current official member list using only "
+                "official Bilibili material."
+            ),
+            "social_scope": "SOCIAL_RESEARCH",
+            "social_platforms": ["bilibili"],
+            "search_scope": "FACT_LOOKUP",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "PARTIAL",
+        }])
+
+        result = module.route_request(
+            "请去 B 站核实四禧丸子当前官方成员名单，只看官方账号。",
+            knowledge_context='[{"claim":"已保存的成员名单"}]',
+        )
+
+        self.assertEqual(result["source"], "ai_primary")
+        self.assertEqual(result["social_scope"], "OTHER")
+        self.assertEqual(result["social_platforms"], [])
+        self.assertEqual(result["search_scope"], "FACT_LOOKUP")
+        self.assertEqual(result["source_scope"], "FIXED_SITES")
+        self.assertEqual(result["requested_sites"], ["bilibili.com"])
+        self.assertTrue(result["official_only"])
+        self.assertEqual(result["local_knowledge_sufficiency"], "PARTIAL")
+        self.assertEqual(len(module._test_ai_calls), 1)
+
+    def test_literal_bilibili_source_overrides_invented_reddit_platform(self):
+        contradictory = {
+            "lane": "SEARCH",
+            "confidence": 0.9,
+            "reason": "Verify it on Reddit.",
+            "social_scope": "SOCIAL_RESEARCH",
+            "social_platforms": ["reddit"],
+            "search_scope": "FACT_LOOKUP",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "NONE",
+        }
+        module = _load_magi([contradictory])
+
+        result = module.route_request("请去B站核实这个名单。")
+
+        self.assertEqual(result["source"], "ai_primary")
+        self.assertEqual(result["search_scope"], "FACT_LOOKUP")
+        self.assertEqual(result["social_platforms"], [])
+        self.assertEqual(result["requested_sites"], ["bilibili.com"])
+        self.assertEqual(len(module._test_ai_calls), 1)
 
     def test_gate_contract_distinguishes_restaurant_recommendation_from_news(self):
         prompt = (PROJECT_ROOT / "prompts" / "magi_gate.txt").read_text(
@@ -270,26 +316,19 @@ class MagiLaneTests(unittest.TestCase):
         self.assertIn("search_scope", schema["required"])
         self.assertIn("recommendation_domain", schema["required"])
 
-    def test_contradictory_social_contract_gets_ai_recovery(self):
-        module = _load_magi([
-            {
-                "lane": "SEARCH",
-                "confidence": 0.98,
-                "reason": "Explicit social research.",
-                "social_scope": "SOCIAL_RESEARCH",
-                "social_platforms": [],
-            },
-            {
-                "lane": "SEARCH",
-                "confidence": 0.97,
-                "reason": "Explicit Xiaohongshu research.",
-                "social_scope": "SOCIAL_RESEARCH",
-                "social_platforms": ["xiaohongshu"],
-            },
-        ])
+    def test_literal_social_site_repairs_missing_platform_without_second_ai(self):
+        module = _load_magi([{
+            "lane": "SEARCH",
+            "confidence": 0.98,
+            "reason": "Explicit social research.",
+            "social_scope": "SOCIAL_RESEARCH",
+            "social_platforms": [],
+        }])
         result = module.route_request("去小红书搜索亲子餐厅")
-        self.assertEqual(result["source"], "ai_recovery")
+        self.assertEqual(result["source"], "ai_primary")
         self.assertEqual(result["social_platforms"], ["xiaohongshu"])
+        self.assertEqual(result["requested_sites"], ["xiaohongshu.com"])
+        self.assertEqual(len(module._test_ai_calls), 1)
 
     def test_recent_news_ai_result_is_search(self):
         module = _load_magi([{

@@ -32,7 +32,9 @@ Response modes:
   Xiaohongshu, Bilibili/B站/哔哩哔哩, or Reddit discussion/posts.
 - MEDIA_WATCH: find a specific work/video or a random item in a requested
   category so the user can watch it. A named website is a hard source condition,
-  not SOCIAL_RESEARCH.
+  not SOCIAL_RESEARCH. “去 iyf.tv 播放名侦探柯南” is MEDIA_WATCH. Commands for
+  an already-active player, including “暂停视频”, resume, volume, seek,
+  fullscreen, and episode switching, are DEVICE_ACTION instead.
 - RECOMMENDATION_RESEARCH: decide what current real-world options are worth
   choosing from independent evidence.
 - SHOPPING_RESEARCH: concrete merchant listings, current price/stock/seller,

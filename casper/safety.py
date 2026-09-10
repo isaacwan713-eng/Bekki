@@ -1,5 +1,7 @@
 """Non-negotiable Python safety reflexes for Casper."""
 
+import source_scope
+
 
 SUPPORTED_MODES = {
     "LOCAL_ANSWER",
@@ -38,6 +40,34 @@ def validate_plan(plan):
             "allowed": False,
             "reason": "Unsupported Casper response mode: " + mode,
         }
+    raw_source_scope = str(
+        plan.get("source_scope") or source_scope.SOURCE_OPEN_WEB
+    ).upper().strip()
+    raw_sites = plan.get("requested_sites", [])
+    normalized_sites = source_scope.normalize_domains(raw_sites)
+    if raw_source_scope not in source_scope.VALID_SOURCE_SCOPES:
+        return {"allowed": False, "reason": "Invalid source-scope contract."}
+    if raw_source_scope == source_scope.SOURCE_FIXED_SITES:
+        if not isinstance(raw_sites, list) or not normalized_sites:
+            return {
+                "allowed": False,
+                "reason": "FIXED_SITES requires at least one valid public domain.",
+            }
+        if (
+            any(not isinstance(value, str) for value in raw_sites)
+            or len(normalized_sites) != len(raw_sites)
+        ):
+            return {
+                "allowed": False,
+                "reason": "FIXED_SITES contains an invalid or duplicate domain.",
+            }
+    elif raw_sites:
+        return {
+            "allowed": False,
+            "reason": "OPEN_WEB cannot carry requested_sites.",
+        }
+    if not isinstance(plan.get("official_only", False), bool):
+        return {"allowed": False, "reason": "official_only must be boolean."}
     return {"allowed": True, "reason": ""}
 
 

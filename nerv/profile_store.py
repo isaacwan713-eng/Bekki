@@ -23,8 +23,7 @@ class ProfileStore:
         }
 
     def _ensure(self):
-        if not self.path.exists():
-            governance.save_json(self.path, self._default())
+        governance.ensure_json(self.path, self._default())
 
     def load(self):
         value = governance.load_json(self.path, self._default())

@@ -1,3 +1,5 @@
+import base64
+import ipaddress
 import json
 import os
 import re
@@ -18,7 +20,7 @@ import sys
 import requests
 import webbrowser
 import time
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 from dotenv import load_dotenv
 from io import BytesIO
 from pypdf import PdfReader
@@ -1105,6 +1107,104 @@ def score_sources(query, search_results):
     return search_results
 
 
+_SINGLE_SOURCE_EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "answer": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+        },
+        "evidence": {
+            "type": "object",
+            "properties": {
+                "modality": {
+                    "type": "string",
+                    "enum": ["TEXT", "IMAGE", "TEXT_AND_IMAGE", "NONE"],
+                },
+                "text_excerpt": {"type": "string", "maxLength": 2400},
+                "image_indexes": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 1, "maximum": 2},
+                    "maxItems": 2,
+                },
+                "visual_observation": {
+                    "type": "string",
+                    "maxLength": 1200,
+                },
+            },
+            "required": [
+                "modality", "text_excerpt", "image_indexes",
+                "visual_observation",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    "required": ["answer", "evidence"],
+    "additionalProperties": False,
+}
+
+
+def _normalize_single_source_extraction(value, source):
+    """Keep answers usable while marking only source-bound evidence."""
+
+    value = value if isinstance(value, dict) else {}
+    source = source if isinstance(source, dict) else {}
+    answer = value.get("answer")
+    raw = value.get("evidence")
+    raw = raw if isinstance(raw, dict) else {}
+    modality = str(raw.get("modality") or "").upper().strip()
+    if modality not in {"TEXT", "IMAGE", "TEXT_AND_IMAGE", "NONE"}:
+        modality = ""
+    page_content = str(source.get("page_content") or "")
+
+    def normalized(text):
+        return " ".join(str(text or "").split()).casefold()
+
+    excerpt = " ".join(str(raw.get("text_excerpt") or "").split())[:2400]
+    if excerpt and normalized(excerpt) not in normalized(page_content):
+        excerpt = ""
+    if not excerpt and isinstance(answer, str) and (
+        normalized(answer) and normalized(answer) in normalized(page_content)
+    ):
+        excerpt = " ".join(answer.split())[:2400]
+
+    indexes = []
+    page_images = (
+        source.get("page_images")
+        if isinstance(source.get("page_images"), list) else []
+    )
+    for candidate in raw.get("image_indexes", []):
+        if isinstance(candidate, bool):
+            continue
+        try:
+            candidate = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= candidate <= min(2, len(page_images)) and candidate not in indexes:
+            indexes.append(candidate)
+    observation = " ".join(
+        str(raw.get("visual_observation") or "").split()
+    )[:1200]
+    visual_valid = bool(indexes and observation)
+    text_valid = bool(excerpt)
+    if visual_valid and text_valid:
+        modality = "TEXT_AND_IMAGE"
+    elif visual_valid:
+        modality = "IMAGE"
+    elif text_valid:
+        modality = "TEXT"
+    else:
+        modality = "NONE"
+    return {
+        "answer": answer,
+        "evidence": {
+            "modality": modality,
+            "text_excerpt": excerpt,
+            "image_indexes": indexes if visual_valid else [],
+            "visual_observation": observation if visual_valid else "",
+        },
+    }
+
+
 def extract_answers(query, search_results):
     answers = []
 
@@ -1117,6 +1217,18 @@ def extract_answers(query, search_results):
             ""
         )
 
+        page_images = [
+            str(value or "").strip()
+            for value in result.get("page_images", [])[:2]
+            if str(value or "").strip()
+            and len(str(value or "")) <= 12 * 1024 * 1024
+        ] if isinstance(result.get("page_images"), list) else []
+        page_image_labels = [
+            str(value or "").strip()[:80]
+            for value in result.get("page_image_labels", [])[:len(page_images)]
+            if str(value or "").strip()
+        ] if isinstance(result.get("page_image_labels"), list) else []
+
         input_text = (
             "User question:\n"
             + query
@@ -1128,6 +1240,21 @@ def extract_answers(query, search_results):
             + f"Source Score: {result.get('source_score', 50)}\n"
             + f"Page Content:\n{page_content}\n"
         )
+        if page_images:
+            labels = [
+                page_image_labels[position]
+                if position < len(page_image_labels)
+                else "当前来源图片 " + str(position + 1)
+                for position in range(len(page_images))
+            ]
+            input_text += (
+                "\nAttached images are bound to this exact opened source: "
+                + ", ".join(
+                    "Image " + str(position + 1) + "=" + label
+                    for position, label in enumerate(labels)
+                )
+                + ".\n"
+            )
 
         result_ai = run_ai_prompt(
             "prompts/extract_single.txt",
@@ -1137,19 +1264,14 @@ def extract_answers(query, search_results):
             num_predict=512,
             think=False,
             model_name="gemma4:12b",
+            images=page_images or None,
+            json_schema=_SINGLE_SOURCE_EXTRACTION_SCHEMA,
         )
-
-        if result_ai is None:
-            answer = None
-
-        else:
-            answer = result_ai.get(
-                "answer"
-            )
-
+        normalized = _normalize_single_source_extraction(result_ai, result)
         answers.append({
             "index": index,
-            "answer": answer
+            "answer": normalized["answer"],
+            "evidence": normalized["evidence"],
         })
 
     return answers
@@ -3274,22 +3396,31 @@ _SOCIAL_QUERY_SCHEMA = {
 _SOCIAL_EVIDENCE_SCHEMA = {
     "type": "object",
     "properties": {
-        "page_summary": {"type": "string"},
+        "page_summary": {"type": "string", "maxLength": 700},
         "recent_post_count": {"type": "integer", "minimum": 0},
         "items": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string"},
+                    "title": {"type": "string", "maxLength": 300},
                     "author": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                        "anyOf": [
+                            {"type": "string", "maxLength": 160},
+                            {"type": "null"},
+                        ]
                     },
                     "time": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                        "anyOf": [
+                            {"type": "string", "maxLength": 80},
+                            {"type": "null"},
+                        ]
                     },
                     "engagement": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}]
+                        "anyOf": [
+                            {"type": "string", "maxLength": 80},
+                            {"type": "null"},
+                        ]
                     },
                     "relevance_score": {
                         "type": "integer", "minimum": 0, "maximum": 100
@@ -3311,7 +3442,11 @@ _SOCIAL_EVIDENCE_SCHEMA = {
             "maxItems": 12,
         },
         "excluded_count": {"type": "integer", "minimum": 0},
-        "warnings": {"type": "array", "items": {"type": "string"}},
+        "warnings": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 240},
+            "maxItems": 6,
+        },
     },
     "required": [
         "page_summary", "recent_post_count", "items", "excluded_count", "warnings"
@@ -4028,6 +4163,66 @@ def _nonnegative_int(value):
     except (TypeError, ValueError):
         return 0
 
+
+def _recover_complete_social_evidence(raw_output):
+    """Keep fully closed social items when a later JSON string is truncated."""
+
+    candidate = str(raw_output or "").strip()
+    if candidate.startswith("```"):
+        first_newline = candidate.find("\n")
+        if first_newline >= 0:
+            candidate = candidate[first_newline + 1:]
+    marker = re.search(r'"items"\s*:\s*\[', candidate)
+    if marker is None:
+        return None
+    cursor = marker.end()
+    decoder = json.JSONDecoder()
+    recovered = []
+    while cursor < len(candidate) and len(recovered) < 12:
+        while cursor < len(candidate) and (
+            candidate[cursor].isspace() or candidate[cursor] == ","
+        ):
+            cursor += 1
+        if cursor >= len(candidate) or candidate[cursor] == "]":
+            break
+        if candidate[cursor] != "{":
+            break
+        try:
+            value, end = decoder.raw_decode(candidate, cursor)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(value, dict):
+            break
+        recovered.append(value)
+        cursor = end
+    if not recovered:
+        return None
+
+    page_summary = ""
+    summary_marker = re.search(r'"page_summary"\s*:\s*', candidate)
+    if summary_marker is not None:
+        try:
+            summary, _end = decoder.raw_decode(candidate, summary_marker.end())
+        except json.JSONDecodeError:
+            summary = ""
+        if isinstance(summary, str):
+            page_summary = summary[:700]
+    print(
+        "[SOCIAL EXTRACT PARTIAL RECOVERY]",
+        "complete_items=" + str(len(recovered)),
+    )
+    return {
+        "page_summary": page_summary,
+        "recent_post_count": len(recovered),
+        "items": recovered,
+        "excluded_count": 0,
+        "warnings": [
+            "结构化输出在后续候选处中断；已保留截断前完整读取的 "
+            + str(len(recovered)) + " 条内容。"
+        ],
+        "_partial_json_recovery": True,
+    }
+
 def extract_social_evidence(
     page_text,
     recency_days=7,
@@ -4099,6 +4294,7 @@ def extract_social_evidence(
         think=False,
         model_name="gemma4:12b",
         json_schema=_SOCIAL_EVIDENCE_SCHEMA,
+        invalid_json_handler=_recover_complete_social_evidence,
     )
 
     if not isinstance(evidence, dict):
@@ -7129,8 +7325,19 @@ def social_research_controller(
 
 
 
-def search_controller(query, status_callback=None, evidence_budgets=None):
+def search_controller(
+    query,
+    status_callback=None,
+    evidence_budgets=None,
+    allowed_domains=None,
+):
     """Orchestrates search. AI judges meaning; Python controls the flow."""
+
+    allowed_domains = [
+        str(value or "").casefold().removeprefix("www.").strip()
+        for value in (allowed_domains or [])
+        if str(value or "").strip()
+    ]
 
     budgets = tuple(evidence_budgets or SEARCH_BUDGETS)
     budgets = tuple(
@@ -7164,6 +7371,24 @@ def search_controller(query, status_callback=None, evidence_budgets=None):
                 + str(search_results)
             ),
         }
+
+    if allowed_domains:
+        search_results = [
+            item for item in search_results
+            if isinstance(item, dict)
+            and any(
+                str(item.get("domain") or "").casefold().removeprefix("www.")
+                == allowed
+                or str(item.get("domain") or "").casefold().removeprefix("www.")
+                .endswith("." + allowed)
+                for allowed in allowed_domains
+            )
+        ]
+        print(
+            "[SEARCH FIXED SOURCE FILTER]",
+            "sites=" + ",".join(allowed_domains),
+            "results=" + str(len(search_results)),
+        )
 
     if not search_results:
         return {
@@ -7293,9 +7518,7 @@ def search_controller(query, status_callback=None, evidence_budgets=None):
             normalized_answers = []
 
             answer_map = {
-                item.get("index"): item.get(
-                    "answer"
-                )
+                item.get("index"): item
                 for item in new_answers
                 if isinstance(item, dict)
             }
@@ -7306,9 +7529,14 @@ def search_controller(query, status_callback=None, evidence_budgets=None):
             ):
                 normalized_answers.append({
                     "index": local_index,
-                    "answer": answer_map.get(
-                        local_index
-                    )
+                    "answer": (
+                        answer_map.get(local_index, {}).get("answer")
+                    ),
+                    "evidence": (
+                        answer_map.get(local_index, {}).get("evidence")
+                        if isinstance(answer_map.get(local_index), dict)
+                        else {}
+                    ),
                 })
 
             new_answers = normalized_answers
@@ -7333,7 +7561,12 @@ def search_controller(query, status_callback=None, evidence_budgets=None):
                 "index": global_index,
                 "answer": answer_item.get(
                     "answer"
-                )
+                ),
+                "evidence": (
+                    answer_item.get("evidence")
+                    if isinstance(answer_item.get("evidence"), dict)
+                    else {}
+                ),
             })
 
 
@@ -7507,6 +7740,10 @@ def search_controller(query, status_callback=None, evidence_budgets=None):
         "answers": all_answers,
         "judgment": judgment,
         "context": search_context,
+        "source_contract": {
+            "source_scope": "FIXED_SITES" if allowed_domains else "OPEN_WEB",
+            "requested_sites": allowed_domains,
+        },
     }
 
 def read_pdf(pdf_bytes):
@@ -7557,7 +7794,263 @@ def read_pdf(pdf_bytes):
             "error": str(error)
         }
 
-def read_page_with_browser(url):
+MAX_AUTONOMOUS_PAGE_IMAGES = 2
+MAX_AUTONOMOUS_IMAGE_CANDIDATES = 12
+MAX_AUTONOMOUS_IMAGE_CAPTURE_SECONDS = 20
+
+_NON_EVIDENCE_IMAGE_SIGNALS = (
+    "avatar", "badge", "emoji", "favicon", "icon", "logo", "pixel",
+    "placeholder", "profile", "sprite", "spinner", "tracking",
+)
+
+
+def _bounded_image_label(value, fallback="Source page image"):
+    label = " ".join(str(value or "").split())[:120]
+    return label or fallback
+
+
+def _portable_page_image_url(value):
+    """Keep a public HTTPS asset locator without credentials or query data."""
+
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or port not in {None, 443}
+    ):
+        return ""
+    hostname = parsed.hostname.lower()
+    if (
+        hostname == "localhost"
+        or hostname.endswith((".local", ".internal", ".localhost"))
+    ):
+        return ""
+    try:
+        if not ipaddress.ip_address(hostname).is_global:
+            return ""
+    except ValueError:
+        pass
+    return parsed._replace(params="", query="", fragment="").geturl()[:2000]
+
+
+def _image_candidate_rejected(url, label=""):
+    material = (str(url or "") + " " + str(label or "")).casefold()
+    return any(
+        re.search(r"(?:^|[^a-z0-9])" + re.escape(signal) + r"(?:[^a-z0-9]|$)", material)
+        for signal in _NON_EVIDENCE_IMAGE_SIGNALS
+    )
+
+
+def _srcset_candidate(value):
+    choices = []
+    for raw in str(value or "").split(","):
+        candidate = raw.strip().split(" ", 1)[0].strip()
+        if candidate:
+            choices.append(candidate)
+    return choices[-1] if choices else ""
+
+
+def _html_page_image_candidates(soup, page_url):
+    """Return bounded image URLs explicitly carried by the opened page."""
+
+    rows = []
+    seen = set()
+
+    def add(value, label, priority):
+        try:
+            resolved = urljoin(str(page_url or ""), str(value or "").strip())
+        except ValueError:
+            return
+        portable = _portable_page_image_url(resolved)
+        if not portable or portable in seen:
+            return
+        label = _bounded_image_label(label)
+        if _image_candidate_rejected(portable, label):
+            return
+        seen.add(portable)
+        rows.append((priority, resolved, portable, label))
+
+    for selector, label in (
+        ('meta[property="og:image"]', "Open Graph image"),
+        ('meta[property="og:image:secure_url"]', "Open Graph image"),
+        ('meta[name="twitter:image"]', "Twitter card image"),
+        ('meta[property="twitter:image"]', "Twitter card image"),
+    ):
+        tag = soup.select_one(selector)
+        if tag is not None:
+            add(tag.get("content"), label, 0)
+
+    for position, tag in enumerate(soup.find_all("img")[:40], start=1):
+        width = str(tag.get("width") or "").strip()
+        height = str(tag.get("height") or "").strip()
+        try:
+            if width and height and (float(width) < 160 or float(height) < 90):
+                continue
+        except ValueError:
+            pass
+        value = (
+            tag.get("data-src")
+            or tag.get("data-original")
+            or tag.get("data-lazy-src")
+            or _srcset_candidate(tag.get("srcset"))
+            or tag.get("src")
+        )
+        label = tag.get("alt") or tag.get("title") or (
+            "Source page image " + str(position)
+        )
+        add(value, label, 1)
+        if len(rows) >= MAX_AUTONOMOUS_IMAGE_CANDIDATES:
+            break
+    return sorted(rows, key=lambda value: value[0])[
+        :MAX_AUTONOMOUS_IMAGE_CANDIDATES
+    ]
+
+
+def _capture_html_page_images(soup, page_url):
+    """Download, decode, and bound source-carried public HTTPS images."""
+
+    payloads = []
+    labels = []
+    urls = []
+    known_hashes = []
+    try:
+        import image_loader
+    except Exception:
+        return payloads, labels, urls
+
+    started_at = time.monotonic()
+    for _, fetch_url, portable_url, label in _html_page_image_candidates(
+        soup, page_url
+    ):
+        if time.monotonic() - started_at >= MAX_AUTONOMOUS_IMAGE_CAPTURE_SECONDS:
+            break
+        try:
+            raw = image_loader._download_image(fetch_url)
+            normalized = social_browser._normalize_raster_to_jpeg(raw)
+        except Exception:
+            continue
+        if (
+            not normalized
+            or not social_browser._meaningful_raster_evidence(normalized)
+            or not social_browser._raster_is_distinct(
+                normalized, known_hashes, maximum_distance=3
+            )
+        ):
+            continue
+        payloads.append(base64.b64encode(normalized).decode("ascii"))
+        labels.append(_bounded_image_label(label))
+        urls.append(portable_url)
+        if len(payloads) >= MAX_AUTONOMOUS_PAGE_IMAGES:
+            break
+    return payloads, labels, urls
+
+
+def _capture_browser_page_images(page):
+    """Capture meaningful rendered image elements from a JS-backed page."""
+
+    started_at = time.monotonic()
+    try:
+        markup = page.content()
+        if len(markup.encode("utf-8")) <= 2 * 1024 * 1024:
+            soup = BeautifulSoup(markup, "html.parser")
+            payloads, labels, urls = _capture_html_page_images(soup, page.url)
+        else:
+            payloads, labels, urls = [], [], []
+    except Exception:
+        payloads, labels, urls = [], [], []
+    if len(payloads) >= MAX_AUTONOMOUS_PAGE_IMAGES:
+        return payloads, labels, urls
+
+    known_hashes = []
+    for payload in payloads:
+        try:
+            fingerprint = social_browser._raster_difference_hash(
+                base64.b64decode(payload, validate=True)
+            )
+        except Exception:
+            fingerprint = None
+        if fingerprint is not None:
+            known_hashes.append(fingerprint)
+
+    ranked = []
+    try:
+        locators = page.locator("img")
+        for index in range(min(int(locators.count()), 24)):
+            if time.monotonic() - started_at >= 24:
+                break
+            locator = locators.nth(index)
+            try:
+                box = locator.bounding_box(timeout=800)
+            except Exception:
+                continue
+            if not isinstance(box, dict):
+                continue
+            width = float(box.get("width") or 0)
+            height = float(box.get("height") or 0)
+            if (
+                width < 160
+                or height < 90
+                or width > 4096
+                or height > 4096
+                or width * height > 12_000_000
+                or width / max(height, 1) > 5.5
+            ):
+                continue
+            try:
+                label = locator.get_attribute("alt", timeout=500) or ""
+                image_url = locator.get_attribute("src", timeout=500) or ""
+            except Exception:
+                label, image_url = "", ""
+            label = _bounded_image_label(label, "Rendered source image")
+            if _image_candidate_rejected(image_url, label):
+                continue
+            ranked.append((width * height, index, label, image_url))
+    except Exception:
+        ranked = []
+
+    for _, index, label, image_url in sorted(ranked, reverse=True)[:8]:
+        if time.monotonic() - started_at >= 28:
+            break
+        try:
+            raw = locators.nth(index).screenshot(
+                type="jpeg", quality=84, timeout=3000
+            )
+            normalized = social_browser._normalize_raster_to_jpeg(raw)
+        except Exception:
+            continue
+        if (
+            not normalized
+            or not social_browser._meaningful_raster_evidence(normalized)
+            or not social_browser._raster_is_distinct(
+                normalized, known_hashes, maximum_distance=3
+            )
+        ):
+            continue
+        payloads.append(base64.b64encode(normalized).decode("ascii"))
+        labels.append(label)
+        urls.append(_portable_page_image_url(urljoin(page.url, image_url)))
+        if len(payloads) >= MAX_AUTONOMOUS_PAGE_IMAGES:
+            break
+    return payloads, labels, urls
+
+
+def _page_image_fields(include_images, payloads=None, labels=None, urls=None):
+    if not include_images:
+        return {}
+    return {
+        "page_images": list(payloads or [])[:MAX_AUTONOMOUS_PAGE_IMAGES],
+        "page_image_labels": list(labels or [])[:MAX_AUTONOMOUS_PAGE_IMAGES],
+        "page_image_urls": list(urls or [])[:MAX_AUTONOMOUS_PAGE_IMAGES],
+    }
+
+
+def read_page_with_browser(url, include_images=False):
     from playwright.sync_api import sync_playwright
     import managed_browser
 
@@ -7600,6 +8093,12 @@ def read_page_with_browser(url):
                             )
 
                 text = page.locator("body").inner_text()
+                if include_images:
+                    page_images, page_image_labels, page_image_urls = (
+                        _capture_browser_page_images(page)
+                    )
+                else:
+                    page_images, page_image_labels, page_image_urls = [], [], []
             finally:
                 page.close(run_before_unload=False)
 
@@ -7616,14 +8115,26 @@ def read_page_with_browser(url):
                     "error": (
                         "Browser returned too little "
                         "usable content."
-                    )
+                    ),
+                    **_page_image_fields(
+                        include_images,
+                        page_images,
+                        page_image_labels,
+                        page_image_urls,
+                    ),
                 }
 
             return {
                 "success": True,
                 "reader_type": "browser",
                 "content": text,
-                "error": None
+                "error": None,
+                **_page_image_fields(
+                    include_images,
+                    page_images,
+                    page_image_labels,
+                    page_image_urls,
+                ),
             }
 
     except Exception as error:
@@ -7631,10 +8142,11 @@ def read_page_with_browser(url):
             "success": False,
             "reader_type": "browser",
             "content": "",
-            "error": str(error)
+            "error": str(error),
+            **_page_image_fields(include_images),
         }
 
-def read_page(url):
+def read_page(url, include_images=False):
     headers = {
         "User-Agent": (
             "Mozilla/5.0 "
@@ -7660,7 +8172,8 @@ def read_page(url):
             "url": url,
             "reader_type": "browser_needed",
             "content": "",
-            "error": str(error)
+            "error": str(error),
+            **_page_image_fields(include_images),
         }
 
     content_type = response.headers.get(
@@ -7678,7 +8191,8 @@ def read_page(url):
             "url": url,
             "reader_type": "pdf",
             "content": pdf_result["content"],
-            "error": pdf_result["error"]
+            "error": pdf_result["error"],
+            **_page_image_fields(include_images),
         }
 
     # 非 HTML
@@ -7691,7 +8205,8 @@ def read_page(url):
             "error": (
                 "Unsupported content type: "
                 + content_type
-            )
+            ),
+            **_page_image_fields(include_images),
         }
 
     soup = BeautifulSoup(
@@ -7725,15 +8240,31 @@ def read_page(url):
             "error": (
                 "HTML content too short; "
                 "page may require JavaScript."
-            )
+            ),
+            **_page_image_fields(
+                include_images,
+            ),
         }
+
+    if include_images:
+        page_images, page_image_labels, page_image_urls = (
+            _capture_html_page_images(soup, response.url or url)
+        )
+    else:
+        page_images, page_image_labels, page_image_urls = [], [], []
 
     return {
         "success": True,
         "url": url,
         "reader_type": "html",
         "content": text,
-        "error": None
+        "error": None,
+        **_page_image_fields(
+            include_images,
+            page_images,
+            page_image_labels,
+            page_image_urls,
+        ),
     }
 
 

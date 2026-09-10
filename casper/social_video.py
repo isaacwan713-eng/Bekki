@@ -5,12 +5,15 @@
 """Strict embed contracts for lazy, in-card social-video playback."""
 
 import html
+import json
 import re
 from urllib.parse import parse_qs, urlencode, urlparse
 
 
 _YOUTUBE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _BILIBILI_BVID = re.compile(r"^BV[A-Za-z0-9]{10}$", re.IGNORECASE)
+_IYF_SHOW_ID = re.compile(r"^[A-Za-z0-9_-]{6,80}$")
+_IYF_EPISODE_ID = re.compile(r"^[A-Za-z0-9_-]{3,100}$")
 WEBVIEW_WRAPPER_HOST = "bekki-video.local"
 WEBVIEW_WRAPPER_ORIGIN = "https://" + WEBVIEW_WRAPPER_HOST
 
@@ -112,6 +115,34 @@ def social_video_contract(value):
             "display_name": "哔哩哔哩",
         }
 
+    if hostname in {"iyf.tv", "www.iyf.tv", "m.iyf.tv", "mview.iyf.tv"}:
+        match = re.fullmatch(
+            r"/play/([A-Za-z0-9_-]{6,80})/?",
+            parsed.path,
+        )
+        if not match or parsed.fragment:
+            return None
+        show_id = match.group(1)
+        if not _IYF_SHOW_ID.fullmatch(show_id):
+            return None
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if any(key != "id" for key in query) or len(query.get("id", [])) > 1:
+            return None
+        episode_id = query.get("id", [""])[0].strip()
+        if episode_id and not _IYF_EPISODE_ID.fullmatch(episode_id):
+            return None
+        return {
+            "platform": "iyf",
+            "video_id": show_id + ((":" + episode_id) if episode_id else ""),
+            "show_id": show_id,
+            "source_url": source_url,
+            "embed_url": source_url,
+            "site_domain": "iyf.tv",
+            "direct_page": True,
+            "is_short": False,
+            "display_name": "爱壹帆",
+        }
+
     return None
 
 
@@ -123,7 +154,9 @@ def _verified_contract(contract):
     rebuilt = social_video_contract(contract.get("source_url"))
     if rebuilt is None:
         return None
-    for key in ("platform", "video_id", "embed_url"):
+    for key in (
+        "platform", "video_id", "embed_url", "direct_page", "site_domain"
+    ):
         if str(rebuilt.get(key) or "") != str(contract.get(key) or ""):
             return None
     return rebuilt
@@ -135,22 +168,211 @@ def webview_wrapper_url(contract):
     verified = _verified_contract(contract)
     if verified is None:
         return ""
+    if verified.get("direct_page"):
+        return ""
     platform = str(verified.get("platform") or "")
     video_id = str(verified.get("video_id") or "")
     return f"{WEBVIEW_WRAPPER_ORIGIN}/player/{platform}/{video_id}"
 
 
+def webview_start_url(contract):
+    """Choose a wrapper for embeds and the bounded source page for IYF."""
+
+    verified = _verified_contract(contract)
+    if verified is None:
+        return ""
+    if verified.get("direct_page"):
+        return str(verified.get("source_url") or "")
+    return webview_wrapper_url(verified)
+
+
 def embed_document_url(contract):
     """Compatibility alias for the verified WebView2 wrapper URL."""
 
-    return webview_wrapper_url(contract)
+    return webview_start_url(contract)
+
+
+def direct_companion_bootstrap_script(contract, bridge_method):
+    """Return Bekki's isolated companion panel for one verified direct page.
+
+    IYF must be loaded as its original page because its player is not a stable
+    third-party iframe.  The conversation surface is therefore injected by
+    Bekki after navigation, inside a closed shadow root, and talks only to a
+    per-player randomized RPC method.  No page text or URL is interpolated.
+    """
+
+    verified = _verified_contract(contract)
+    bridge_method = str(bridge_method or "").strip()
+    if (
+        verified is None
+        or not verified.get("direct_page")
+        or verified.get("platform") != "iyf"
+        or not re.fullmatch(r"bekki_companion_event_[0-9a-f]{24}", bridge_method)
+    ):
+        return ""
+    bridge_name = json.dumps(bridge_method)
+    document = r"""
+(() => {
+  "use strict";
+  const rootId = "bekki-direct-companion-root";
+  const previous = document.getElementById(rootId);
+  if (previous) previous.remove();
+
+  const host = document.createElement("div");
+  host.id = rootId;
+  host.style.cssText = "all:initial;position:fixed;right:12px;bottom:12px;z-index:2147483647;display:none;pointer-events:none;";
+  const shadow = host.attachShadow({mode:"closed"});
+  const style = document.createElement("style");
+  style.textContent = `
+    :host { all:initial; }
+    * { box-sizing:border-box; }
+    .panel { pointer-events:auto; display:flex; flex-direction:column; width:min(320px,calc(100vw - 24px)); max-height:min(54vh,430px); overflow:hidden; border:1px solid rgba(159,203,237,.72); border-radius:16px; background:rgba(13,24,37,.96); color:#edf7ff; box-shadow:0 14px 42px rgba(0,0,0,.52); font-family:"Segoe UI Variable","Microsoft YaHei UI",sans-serif; }
+    .panel.minimized .body,.panel.minimized .form { display:none; }
+    .header { display:flex; align-items:center; gap:7px; padding:9px 9px 8px 12px; border-bottom:1px solid rgba(122,164,199,.25); }
+    .avatar { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; background:#d9efff; color:#2873ad; font-size:13px; }
+    .title { flex:1; font-size:12px; font-weight:750; }
+    .status { color:#8eb5d6; font-size:10px; font-weight:600; }
+    button { font-family:inherit; }
+    .icon { width:27px; height:25px; padding:0; border:0; border-radius:8px; background:rgba(121,167,205,.15); color:#c9e8ff; cursor:pointer; font-size:14px; font-weight:700; }
+    .body { display:flex; flex-direction:column; gap:7px; min-height:72px; padding:10px; overflow:auto; }
+    .empty { margin:auto; color:#92abc0; font-size:11px; text-align:center; }
+    .message { max-width:86%; padding:7px 9px; border-radius:11px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.45; }
+    .bekki { align-self:flex-start; background:#20364b; color:#eef8ff; border-bottom-left-radius:4px; }
+    .you { align-self:flex-end; background:#f0d7e5; color:#402d3a; border-bottom-right-radius:4px; }
+    .form { display:flex; gap:7px; padding:8px; border-top:1px solid rgba(122,164,199,.25); }
+    .input { min-width:0; flex:1; padding:8px 10px; border:1px solid #37556f; border-radius:10px; outline:none; background:#0e1a27; color:#f1f8ff; font:12px/1.3 inherit; }
+    .input:focus { border-color:#74b7ea; box-shadow:0 0 0 2px rgba(91,166,239,.16); }
+    .send { border:1px solid #66aae0; border-radius:10px; padding:0 11px; background:#438ec8; color:white; cursor:pointer; font-size:11px; font-weight:700; }
+    .input:disabled,.send:disabled { opacity:.55; cursor:default; }
+  `;
+  shadow.appendChild(style);
+
+  function element(tag, className, text) {
+    const value = document.createElement(tag);
+    if (className) value.className = className;
+    if (text) value.textContent = text;
+    return value;
+  }
+
+  const panel = element("section", "panel");
+  panel.setAttribute("aria-label", "Bekki 陪看对话");
+  const header = element("header", "header");
+  const avatar = element("span", "avatar", "●");
+  const title = element("span", "title", "Bekki 陪看");
+  const status = element("span", "status", "一起看");
+  const minimize = element("button", "icon", "—");
+  minimize.type = "button";
+  minimize.title = "收起";
+  const close = element("button", "icon", "×");
+  close.type = "button";
+  close.title = "关闭";
+  header.append(avatar, title, status, minimize, close);
+
+  const body = element("div", "body");
+  body.setAttribute("aria-live", "polite");
+  const empty = element("div", "empty", "看到什么都可以在这里问我～");
+  body.appendChild(empty);
+  const form = element("form", "form");
+  const input = element("input", "input");
+  input.maxLength = 320;
+  input.autocomplete = "off";
+  input.placeholder = "和 Bekki 说点什么…";
+  const send = element("button", "send", "发送");
+  send.type = "submit";
+  form.append(input, send);
+  panel.append(header, body, form);
+  shadow.appendChild(panel);
+  (document.documentElement || document.body).appendChild(host);
+
+  const bridgeMethod = __BRIDGE_METHOD__;
+  function cleanText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 320);
+  }
+  function setBusy(busy) {
+    const value = Boolean(busy);
+    input.disabled = value;
+    send.disabled = value;
+    status.textContent = value ? "正在看…" : "一起看";
+    if (!value && host.style.display !== "none" && !panel.classList.contains("minimized")) input.focus({preventScroll:true});
+  }
+  function post(payload) {
+    try {
+      const api = window.qtwebview2 && window.qtwebview2.api;
+      if (!api || typeof api[bridgeMethod] !== "function") {
+        setBusy(false);
+        return false;
+      }
+      Promise.resolve(api[bridgeMethod](payload)).catch(() => setBusy(false));
+      return true;
+    } catch (_error) {
+      setBusy(false);
+      return false;
+    }
+  }
+  function addMessage(role, value) {
+    const text = cleanText(value);
+    if (!text) return;
+    empty.hidden = true;
+    const item = element("div", "message " + (role === "YOU" ? "you" : "bekki"));
+    item.textContent = text;
+    body.appendChild(item);
+    while (body.querySelectorAll(".message").length > 8) {
+      const oldest = body.querySelector(".message");
+      if (oldest) oldest.remove();
+    }
+    body.scrollTop = body.scrollHeight;
+  }
+  const companion = Object.freeze({
+    setEnabled(enabled) {
+      host.style.display = enabled ? "block" : "none";
+      if (enabled) {
+        panel.classList.remove("minimized");
+        setTimeout(() => input.focus({preventScroll:true}), 0);
+      } else {
+        setBusy(false);
+      }
+    },
+    setBusy,
+    addMessage,
+    reset() {
+      body.querySelectorAll(".message").forEach((item) => item.remove());
+      empty.hidden = false;
+      input.value = "";
+      setBusy(false);
+    }
+  });
+  Object.defineProperty(window, "BekkiCompanion", {value:companion, configurable:true});
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = cleanText(input.value);
+    if (!text || input.disabled) return;
+    input.value = "";
+    addMessage("YOU", text);
+    setBusy(true);
+    post({type:"companion_message", text});
+  });
+  input.addEventListener("keydown", (event) => event.stopPropagation());
+  minimize.addEventListener("click", () => {
+    const collapsed = panel.classList.toggle("minimized");
+    minimize.textContent = collapsed ? "+" : "—";
+    minimize.title = collapsed ? "展开" : "收起";
+  });
+  close.addEventListener("click", () => {
+    host.style.display = "none";
+    setBusy(false);
+    post({type:"companion_close"});
+  });
+})();
+"""
+    return document.replace("__BRIDGE_METHOD__", bridge_name)
 
 
 def embed_wrapper_html(contract):
     """Create the verified player plus Bekki's in-surface companion panel."""
 
     verified = _verified_contract(contract)
-    if verified is None:
+    if verified is None or verified.get("direct_page"):
         return ""
     iframe_src = html.escape(str(verified["embed_url"]), quote=True)
     title = html.escape(str(verified.get("display_name") or "Video"), quote=True)
@@ -388,6 +610,15 @@ def allowed_webview_navigation(value, contract):
     verified = _verified_contract(contract)
     if verified is None:
         return False
+    if verified.get("direct_page"):
+        candidate_contract = social_video_contract(value)
+        return bool(
+            candidate_contract
+            and candidate_contract.get("platform") == "iyf"
+            and candidate_contract.get("site_domain")
+            == verified.get("site_domain")
+            and candidate_contract.get("show_id") == verified.get("show_id")
+        )
     candidate = str(value or "").strip()
     if candidate == webview_wrapper_url(verified):
         return True

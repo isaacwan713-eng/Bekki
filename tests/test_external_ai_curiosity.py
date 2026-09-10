@@ -267,6 +267,7 @@ class CuriosityJournalTests(unittest.TestCase):
             "id": "curiosity-sii-performance",
             "state": "VERIFIED",
             "question": "Team SII有哪些代表性公演？",
+            "topic_id": "snh48",
         }
         state = journal.load()
         state["items"].append(source)
@@ -281,6 +282,16 @@ class CuriosityJournalTests(unittest.TestCase):
             "claim": "Team SII的一项代表性公演是示例公演。",
             "topics": ["SNH48", "Team SII"],
             "knowledge_type": "stable",
+            "curation": {
+                "status": "curated",
+                "topic_id": "snh48",
+                "knowledge_layer": "L2_CONTEXT",
+            },
+            "topic_lifecycle": {
+                "state": "ACTIVE",
+                "next_focus": "补充一个不同的基础历史故事。",
+                "interest_score": 0.88,
+            },
         }
 
         result = journal.observe_verified_knowledge(
@@ -292,7 +303,7 @@ class CuriosityJournalTests(unittest.TestCase):
         self.assertEqual(result["status"], "drafted")
         self.assertEqual(
             captured["curiosity_seed"]["kind"],
-            "VERIFIED_KNOWLEDGE_IDLE",
+            "TOPIC_GAP",
         )
         self.assertIs(captured["curiosity_seed"]["idle_generation"], True)
         self.assertEqual(
@@ -301,7 +312,7 @@ class CuriosityJournalTests(unittest.TestCase):
         )
         self.assertEqual(captured["completed_turn"]["bekki_reply"], learned["claim"])
         drafted = journal.load()["items"][-1]
-        self.assertEqual(drafted["seed_kind"], "VERIFIED_KNOWLEDGE_IDLE")
+        self.assertEqual(drafted["seed_kind"], "TOPIC_GAP")
         self.assertEqual(
             drafted["source_knowledge_id"],
             "knowledge-sii-performance",

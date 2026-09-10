@@ -54,13 +54,22 @@ Apply this boundary by meaning, not by the word "current":
   structure. Decide between stable and reviewable from its real expected
   change rate and stale-answer cost. Rare change may justify stable plus random
   review; plausible near-term revision favors reviewable.
-- A roster means the people or individual members assigned to those units. A
-  current roster, one person's current affiliation, or an immediate operating
-  schedule is changing. A roster explicitly anchored to a completed past date
-  or closed season is FIXED_HISTORY and stable even though it contains people;
+- A complete official people roster is a maintained set when the accepted
+  answer and bounded evidence establish the whole current roster, not merely
+  one person's current affiliation. Use MAINTAINED_SET_OR_STRUCTURE with
+  reviewable and a proportional freshness interval; its relationship edges
+  remain active only while that supporting claim is fresh. An isolated current
+  affiliation, an incomplete/open lineup, or an immediate operating schedule
+  is transient. A roster explicitly anchored to a completed past date or
+  closed season is FIXED_HISTORY and stable even though it contains people;
   its exact period must remain attached in both the claim text and
-  temporal_scope. If temporal_scope is absent, do not silently invent a
-  period. Do not call the list of organizational units a roster.
+  temporal_scope. If temporal_scope is absent, never label it FIXED_HISTORY:
+  use the maintained reviewable form only for a complete official roster,
+  otherwise use transient. Do not call organizational units a people roster.
+- When the runtime marks `current_people_roster=true`, the exact claim is an
+  explicit multi-person roster without a closed historical scope. It MUST use
+  MAINTAINED_SET_OR_STRUCTURE + reviewable + a proportional interval. Stable,
+  transient, and FIXED_HISTORY decisions will be rejected.
 - A present complete official set is not current-turn-only merely because the
   sentence says "currently." Slow change may support stable plus random
   review; otherwise give it a proportional scheduled review interval.
@@ -76,9 +85,11 @@ sufficiently confident, and structurally complete. You may correct the first
 proposal in either direction. When persistence_eligible=true and your final
 basis is FIXED_HISTORY, DURABLE_EXPLANATION_DEFINITION_OR_MECHANISM, or
 MAINTAINED_SET_OR_STRUCTURE, use persist=true. When persistence_eligible=false,
-or the exact claim is a person's current assignment, current/open people
-roster, schedule, or other transient state, use persist=false. An exact closed
-historical people roster is not included in that transient list. The runtime validates only this
+or the exact claim is an isolated current assignment, incomplete/open lineup,
+schedule, or other transient state, use persist=false. A verified complete
+official roster is the maintained-set exception and is never stable without a
+closed historical scope. An exact closed historical people roster is also not
+included in that transient list. The runtime validates only this
 eligibility and the internal consistency of your selected lifecycle; it does
 not choose the semantic basis.
 

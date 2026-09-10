@@ -12,12 +12,14 @@ For every claim, choose lifecycle_basis first and then obey this policy:
   are genuinely rare enough for random background review, or reviewable with a
   proportional 1-3650 day interval when scheduled freshness is more appropriate.
 - TRANSIENT_CURRENT_STATE_OR_EVENT -> changing, event, or news with null days
-  and persist=false. This includes individual membership or affiliation,
-  current rosters of people, schedules, prices, office holders, versions,
-  occurrences, and ongoing developments. A completed historical roster with an
-  explicit past date or closed season instead uses FIXED_HISTORY + stable only
-  when the exact period remains in both the claim and temporal_scope. Never
-  invent missing period metadata.
+  and persist=false. This includes isolated current affiliations, incomplete
+  or open lineups, schedules, prices, office holders, versions, occurrences,
+  and ongoing developments. A complete current official people roster may use
+  MAINTAINED_SET_OR_STRUCTURE + reviewable with a proportional interval when
+  the accepted answer and evidence establish the whole set. A completed
+  historical roster uses FIXED_HISTORY + stable only when its exact past date
+  or closed season remains in both the claim and temporal_scope. Never invent
+  missing period metadata; FIXED_HISTORY without temporal_scope is invalid.
 
 Retrieval fact_scope is not the lifecycle. A completed one-time milestone such
 as a public debut, founding, first release, first appointment, or another named
@@ -55,6 +57,9 @@ A review never silently auto-updates the claim. A reviewable deadline merely
 ends freshness pending separate verification; a stable claim remains eligible
 for random review. Avoid multi-year intervals when scheduled review is more
 proportional.
+If a claim record has `current_people_roster=true`, recovery MUST return
+MAINTAINED_SET_OR_STRUCTURE, reviewable, a proportional non-null interval, and
+persist=true when persistence_eligible=true. Do not repeat a stable result.
 The maximum interval is exceptional and requires unusually durable semantics.
 Every final decision must comply with the rules above and therefore return
 `lifecycle_proportional=true`. Return exactly one decision for every supplied

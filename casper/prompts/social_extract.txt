@@ -35,6 +35,8 @@ Rules for every mode:
 
 - Extract distinct real post rows only. Exclude navigation text, menus,
   suggested searches, footer text, ads, and duplicates.
+- Copy each visible title compactly and exactly. Never extend, repeat, or guess
+  characters to repair a cut-off or garbled title; exclude that row instead.
 - relevance_score is 0-100 and measures visible semantic support for the full
   user request, not popularity. A post that explicitly contains and connects
   all queried entities should outrank a popular post that mentions only one.
@@ -61,8 +63,9 @@ Rules for every mode:
 - engagement is only the visible search-grid interaction value associated with
   that exact post. Do not guess whether it is likes, comments, or shares unless
   the visible label says so; post-detail extraction handles labeled metrics.
-- items contains at most 12 candidates. The caller independently validates the
-  time contract and recalculates the selected count.
+- items contains at most 12 candidates. Keep every relevance_reason to one
+  short clause so the complete JSON stays bounded. The caller independently
+  validates the time contract and recalculates the selected count.
 - recent_post_count is retained as a compatibility count field. Set it to the
   number of candidate posts returned in either mode; downstream output uses
   selected_post_count when no recent window exists.

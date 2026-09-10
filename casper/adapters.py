@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import source_scope
 import subprocess
 
 
@@ -1332,6 +1333,45 @@ def execute_mode(
     # Load the existing search/browser layer only for research modes.
     import tools
 
+    requested_sites = source_scope.normalize_domains(
+        melchior_plan.get("requested_sites", [])
+    )
+    fixed_source = (
+        str(melchior_plan.get("source_scope") or "").upper().strip()
+        == source_scope.SOURCE_FIXED_SITES
+        and bool(requested_sites)
+    )
+    if fixed_source and mode not in {
+        "FACT_LOOKUP", "CLAIM_CHECK", "SOCIAL_RESEARCH", "MEDIA_WATCH",
+    }:
+        # Until a mode has an executor that can enforce allowed domains, stop
+        # instead of silently widening a literal site restriction to the web.
+        return {
+            "status": "SOURCE_SCOPE_UNSUPPORTED",
+            "results": [],
+            "requested_sites": requested_sites,
+            "context": (
+                "The requested websites were preserved, but this response "
+                "mode does not yet have a fixed-site executor. No open-web "
+                "search was run."
+            ),
+        }, action_context
+    if (
+        fixed_source
+        and bool(melchior_plan.get("official_only"))
+        and mode == "SOCIAL_RESEARCH"
+    ):
+        return {
+            "status": "SOURCE_SCOPE_UNSUPPORTED",
+            "results": [],
+            "requested_sites": requested_sites,
+            "context": (
+                "The official-only restriction was preserved, but the social "
+                "research executor cannot yet prove publisher identity. No "
+                "broader platform search was run."
+            ),
+        }, action_context
+
     if mode in {
         "NEWS_FEED", "DISCUSSION_FEED", "FACT_LOOKUP", "CLAIM_CHECK",
         "SOCIAL_RESEARCH", "MEDIA_WATCH",
@@ -1490,6 +1530,8 @@ def execute_mode(
                 user_request=message,
                 status_callback=status_callback,
                 risk=melchior_plan.get("risk", "low"),
+                requested_sites=requested_sites if fixed_source else [],
+                official_only=bool(melchior_plan.get("official_only")),
             )
         except Exception as error:
             print("[CASPER BROWSER UNAVAILABLE]", repr(error))
@@ -1499,10 +1541,27 @@ def execute_mode(
         query = tools.build_claim_query(
             melchior_plan.get("claim_to_verify") or message
         )
-        search_result = tools.search_controller(
-            query,
-            status_callback=status_callback,
-        )
+        if fixed_source and bool(melchior_plan.get("official_only")):
+            from . import browser as casper_browser
+
+            search_result = casper_browser.fact_lookup_controller(
+                query,
+                user_request=message,
+                status_callback=status_callback,
+                risk=melchior_plan.get("risk", "low"),
+                requested_sites=requested_sites,
+                official_only=True,
+            )
+        else:
+            query = source_scope.constrain_query(
+                query,
+                requested_sites if fixed_source else [],
+            )
+            search_result = tools.search_controller(
+                query,
+                status_callback=status_callback,
+                allowed_domains=requested_sites if fixed_source else [],
+            )
 
     return search_result, action_context
 

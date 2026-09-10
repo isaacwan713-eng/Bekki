@@ -49,6 +49,29 @@ _MARKDOWN_IMAGE = re.compile(
     re.IGNORECASE,
 )
 
+_MARKDOWN_BLOCK = re.compile(
+    r"(?m)^\s{0,3}(?:#{1,6}\s|[-+*]\s|\d{1,3}[.)]\s|>\s|```|~~~|"
+    r"(?:\|[^\n]+\|\s*$))"
+)
+_MARKDOWN_INLINE = re.compile(
+    r"(?:\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|"
+    r"\[[^\]\n]+\]\([^\)\n]+\)|"
+    r"(?<!\w)\*[^*\n]+\*(?!\w)|(?<!\w)_[^_\n]+_(?!\w))"
+)
+
+
+def has_rich_markdown(value):
+    """Return true only when visible text actually needs rich rendering.
+
+    Ordinary chat is deliberately kept on Qt's plain-text path.  Besides
+    avoiding needless HTML conversion, that gives one QFont request ownership
+    of the whole line instead of allowing the rich-text engine to fragment a
+    CJK sentence into independently matched spans.
+    """
+
+    text = _bounded_text(str(value) if value is not None else "", MAX_MESSAGE_MARKDOWN)
+    return bool(_MARKDOWN_BLOCK.search(text) or _MARKDOWN_INLINE.search(text))
+
 
 def sanitize_markdown(value, limit=MAX_MESSAGE_MARKDOWN):
     """Return a bounded, display-only Markdown subset.

@@ -17,6 +17,13 @@ prior answer was never stored. claim_to_verify must neutrally identify the
 objective issue using the current message and recent conversation without
 endorsing either side.
 
+A neutral request to verify, recheck, look up, confirm from official sources,
+or ask "are you sure?" is not by itself a correction and must return NONE.
+Only use OBJECTIVE_DISPUTE when the user explicitly says or clearly entails
+that an earlier factual assertion is wrong, mistaken, or should be corrected.
+The normal fact-verification route may research a neutral recheck without
+disputing, superseding, or deactivating stored Knowledge.
+
 Return NONE when the user is not correcting a factual assertion, is correcting
 only wording/style, or the apparent disagreement is unrelated to the recent
 answer and candidate records.

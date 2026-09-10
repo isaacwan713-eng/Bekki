@@ -27,6 +27,12 @@ Rules:
   record.
 - Data from another season or date is not an answer.
 - The candidate must be explicitly supported by the supplied source evidence.
+- Source restrictions in original_user_request and the Entity Scope are part
+  of the request. If they require official sources only, set source_supported
+  and accepted false unless the supplied page itself is clearly the named
+  entity's official account, official site, or official publication. A wiki,
+  encyclopedia, repost, fan account, news summary, or "official-related" page
+  is not an official source even when its factual text agrees.
 - Evaluate every requested part. If the user asks for teams, member assignment,
   and performance organization, a candidate covering only members or one
   concert is incomplete.

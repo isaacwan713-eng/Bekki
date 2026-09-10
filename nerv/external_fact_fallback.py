@@ -14,7 +14,9 @@ from datetime import datetime
 from nerv.schemas import KNOWLEDGE_TEMPORAL_SCOPE_SCHEMA
 
 
-PARTITION_LIFECYCLE_AUDIT_VERSION = 7
+PARTITION_LIFECYCLE_AUDIT_VERSION = 10
+CURRENT_ROSTER_LIFECYCLE_NORMALIZATION_VERSION = 1
+CURRENT_PEOPLE_ROSTER_REVIEW_DAYS = 365
 
 _NO_COMPLETE_CORE = "NO_COMPLETE_CORE"
 
@@ -24,6 +26,94 @@ FALLBACK_LIFECYCLE_BASES = [
     "MAINTAINED_SET_OR_STRUCTURE",
     "TRANSIENT_NONSTRUCTURAL_STATE_OR_EVENT",
 ]
+
+_PEOPLE_ROSTER_LIST_RE = re.compile(
+    r"(?:成员(?:名单)?|人员名单|members?(?:\s+list)?|roster)\s*"
+    r"(?:包括|为|是|有|[:：]|includes?|are)\s*(.+)",
+    re.IGNORECASE,
+)
+_PEOPLE_ROSTER_SPLIT_RE = re.compile(
+    r"\s*(?:、|，|,|\band\b|和|及)\s*",
+    re.IGNORECASE,
+)
+_CLOSED_ROSTER_WORDING_RE = re.compile(
+    r"(?:最初|创始|初代|原成员|前成员|曾任|历史|当时|"
+    r"original|founding|former|historical|at the time)",
+    re.IGNORECASE,
+)
+
+
+def _is_unclosed_people_roster(record):
+    """Identify a literal present/default people roster, not unit structure."""
+
+    if not isinstance(record, dict):
+        return False
+    if _claim_bound_closed_temporal_scope(record) is not None:
+        return False
+    text = " ".join([
+        str(record.get("subject") or ""),
+        str(record.get("claim") or ""),
+    ])
+    if _CLOSED_ROSTER_WORDING_RE.search(text):
+        return False
+    match = _PEOPLE_ROSTER_LIST_RE.search(text)
+    if not match:
+        return False
+    tail = re.split(r"[。；;\n]", match.group(1), maxsplit=1)[0]
+    entries = [
+        str(value or "").strip(" \t\r\n:：。.;；'\"“”‘’")
+        for value in _PEOPLE_ROSTER_SPLIT_RE.split(tail)
+    ]
+    entries = [value for value in entries if value]
+    return 2 <= len(entries) <= 50
+
+
+def _normalize_current_people_roster_decisions(result, records):
+    """Apply the non-negotiable lifecycle shape for a live people roster.
+
+    The model still determines whether a claim is a roster and supplies its
+    explanation.  Once the bounded input record has already identified an
+    unclosed people roster, however, its storage shape is a mechanical policy:
+    it is a maintained, reviewable set with a finite refresh interval.  Keeping
+    this rule in Python prevents a semantically correct model explanation from
+    being rejected merely because the JSON labels remained ``stable/null``.
+    """
+
+    if not isinstance(result, dict) or not isinstance(
+        result.get("decisions"), list
+    ):
+        return result, 0
+    record_by_id = {
+        str(item.get("audit_id") or ""): item
+        for item in records
+        if isinstance(item, dict) and item.get("audit_id")
+    }
+    normalized = deepcopy(result)
+    changed = 0
+    for decision in normalized["decisions"]:
+        if not isinstance(decision, dict):
+            continue
+        audit_id = str(decision.get("audit_id") or "")
+        record = record_by_id.get(audit_id, {})
+        current_people_roster = (
+            record.get("current_people_roster") is True
+            or _is_unclosed_people_roster(record)
+        )
+        if not current_people_roster:
+            continue
+        persistence_eligible = record.get(
+            "persistence_eligible",
+            record.get("proposed_persist") is True,
+        ) is True
+        decision.update({
+            "persist": persistence_eligible,
+            "lifecycle_basis": "MAINTAINED_SET_OR_STRUCTURE",
+            "knowledge_type": "reviewable",
+            "valid_for_days": CURRENT_PEOPLE_ROSTER_REVIEW_DAYS,
+            "lifecycle_proportional": True,
+        })
+        changed += 1
+    return normalized, changed
 
 
 FACT_FALLBACK_PREFLIGHT_SCHEMA = {
@@ -419,6 +509,33 @@ def _normalize_closed_temporal_scope(value):
         "requested_period": requested_period,
         "allow_previous_period": allow_previous_period,
     }
+
+
+def _claim_bound_closed_temporal_scope(record):
+    """Accept closed-period metadata only when its period is visible in claim."""
+
+    record = record if isinstance(record, dict) else {}
+    scope = _normalize_closed_temporal_scope(record.get("temporal_scope"))
+    if scope is None:
+        return None
+    claim = " ".join(str(record.get("claim") or "").split()).casefold()
+    period = str(scope.get("requested_period") or "").casefold()
+    years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", period))
+    if years:
+        return scope if all(year in claim for year in years) else None
+    compact_claim = re.sub(r"[^\w]+", "", claim, flags=re.UNICODE)
+    compact_period = re.sub(r"[^\w]+", "", period, flags=re.UNICODE)
+    if len(compact_period) >= 3 and compact_period in compact_claim:
+        return scope
+    period_tokens = [
+        value for value in re.findall(r"[\w\u3400-\u9fff]+", period)
+        if len(value) >= 3
+    ]
+    return (
+        scope
+        if period_tokens and all(value in claim for value in period_tokens)
+        else None
+    )
 
 
 def _evidence_packet(search_result):
@@ -1043,6 +1160,21 @@ def _partition_lifecycle_proposal_errors(decisions, records):
             decision.get("lifecycle_basis")
             == "TRANSIENT_CURRENT_STATE_OR_EVENT"
         )
+        current_people_roster = (
+            proposed.get("current_people_roster") is True
+            or _is_unclosed_people_roster(proposed)
+        )
+        if current_people_roster and (
+            decision.get("lifecycle_basis")
+            != "MAINTAINED_SET_OR_STRUCTURE"
+            or decision.get("knowledge_type") != "reviewable"
+        ):
+            errors.append(audit_id + ":current_roster_must_be_reviewable")
+        if (
+            decision.get("lifecycle_basis") == "FIXED_HISTORY"
+            and _claim_bound_closed_temporal_scope(proposed) is None
+        ):
+            errors.append(audit_id + ":fixed_history_missing_temporal_scope")
         if decision.get("persist") is True and not persistence_eligible:
             errors.append(audit_id + ":ineligible_claim_persisted")
         if transient and decision.get("persist") is True:
@@ -1077,6 +1209,15 @@ def _run_partition_lifecycle_audit(records, context):
         audit_ids,
         "AUDIT",
     )
+    result, roster_normalized = (
+        _normalize_current_people_roster_decisions(result, records)
+    )
+    if roster_normalized:
+        print(
+            "[EXTERNAL FACT CURRENT ROSTER LIFECYCLE NORMALIZED]",
+            "items=" + str(roster_normalized),
+            "review_days=" + str(CURRENT_PEOPLE_ROSTER_REVIEW_DAYS),
+        )
     normalized, errors = _normalize_partition_lifecycle_result(
         result, audit_ids
     )
@@ -1105,6 +1246,15 @@ def _run_partition_lifecycle_audit(records, context):
             audit_ids,
             "RECOVERY",
         )
+        recovered, roster_normalized = (
+            _normalize_current_people_roster_decisions(recovered, records)
+        )
+        if roster_normalized:
+            print(
+                "[EXTERNAL FACT CURRENT ROSTER LIFECYCLE NORMALIZED]",
+                "items=" + str(roster_normalized),
+                "review_days=" + str(CURRENT_PEOPLE_ROSTER_REVIEW_DAYS),
+            )
         normalized, recovery_errors = _normalize_partition_lifecycle_result(
             recovered, audit_ids
         )
@@ -1146,6 +1296,7 @@ def audit_partition_lifecycles(
     )
     records = []
     eligibility_by_index = {}
+    current_roster_by_index = {}
     for index, claim in enumerate(claims):
         if not isinstance(claim, dict):
             continue
@@ -1162,6 +1313,8 @@ def audit_partition_lifecycles(
             and bool(str(claim.get("claim") or "").strip())
         )
         eligibility_by_index[index] = persistence_eligible
+        current_people_roster = _is_unclosed_people_roster(claim)
+        current_roster_by_index[index] = current_people_roster
         records.append({
             "audit_id": "partition_claim_" + str(index),
             "subject": str(claim.get("subject") or "")[:300],
@@ -1173,9 +1326,8 @@ def audit_partition_lifecycles(
             "proposed_valid_for_days": claim.get("valid_for_days"),
             "confidence": claim.get("confidence"),
             "persistence_eligible": persistence_eligible,
-            "temporal_scope": _normalize_closed_temporal_scope(
-                claim.get("temporal_scope")
-            ),
+            "temporal_scope": _claim_bound_closed_temporal_scope(claim),
+            "current_people_roster": current_people_roster,
         })
     decisions = _run_partition_lifecycle_audit(records, {
         "mode": "new_mixed_answer",
@@ -1213,9 +1365,7 @@ def audit_partition_lifecycles(
             eligibility_by_index.get(index) is True
             and decision.get("persist") is True
         )
-        temporal_scope = _normalize_closed_temporal_scope(
-            claim.get("temporal_scope")
-        )
+        temporal_scope = _claim_bound_closed_temporal_scope(claim)
         missing_fixed_period = (
             decision.get("lifecycle_basis") == "FIXED_HISTORY"
             and temporal_scope is None
@@ -1234,6 +1384,11 @@ def audit_partition_lifecycles(
                 PARTITION_LIFECYCLE_AUDIT_VERSION
             ),
         })
+        if current_roster_by_index.get(index) is True:
+            audited["current_people_roster"] = True
+            audited["current_roster_lifecycle_normalization_version"] = (
+                CURRENT_ROSTER_LIFECYCLE_NORMALIZATION_VERSION
+            )
         if temporal_scope is not None:
             audited["temporal_scope"] = temporal_scope
         elif missing_fixed_period:
@@ -1271,6 +1426,8 @@ def audit_existing_partition_lifecycles(items):
             "proposed_valid_for_days": item.get("valid_for_days"),
             "confidence": item.get("confidence"),
             "persistence_eligible": True,
+            "temporal_scope": _claim_bound_closed_temporal_scope(item),
+            "current_people_roster": _is_unclosed_people_roster(item),
         })
     decisions = _run_partition_lifecycle_audit(records, {
         "mode": "legacy_mixed_answer_reaudit",
@@ -1402,9 +1559,10 @@ def partition_mixed_answer(
             continue
         seen.add(identity)
         candidate = dict(raw)
-        temporal_scope = _normalize_closed_temporal_scope(
-            raw.get("temporal_scope")
-        )
+        temporal_scope = _claim_bound_closed_temporal_scope({
+            "claim": claim,
+            "temporal_scope": raw.get("temporal_scope"),
+        })
         candidate.update({
             "persist": persist,
             "subject": subject,
@@ -1451,6 +1609,11 @@ def intake_audited_fact_lookup(
     answer = str(accepted_answer or "").strip()
     if str(risk or "low").lower() != "low" or not answer:
         return {"status": "SKIPPED", "reason": "risk_or_answer_ineligible"}
+    if search_result.get("knowledge_capture_eligible") is False:
+        return {
+            "status": "SKIPPED",
+            "reason": "display_only_temporal_evidence",
+        }
     fallback = search_result.get("external_ai_fallback")
     fallback = fallback if isinstance(fallback, dict) else {}
     if str(fallback.get("status") or "").upper() in {

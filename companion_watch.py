@@ -11,6 +11,7 @@ import re
 
 from dotenv import load_dotenv
 
+import balthasar
 import model_runtime
 
 
@@ -105,6 +106,10 @@ def normalize_request(payload):
     message = _bounded_text(payload.get("message"), MAX_MESSAGE_CHARS)
     if request_kind == "USER_MESSAGE" and not message:
         return None
+    try:
+        reaction_index = max(0, min(10000, int(payload.get("reaction_index") or 0)))
+    except (TypeError, ValueError):
+        reaction_index = 0
     return {
         "request_kind": request_kind,
         "image_base64": frame,
@@ -114,11 +119,29 @@ def normalize_request(payload):
         "video_url": _bounded_text(payload.get("video_url"), 2048),
         "generation": int(payload.get("generation") or 0),
         "is_first_reaction": bool(payload.get("is_first_reaction")),
+        "reaction_index": reaction_index,
         "history": _bounded_history(payload.get("history")),
     }
 
 
-def normalize_response(value, request_kind):
+def _spoken_signature(value):
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", str(value or "")).casefold()
+
+
+def _generic_auto_reaction(reply):
+    signature = _spoken_signature(reply)
+    return signature in {
+        "这一幕很有意思",
+        "这一幕真有意思",
+        "这个画面很有意思",
+        "看起来很有趣",
+        "这一幕真有趣",
+        "好有意思",
+        "画面很有意思",
+    }
+
+
+def normalize_response(value, request_kind, history=None):
     """Fail closed on verbose, malformed, or empty model output."""
 
     if not isinstance(value, dict):
@@ -131,6 +154,16 @@ def normalize_response(value, request_kind):
         response_kind = expected_kind
     if not reply:
         should_show = False
+    if request_kind == "AUTO_REACTION" and should_show:
+        previous_replies = {
+            _spoken_signature(item.get("text"))
+            for item in (history if isinstance(history, list) else [])
+            if isinstance(item, dict)
+            and str(item.get("role") or "").upper().strip() == "BEKKI"
+        }
+        if _generic_auto_reaction(reply) or _spoken_signature(reply) in previous_replies:
+            reply = ""
+            should_show = False
     if request_kind == "USER_MESSAGE" and not should_show:
         # A direct user message must always receive a bounded response, even
         # when the current frame is blank or unclear.
@@ -145,7 +178,7 @@ def normalize_response(value, request_kind):
     }
 
 
-def _prompt_for(request):
+def _prompt_for(request, balthasar_plan=None, emotion_context=""):
     history_json = json.dumps(
         request["history"],
         ensure_ascii=False,
@@ -175,9 +208,25 @@ repeating or defending it."""
         and request["is_first_reaction"]
         else ""
     )
+    direction = balthasar_plan if isinstance(balthasar_plan, dict) else {}
+    balthasar_direction = json.dumps(
+        {
+            "tone": direction.get("tone", "warm"),
+            "support_style": direction.get("support_style", "direct"),
+            "bekki_mood": direction.get("bekki_mood", "cheerful"),
+            "social_move": direction.get("social_move", "shared_observation"),
+            "cadence": direction.get("cadence", "one_sentence"),
+            "expressiveness": direction.get("expressiveness", "medium"),
+            "familiarity": direction.get("familiarity", "warm"),
+            "question_policy": direction.get("question_policy", "none"),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return f"""
 You are Bekki quietly watching one video together with the user inside Bekki's
-theater mode. Be warm, observant, playful when appropriate, and concise.
+theater mode. Balthasar directs the emotional delivery while the current frame
+remains the only source of scene facts.
 
 The attached image is one current video frame. A Bekki chat panel may be visible
 in the lower-right corner. Ignore that panel, its text, buttons, and input box
@@ -195,10 +244,29 @@ Do not mention being an AI, image analysis, screenshots, policies, or technical
 limitations unless the user's question directly requires a brief limitation.
 Do not use markdown, lists, quotations, URLs, or stage directions.
 
+Sound like a person sharing the sofa, not a visual-caption service. Do not
+begin an automatic reaction with stock narration such as “画面里”, “这一幕”,
+“看起来”, “似乎”, or “我注意到”. React to one concrete visible detail with a
+point of view: a quick instinct, amused aside, gentle emotional echo, playful
+tease, or anticipation. Natural fragments and two-beat spoken rhythm are
+welcome. Do not force “～”, emoji, an exclamation mark, or a question into every
+turn. Never reuse the wording, opener, or punchline of a recent Bekki line.
+Keep Bekki recognizable: warm, lightly playful, and willing to have a small
+opinion. A tiny virtual-idol or chuunibyou touch is allowed when it fits, but
+never force character lore or turn each reaction into a catchphrase.
+For a direct question, answer first; a brief companion-like aside may follow.
+If uncertain, say the uncertainty conversationally instead of sounding like a
+formal report. Balthasar changes delivery only and never overrides visible
+evidence, safety, or uncertainty.
+
 {mode_instruction}
 {first_reaction_instruction}
 
+Balthasar companion direction: {balthasar_direction}
+Current bounded Bekki emotional state: {_bounded_text(emotion_context, 800) or 'unknown'}
+
 Request kind: {request['request_kind']}
+Automatic reaction index: {request['reaction_index']}
 Platform: {request['platform'] or 'unknown'}
 Video title: {request['video_title'] or 'unknown'}
 Recent companion-chat history: {history_json}
@@ -208,7 +276,7 @@ Return exactly the requested JSON object.
 """.strip()
 
 
-def generate_reply(payload):
+def generate_reply(payload, emotion_context=""):
     """Generate one low-priority local companion response from a video frame."""
 
     request = normalize_request(payload)
@@ -220,8 +288,20 @@ def generate_reply(payload):
         if is_answer
         else COMPANION_WATCH_REACTION_MODEL
     )
+    balthasar_plan = balthasar.plan_companion_watch(
+        request["request_kind"],
+        request["message"],
+        request["history"],
+        emotion_context,
+        reaction_index=request["reaction_index"],
+        model_name=selected_model,
+    )
     raw = model_runtime.generate(
-        _prompt_for(request),
+        _prompt_for(
+            request,
+            balthasar_plan=balthasar_plan,
+            emotion_context=emotion_context,
+        ),
         model_name=selected_model,
         images=[request["image_base64"]],
         response_format=_response_schema(request["request_kind"]),
@@ -239,14 +319,23 @@ def generate_reply(payload):
         parsed = json.loads(str(raw or "").strip())
     except json.JSONDecodeError:
         parsed = {}
-    response = normalize_response(parsed, request["request_kind"])
+    response = normalize_response(
+        parsed,
+        request["request_kind"],
+        history=request["history"],
+    )
     if response is None:
-        response = normalize_response({}, request["request_kind"])
+        response = normalize_response(
+            {},
+            request["request_kind"],
+            history=request["history"],
+        )
     response.update(
         {
             "request_kind": request["request_kind"],
             "video_url": request["video_url"],
             "generation": request["generation"],
+            "_balthasar_plan": balthasar_plan,
         }
     )
     return response

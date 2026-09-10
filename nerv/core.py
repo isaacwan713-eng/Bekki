@@ -8,6 +8,7 @@ from .learning_engine import LearningEngine
 from .knowledge_verification import CuriosityKnowledgeVerifier
 from .knowledge_curator import KnowledgeCurator
 from .stable_knowledge_review import StableKnowledgeReviewer
+from .topic_lifecycle import TopicLifecycleManager
 from .profile_store import ProfileStore
 from .profile_writer import ProfileWriter
 from . import skill_management
@@ -22,7 +23,17 @@ class NervCore:
         self.knowledge_verification = CuriosityKnowledgeVerifier(
             model_call, unload_model
         )
-        self.knowledge_curator = KnowledgeCurator(model_call, unload_model)
+        self.topic_lifecycle = TopicLifecycleManager(
+            model_call,
+            unload_model,
+            curiosity_journal=self.curiosity,
+        )
+        self.knowledge_curator = KnowledgeCurator(
+            model_call,
+            unload_model,
+            topic_lifecycle=self.topic_lifecycle,
+            curiosity_journal=self.curiosity,
+        )
         self.stable_knowledge_review = StableKnowledgeReviewer(
             model_call, unload_model
         )

@@ -1,7 +1,40 @@
 🩵 Bekki AI
 
-Current installed source patch: **Verified Video Site + Companion Bridge Hotfix V1.10.47.3**
-(`bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902`), built on
+Current installed source patch: **Knowledge Visual Recall V1.10.54.7**
+(`bekki-knowledge-visual-recall-v1-10-54-7-20260910`),
+built on Knowledge Autonomous Visual Evidence V1.10.54.6,
+Knowledge Evidence Index Bootstrap Hotfix V1.10.54.5.1,
+Knowledge Evidence Lineage V1.10.54.5,
+Topic Lifecycle Isolation V1.10.54.4,
+Knowledge Curator Terminal Outcomes Hotfix V1.10.54.3.1,
+Knowledge Curator Isolation V1.10.54.3,
+Knowledge Judge Isolation V1.10.54.2,
+Knowledge Source Recovery V1.10.54.1,
+Unified Knowledge Autonomy V1.10.54,
+Knowledge Category Granularity V1.10.53,
+Knowledge Taxonomy Active Claims Hotfix V1.10.52.1,
+Temporal Evidence Graceful Fallback V1.10.51.11,
+Bilibili Official Publisher Video Discovery V1.10.51.10,
+Current Roster Lifecycle Normalization V1.10.51.9,
+Knowledge Relationship Support Recovery V1.10.51.8,
+Knowledge Relationship Temporal Scope V1.10.51.7,
+Bilibili Video Detail Recovery V1.10.51.6,
+Bilibili User Card DOM Recovery V1.10.51.5,
+Bilibili Official Evidence Recovery V1.10.51.4,
+Bilibili Native Fact Executor V1.10.51.3,
+Fixed Site Source Contract V1.10.51.2,
+Knowledge Relationship Live Recovery Hotfix V1.10.51.1,
+Knowledge Relationship Grounding V1.10.51,
+UI Font Consistency Hotfix V1.10.50.1,
+Knowledge Autonomy + Topic Lifecycle V1.10.50,
+SQLite Knowledge + NERV Storage Phase 2 V1.10.49,
+SQLite Core Storage Phase 1 V1.10.48,
+Balthasar Companion + Social JSON Hotfix V1.10.47.8,
+IYF Companion Watch Hotfix V1.10.47.7,
+Media Watch Command Lane Hotfix V1.10.47.6,
+IYF Inline Playback Hotfix V1.10.47.5,
+IYF Native Candidate Hotfix V1.10.47.4,
+Verified Video Site + Companion Bridge Hotfix V1.10.47.3,
 Companion Watch Switch Hotfix V1.10.47.2,
 Companion Watch Recognition Hotfix V1.10.47.1, Companion Watch V1.10.47,
 Media Watch Native Discovery Hotfix V1.10.46.1,
@@ -69,6 +102,436 @@ Screenshot Search V1, UI Personalization V1,
 NERV Knowledge Verification V1.4, External AI Desktop V1.3.2, NERV Learning V1.3, and
 Stable V1.3.9.5. On startup the
 authoritative root entry point prints this build ID and its full loaded path.
+
+Knowledge Visual Recall V1.10.54.7 completes the read side of visual Knowledge.
+After MAGI has judged the active recalled Knowledge sufficient for the exact
+local question, the final Gemma answer call may receive at most two matching
+stored public-source images. Routing, searching, Knowledge judging, curation,
+lifecycle assessment, and JSON-format recovery receive no recalled image
+bytes and gain no additional model call.
+
+Each image is read locally without a network fallback and must match its claim
+record, media-index entry, content-addressed ID, SHA-256 digest, byte length,
+file type, extension, public-source provenance, and `PUBLIC_SOURCE` privacy
+class. The prompt maps each 1-based image number to one active Knowledge claim.
+It treats visible content as evidence rather than instructions and limits its
+use to appearance details inside that text-anchored claim. A missing, modified,
+private, malformed, or unsealed image is skipped and the answer safely remains
+text-only. Raw bytes and local paths never enter prompts, Knowledge, logs, or
+history.
+
+Knowledge Autonomous Visual Evidence V1.10.54.6 carries images through Bekki's
+real background-learning path. For each approved public webpage, the reader
+captures at most two meaningful public HTTPS images from the opened source;
+HTML pages use source-carried image URLs and JavaScript pages can use bounded
+rendered image elements. Decorative, tiny, blank, duplicate, non-HTTPS, and
+unsupported images are rejected before model input.
+
+The autonomous extractor receives the bounded images alongside the source
+text and must identify the exact 1-based image indexes plus a visible
+observation. Every candidate still requires a literal source-text excerpt, so
+an image can supplement but cannot independently invent reusable Knowledge.
+The evidence fingerprint binds the selected image bytes before the Knowledge
+Judge runs. The Judge receives only evidence metadata, observations, and the
+fingerprint—not raw image payloads. Accepted public images are normalized,
+content-addressed, and referenced from Knowledge by asset ID. Learning logs
+report captured images, visually supported candidates, and persisted image
+claims. Existing Knowledge and the media index are upgraded only through a
+normal future learning event; installation performs no rewrite.
+
+Knowledge Evidence Index Bootstrap Hotfix V1.10.54.5.1 lets the read-only live
+validator distinguish a legitimate pre-start empty media index from missing
+metadata required by an image claim. Legacy-only and text-only stores may be
+checked before first upgraded startup; any image claim or media asset still
+requires the authoritative SQLite index. Malformed accounting fails closed.
+The validator does not initialize or rewrite the live database.
+
+The inherited V1.10.54.5 lineage layer binds newly extracted public-source
+claims to immutable, hash-checked evidence. Policy-only and legacy records are
+labelled separately rather than being given synthetic evidence. Text support
+must be a literal page excerpt or an explicitly source-bound extraction.
+Public webpage images and opened-source video frames may be retained only when
+the extractor identifies the exact image and visible supporting detail. Their
+bytes are content-addressed under `data/knowledge/media/assets`; SQLite stores
+a portable media index, and Knowledge keeps only evidence records and asset
+IDs.
+
+The same image is deduplicated by SHA-256, and ordinary routing context exposes
+only its bounded visual observation. V1.10.54.7 adds the separate, sufficient
+local-Knowledge final-answer path described above; a read-only audit still
+checks claim, record, bundle, asset, and file hashes. User uploads, local files,
+private media, and unbound thumbnails are never admitted by this automatic
+path. Existing claims remain readable as legacy-compatible records and retain
+their prior curation fingerprints, so installation does not force recuration.
+Bilibili playback, Companion Watch, UI, and fonts are unchanged.
+
+Topic Lifecycle Isolation V1.10.54.4 binds every AI lifecycle decision to the
+exact immutable Topic snapshot that was sent to the model. Python rejects a
+stale fingerprint before changing either the Topic document or its flat
+Knowledge mirrors. The one recovery attempt is rebuilt without the invalid
+first response, and oversized optional category or Curiosity context is
+trimmed while exact claim and pending IDs remain intact.
+
+When curation touches a Topic, its immediate lifecycle pass can now assess and
+seed Curiosity only for those touched Topics. One failed Topic no longer blocks
+later Topics, and mixed runs report `COMPLETED_WITH_ERRORS`. Due refreshes rank
+ahead of interest within the unified scheduler. Existing SQLite facts are not
+rewritten; legacy lifecycle rows remain readable and are upgraded only through
+a normal future assessment. Bilibili, playback, UI, and Companion Watch remain
+unchanged.
+
+Knowledge Curator Terminal Outcomes Hotfix V1.10.54.3.1 replaces the
+AKB-specific live acceptance rule with one generic terminal-outcome audit for
+every Knowledge Topic. A CURATED item must resolve to its exact authoritative
+claim and subject entity inside its Topic. A DUPLICATE must resolve to a real
+existing Topic claim. A CONFLICT must close through one matching conflict
+record, its Topic, and every related existing claim in that Topic. Missing,
+self-referential, or cross-Topic targets still fail validation.
+
+This correctly accepts the safe AKB48 result from V1.10.54.3: three records
+were curated and the team-structure record became a traceable conflict with an
+older structural claim. It does not special-case AKB48 or force a conflict into
+the active Topic. New Curator outcomes carry extra trace metadata; existing
+V1.10.54.3 conflict rows remain compatible through their stored conflict
+record. SQLite facts are not rewritten. Bilibili, playback, UI, and Companion
+Watch remain unchanged.
+
+Knowledge Curator Isolation V1.10.54.3 fixes the organization-stage
+cross-topic contamination seen after the four AKB48 candidates were correctly
+promoted by V1.10.54.2. The Curator now receives exactly one immutable verified
+Knowledge item, only the compact Topic ecosystems that match that item's
+evidence, and a Python-generated curation fingerprint. Its JSON Schema binds
+the one allowed Knowledge ID and exact fingerprint; subject and Topic names
+must also be grounded in the current evidence or selected existing Topic.
+
+The retry packet is rebuilt without the invalid first answer, so a 四禧丸子
+answer cannot seed the AKB48 recovery pass. Each valid item is committed before
+the next one begins. One item that still fails remains pending with a bounded
+diagnostic while later items continue, producing `COMPLETED_WITH_ERRORS` rather
+than aborting the whole inbox. Curator prompts are capped before model-runtime
+truncation. Existing SQLite facts and Topic history are preserved; source
+discovery, Judge policy, Bilibili, playback, UI, and Companion Watch are
+unchanged.
+
+Knowledge Judge Isolation V1.10.54.2 fixes the live AKB48 learning handoff
+after source recovery succeeded. The Judge now receives only the current
+candidate, bounded approved-source metadata, and at most twelve compact
+same-subject or same-topic comparison records. Unrelated Topic payloads and
+large internal provenance fields never enter its prompt. Every decision must
+echo a Python-generated candidate fingerprint under a JSON Schema; invalid,
+truncated, or wrong-candidate output gets one history-free compact retry and
+then fails closed as `pending_review` with an explicit diagnostic.
+
+An exact pending Knowledge ID is retained only once. A later valid AUTO_SAVE or
+UPDATE promotes that record in place, while an exact already-verified identity
+is structurally deduplicated. Wikipedia is treated as an established reference
+and is reviewed before Fandom, Namu Wiki, and other low-accountability wiki
+domains. Learning logs distinguish missing sources, empty extraction, semantic
+pending review, and invalid Judge JSON. Existing SQLite history is preserved;
+Bilibili, playback, UI, and Companion Watch remain unchanged.
+
+Knowledge Source Recovery V1.10.54.1 fixes the first live unified-learning
+failure without weakening source trust. Topic/source identity matching is now
+case-insensitive, official and institutional candidates are reviewed first,
+and a bounded second search uses the clean Topic title when primary discovery
+finds no approved readable source. Current-policy rejected domains are skipped;
+403/time-out URLs receive a 24-hour retry timestamp and cannot consume the same
+cycle repeatedly. A zero-evidence run is recorded as
+`NO_VERIFIED_EVIDENCE`, old zero-evidence V1.10.54 completions are interpreted
+the same way without rewriting SQLite history, and failed Topics retry after
+24 hours instead of receiving the normal seven-day success cooldown. Bilibili,
+playback, UI, and Companion Watch remain unchanged.
+
+Unified Knowledge Autonomy V1.10.54 connects the earlier profile-guided
+background learner (including interests such as Manchester United) to the same
+SQLite Knowledge, Curiosity, taxonomy, relationship, L1-L5, and Topic Lifecycle
+pipeline used by normal verified learning. Desktop idle checks and the existing
+Windows scheduled task call one shared executor protected by a cross-process
+single-run lock. Lifecycle refreshes outrank open gaps, interest_score ranks
+topics inside the same urgency class, and only one Topic is selected per run.
+An unresolved Curiosity question owns its Topic until it closes, so background
+learning cannot start a duplicate branch. PAUSED_COMPLETE topics remain paused
+unless their refresh is due. Stable and reviewable findings can enter the
+normal curation inbox; match results, schedules, headlines, rumors, and other
+event/news findings remain only in the bounded learning log. Companion Watch,
+Bilibili, playback, UI, and browser behavior are unchanged.
+
+Knowledge Category Granularity V1.10.53 refines every active Topic from a
+legacy one-node category into exactly two reusable levels: broad family and
+stable kind. The existing domain and first node are preserved; current
+two-node paths are locked during ordinary lifecycle reassessment. Category IDs
+and labels are reuse-first, and duplicate sibling spellings are rejected both
+after model output and at the final write boundary. A classification-only
+migration preserves claims, sources, relationships, temporal scopes, fact
+types, L1-L5 layers, lifecycle state, completion, refresh schedule, and
+Curiosity behavior. Bilibili, playback, UI, and Companion Watch are unchanged.
+
+Temporal Evidence Graceful Fallback V1.10.51.11 fixes the live gap
+between a verified official account and its usable video evidence. After an
+exact Bilibili profile card proves one numeric publisher UID, a fixed-site
+official FACT_LOOKUP now searches inside that publisher's own video pages
+first. Only rendered video cards below the same proven UID are bound to the
+official identity; redirects to another UID or domain fail closed. If the
+publisher-local pages are unavailable or empty, the existing exact-author
+global search remains as a bounded fallback.
+
+For a roster request, publisher-local discovery uses the literal `成员`
+facet, so extra dates, account labels, and question wording cannot hide a
+relevant official upload such as a member-introduction video. The resulting
+source records retain both the original identity proof and the publisher-page
+binding version. This path is exclusive to fixed-Bilibili official
+FACT_LOOKUP; social research, inline playback, audio, Media Watch, and
+Companion Watch behavior are unchanged.
+
+Current Roster Lifecycle Normalization V1.10.51.9 makes the accepted current
+people-roster lifecycle deterministic after the claim has passed the existing
+evidence and eligibility gates. A live roster is always persisted as a
+`reviewable` `MAINTAINED_SET_OR_STRUCTURE` with a 365-day refresh interval;
+an AI response that leaves the fields as `stable/null` can no longer cause a
+safe, verified refresh to fail closed. Ineligible or unsupported claims remain
+non-persistent.
+
+When a newly verified roster contains the exact same subject and unordered
+member set as an existing active roster, Bekki refreshes the existing claim's
+expiry and evidence instead of creating a duplicate. The original knowledge
+ID, canonical claim, curation metadata, entity IDs, and relationship IDs are
+preserved. A changed member set never overwrites the existing claim and still
+goes through normal conflict curation. UI, browser, video playback, audio, and
+Companion Watch are unchanged.
+
+Knowledge Relationship Support Recovery V1.10.51.8 repairs the contract-v2
+migration edge case found by the live SQLite test. When one semantic edge has
+both a current roster claim and a closed historical roster claim, each support
+is now checked against its own evidence text. An older edge-level historical
+text can no longer remove the valid current support. Databases already touched
+by V1.10.51.7 recover the missing support from exact, claim-matched curator
+relationship IDs retained in the authoritative flat ledger; edge IDs and claim
+IDs remain unchanged. The Windows live validator uses Unicode-safe constants,
+so PowerShell 5.1 pipe encoding cannot create a false roster mismatch. UI,
+browser, video playback, audio, and Companion Watch are unchanged.
+
+Knowledge Relationship Temporal Scope V1.10.51.7 prevents a permanent closed
+historical snapshot from keeping a present-state relationship visible after
+its current reviewable support expires. Relationship reads now have explicit
+`current`, `historical`, and `all` views. The safe public default is `current`;
+the complete Topic catalog uses `all` and exposes separate current/historical
+support IDs plus `CURRENT_ONLY`, `HISTORICAL_ONLY`, or
+`CURRENT_AND_HISTORICAL` status. Existing semantic relationship IDs and
+evidence are retained during the bounded contract-v2 migration. UI, browser,
+video playback, audio, and Companion Watch are unchanged.
+
+Bilibili Video Detail Recovery V1.10.51.6 fixes the intermittent case where an
+already verified official video opens before its current-video metadata and
+media are ready. Bekki now performs a bounded metadata wait, checks both the
+opened URL and player payload against the selected video ID, and retries once
+when the first read has no bound cover or frame. Current-video data can come
+from initial state, visible detail nodes, Open Graph metadata, or a matching
+VideoObject record; recommendation-page text remains excluded.
+
+At most two validated current-video images can accompany that one source into
+fact extraction, then the encoded images are discarded before browser results
+are retained. A cover remains only a cover and one sampled frame remains only
+one moment, so missing facts still fail closed. This release does not modify
+inline playback, sound, theater mode, WebView2, UI, or Companion Watch.
+
+Bilibili User Card DOM Recovery V1.10.51.5 recognizes Bilibili's current
+`/upuser` result cards without depending on unstable CSS class names. A
+candidate must still be a numeric Bilibili space link inside one visible card
+with an avatar plus follower, video, and follow controls; the browser-side
+card must contain exactly one space identity. A second deterministic recovery
+layer handles renamed markup, after which the existing exact entity and
+official-marker gate remains authoritative. Similar accounts stay rejected.
+
+The live test also showed that three relationship-rich Knowledge curator
+assignments can exhaust Gemma 4's JSON output before it closes. Curator batches
+are therefore limited to two atomic assignments. This release does not change
+inline playback, sound, theater mode, WebView2, UI, or Companion Watch.
+
+Bilibili Official Evidence Recovery V1.10.51.4 makes official-only Bilibili
+facts fail closed unless Bekki first binds the exact requested entity to a
+real `/upuser` profile card with an official marker or verified badge. Video
+evidence must then be authored by that exact account URL or account name;
+ordinary video-card uploader links can no longer impersonate profile search
+results, and model validators cannot override the deterministic identity gate.
+
+Legacy `casper_audited_fact_lookup` Knowledge created for a strict official-only
+request without this proof is preserved but quarantined as disputed on first
+startup. It is removed from active retrieval and curator input until properly
+reverified. Current rosters cannot become fixed history from an invisible
+model-invented date, explicit roster relationships can be repaired when the
+group name is stored in the separate subject field, and a failed curator pass
+waits 15 minutes before an automatic retry. SQLite remains schema version 2.
+This release does not change inline video, sound, theater mode, WebView2, or
+Companion Watch behavior.
+
+Bilibili Native Fact Executor V1.10.51.3 gives fixed-Bilibili fact lookups a
+site-native execution path without relabeling them as social research. Casper
+opens Bilibili's own search UI, captures bounded video and account-profile
+candidates, and opens only selected candidates for the existing temporal,
+entity, completeness, and official-publisher validators. Account candidates
+are enabled only for this fact path, so ordinary social result behavior is
+unchanged.
+
+Search-engine `site:` operators are now canonical and idempotent: model-added
+or duplicate operators are removed before the one approved domain constraint
+is applied, and web-engine syntax plus a redundant leading site name are
+removed before native search. An empty or failed native Bilibili result remains
+bounded evidence failure rather than silently widening to Google, Bing, or an
+external model. SQLite remains schema version 2 and no stored data is migrated.
+
+Fixed Site Source Contract V1.10.51.2 separates what Bekki is doing from where
+she must do it. `FACT_LOOKUP`, `CLAIM_CHECK`, `SOCIAL_RESEARCH`, and
+`MEDIA_WATCH` remain semantic purposes; Bilibili, YouTube, Wikipedia, or a
+literal public domain become an independent `FIXED_SITES` source constraint.
+For example, an official-Bilibili roster verification stays `FACT_LOOKUP` with
+`requested_sites=[bilibili.com]` and `official_only=true`, while a request to
+summarize Bilibili opinions stays `SOCIAL_RESEARCH` and a YouTube playback
+request stays `MEDIA_WATCH`.
+
+MAGI extracts only sites literally bound to a search instruction. Melchior
+preserves that contract without asking a second model to reinterpret the
+source, and Casper applies the domain restriction to discovery and follow-up
+queries. Unsupported purpose/source combinations stop safely instead of
+silently widening to the open web. SQLite remains schema version 2 and no
+Knowledge or NERV data is migrated by this release.
+
+Knowledge Relationship Live Recovery Hotfix V1.10.51.1 closes the exact
+failure observed in the first live 四禧丸子 run. If both curator model passes
+omit edges from an explicit verified roster, the runtime now copies only the
+literal member names from that atomic claim and emits the canonical grounded
+member-to-group edges. It also forces an unclosed current people roster to be
+reviewable, prevents a neutral “please verify” request from disputing stored
+Knowledge, and disables snippet-only acceptance when the user requires
+official sources exclusively.
+
+Knowledge Relationship Grounding V1.10.51 makes every semantic edge an
+auditable consequence of one or more active verified claims. Explicit member
+lists must produce a complete set of canonical member-to-group edges; entity
+names and relation evidence must occur in the exact atomic claim, while topic
+titles, aliases and keywords are retained only when supported by verified
+source context. Unsupported legacy relationships are quarantined, reversed
+legacy membership edges are repaired, and invented translations or
+romanizations are removed without changing the underlying claim.
+
+Complete current official rosters may now survive the mixed-answer lifecycle
+audit as expiring reviewable knowledge. They cannot be mislabeled fixed
+history without a valid closed-period scope. Relationship views intersect
+topic copies with the authoritative SQLite knowledge ledger, so an expired,
+disputed or superseded supporting claim immediately hides its edges. Claims
+that create edges are forced into L3 Relationships; legacy L1/L2 assignments
+are cleared for automatic reassessment. No missing fact is reconstructed from
+adjacent answer text, so a roster dropped by an older build must be searched
+and verified again.
+
+UI Font Consistency Hotfix V1.10.50.1 gives ordinary chat one explicit
+point-sized Normal-weight font contract. Latin and Chinese fallback families
+are requested in the same order across message display, measurement, input,
+appearance preview and the application default. On supported Qt versions,
+context font merging keeps a Chinese run on one visually compatible fallback.
+Plain chat avoids needless rich-text conversion, while real Markdown continues
+to support headings, emphasis, lists, code and links.
+
+Knowledge Autonomy + Topic Lifecycle V1.10.50 closes the loop between verified
+Curiosity answers and Bekki's SQLite-backed Knowledge. Newly verified facts are
+first assigned to a curator-owned topic, then an AI assessor labels each claim
+as L1 Foundation through L5 Specialist and judges coverage against the current
+interest goal. A topic remains `ACTIVE` only while that goal has a concrete
+verified gap; once sufficiently covered it becomes `PAUSED_COMPLETE`, so
+Curiosity does not keep drilling forever.
+
+Paused topics retain an AI-assigned interest score and bounded refresh date.
+Bekki wakes only a due topic, prioritizes the most interesting eligible one,
+and permits just one autonomous lifecycle question at a time. Reviewable facts
+can wake seven days before expiry, while a new user turn about a paused topic
+can explicitly reopen it. Failed, declined and drafted seeds are throttled to
+prevent retry loops. Both the GUI idle curator and the scheduled Knowledge
+worker run the same organizer. This release reuses SQLite schema 2 and leaves
+all Phase 1/Phase 2 migration snapshots untouched.
+
+SQLite Knowledge + NERV Storage Phase 2 V1.10.49 extends the same
+`data/bekki.sqlite3` database to Bekki's knowledge corpus, sources, learning
+logs, cluster index, curation inbox/index/conflicts/run state, topic documents,
+and NERV's profile, curiosity and learned-skill compatibility state. NERV's
+profile, curiosity and learning audit streams are stored as ordered SQLite
+events rather than competing JSONL appends.
+
+Every migrated JSON or JSONL source is preserved once as an immutable
+`.pre-sqlite-v2.bak` snapshot. Readable JSON and JSONL mirrors continue to be
+updated for inspection and rollback. Missing or malformed mirrors are rebuilt
+from committed SQLite state; valid events in a JSONL file changed by a rolled-
+back build are merged without deleting newer committed events. Schema v1
+databases upgrade in place to schema v2. Casper's executable skill registry,
+application skills, emotion, UI, location, localization and verified-video
+site settings remain on their existing stores for later phases.
+
+SQLite Core Storage Phase 1 V1.10.48 moves Bekki's core conversation state to
+`data/bekki.sqlite3`: chat history, per-session context, deterministic tasks,
+temporary memory, legacy memory tasks, long-term profile memory, and pending
+actions. Existing JSON is imported automatically on first access, with an
+unchanging `.pre-sqlite-v1.bak` migration snapshot. SQLite then becomes the
+authoritative store while each legacy JSON file remains an atomic compatibility
+mirror, allowing a rollback to the preceding build without losing new state.
+
+The storage layer uses WAL journaling, full synchronous commits, a SQLite busy
+timeout, and thread/process serialization around each database-plus-mirror
+write. If SQLite cannot be opened, Bekki continues from JSON; if a current JSON
+mirror is corrupt or missing, SQLite reconstructs it. A JSON file genuinely
+changed by a rolled-back Bekki build is detected by generation time and
+re-imported. That phase intentionally left knowledge and NERV state on JSON;
+V1.10.49 now migrates those bounded stores. Phase 1 includes V1.10.47.8.
+
+Balthasar Companion + Social JSON Hotfix V1.10.47.8 routes theater-companion
+delivery through Balthasar without letting personality rewrite frame evidence.
+Automatic reactions receive a zero-latency mood, familiarity, cadence and
+conversational-move rotation; direct messages receive one short Balthasar plan
+from the same model used for the visual answer, avoiding an extra model swap.
+Recent companion history blocks repeated lines, and stock visual-caption
+phrases are suppressed. Social extraction now bounds runaway strings and
+recovers every fully closed post object when a later JSON value is truncated,
+so usable Bilibili candidates no longer collapse from many DOM rows to zero
+cards. This build includes V1.10.47.7.
+
+IYF Companion Watch Hotfix V1.10.47.7 enables `Bekki 陪看` for verified IYF
+direct-page players. Bekki injects its own isolated lower-right conversation
+surface after the IYF page loads, while the original video and episode
+navigation continue to run on the verified source page. The panel uses a
+closed shadow root plus a per-player randomized qtwebview2 RPC name; only the
+current theater session can submit a bounded companion event. Frame capture,
+automatic reactions, direct visual questions, session cancellation and the
+one-active-player contract reuse the existing Companion Watch pipeline. This
+build includes V1.10.47.6.
+
+Media Watch Command Lane Hotfix V1.10.47.6 prevents a named-site watch request
+such as `去 iyf.tv 播放名侦探柯南` from being reclassified as a generic local
+device action. A narrow closed contract requires a watch/find verb plus a
+concrete media subject, repairs either the initial MAGI result or its lane
+audit to `SEARCH / MEDIA_WATCH`, and lets Melchior bypass the device-action
+fallback. Requests that inspect or summarize social posts remain research;
+commands for an already-active player—pause, resume, volume, seek, fullscreen
+and episode controls—remain device/application actions. This build includes
+V1.10.47.5.
+
+IYF Inline Playback Hotfix V1.10.47.5 adds a fail-closed inline player
+contract for verified `iyf.tv` `/play/<show-id>` pages. The selected show page
+now receives `在 Bekki 播放` and `影院模式` actions instead of remaining a
+link-only card. Episode changes are allowed only inside the same show; search,
+catalog, external-domain, insecure HTTP, fragment and unexpected-query
+navigations are blocked. The original site page is loaded directly without
+exposing Bekki's companion JavaScript bridge, so `Bekki 陪看` remains disabled
+for this player while YouTube and Bilibili keep their existing companion mode.
+Exact show titles now outrank related movies and specials. This build includes
+V1.10.47.4.
+
+IYF Native Candidate Hotfix V1.10.47.4 fixes native result extraction on
+catalog sites such as `iyf.tv`. When a cover, heading, episode number and play
+button share the same detail URL, Bekki now merges those anchors and keeps the
+best title-like label instead of letting the first empty cover anchor discard
+the later heading. Numeric episode labels, duration strings, private-use icons
+and generic controls such as `立即播放` are not treated as titles. The native
+`名侦探柯南` result therefore reaches relevance scoring and wins before the
+general Bing/Google fallback. Rejected watch candidates now log an explicit
+reason. Local `.cache` and `.lesshst` files are ignored by Git. This build
+includes V1.10.47.3.
 
 Verified Video Site + Companion Bridge Hotfix V1.10.47.3 separates a domain
 named in a watch request from a website Bekki has actually verified as a video

@@ -109,11 +109,15 @@ class InlineSocialVideoWebView2V11044Tests(unittest.TestCase):
     def test_ui_uses_one_lazy_edge_backend_and_blocks_escape_paths(self):
         source = (ROOT / "ui.py").read_text(encoding="utf-8")
         self.assertIn("from qtwebview2 import QtWebView2Widget", source)
-        self.assertIn("handle_new_window=False", source)
-        self.assertIn("lazyload=True", source)
-        self.assertIn("user_data_folder=_inline_video_user_data_folder()", source)
-        self.assertIn("wsgi_app=wsgi_app", source)
-        self.assertIn("init_settings_hook=self._configure_inline_webview", source)
+        self.assertIn('"handle_new_window": False', source)
+        self.assertIn('"lazyload": True', source)
+        self.assertIn(
+            '"user_data_folder": _inline_video_user_data_folder()', source
+        )
+        self.assertIn('"wsgi_app": wsgi_app', source)
+        self.assertIn(
+            '"init_settings_hook": self._configure_inline_webview', source
+        )
         self.assertIn("core_webview.NavigationStarting +=", source)
         self.assertIn("core_webview.NewWindowRequested +=", source)
         self.assertIn("core_webview.DownloadStarting +=", source)

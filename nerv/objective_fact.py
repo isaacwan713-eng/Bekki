@@ -132,10 +132,12 @@ def looks_like_correction(message, recent_context=""):
     message = str(message or "").strip()
     if not message or not str(recent_context or "").strip():
         return False
-    return bool(
-        _CHALLENGE_RE.search(message)
-        or _CORRECTION_TRIGGER_RE.search(message)
-    )
+    # A request to verify/recheck, or a cautious "are you sure?", authorizes
+    # fresh research but does not assert that stored Knowledge is wrong.  Only
+    # explicit correction language may enter the mutation-capable dispute
+    # path.  should_audit() still sends verification-only requests to factual
+    # checking without touching Knowledge status.
+    return bool(_CORRECTION_TRIGGER_RE.search(message))
 
 
 def audit_knowledge_correction(
@@ -224,6 +226,12 @@ def audit_knowledge_correction(
     decision = str(raw.get("decision") or "NONE").upper().strip()
     if decision not in {"NONE", "PERSONAL_AUTHORITY", "OBJECTIVE_DISPUTE"}:
         decision = "OBJECTIVE_DISPUTE"
+    if (
+        decision == "OBJECTIVE_DISPUTE"
+        and not _CORRECTION_TRIGGER_RE.search(str(message or ""))
+    ):
+        decision = "NONE"
+        raw["reason"] = "verification_request_without_explicit_correction"
     selected_ids = []
     for value in raw.get("disputed_knowledge_ids", []):
         knowledge_id = str(value or "").strip()

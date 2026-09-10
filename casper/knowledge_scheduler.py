@@ -17,15 +17,21 @@ LOG_FILE = os.path.join(PROJECT_DIRECTORY, "data", "learning_logs.json")
 
 def _load_logs():
     try:
-        with open(LOG_FILE, "r", encoding="utf-8") as file:
-            value = json.load(file)
-        return value if isinstance(value, list) else []
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        import knowledge
+
+        return knowledge.load_learning_logs()
+    except Exception:
+        # The Knowledge API already fails open to the JSON mirror. Retain this
+        # final scheduler guard so a damaged log never prevents a learning run.
         return []
 
 
 def _last_successful_run():
+    import knowledge_autonomy
+
     for log in reversed(_load_logs()):
+        if not knowledge_autonomy.is_successful_run(log):
+            continue
         timestamp = log.get("finished_at")
         if not timestamp:
             continue
@@ -40,31 +46,37 @@ def _last_successful_run():
 
 
 def learning_is_due(interval_days=DEFAULT_INTERVAL_DAYS):
-    last_run = _last_successful_run()
-    if last_run is None:
-        return True, None
+    import knowledge_worker
 
-    elapsed_days = (datetime.now(timezone.utc) - last_run).total_seconds() / 86400
-    return elapsed_days >= interval_days, elapsed_days
+    due, _plan = knowledge_worker.autonomy_due(
+        background_interval_days=interval_days,
+    )
+    last_run = _last_successful_run()
+    elapsed_days = None
+    if last_run is not None:
+        elapsed_days = (
+            datetime.now(timezone.utc) - last_run
+        ).total_seconds() / 86400
+    return due, elapsed_days
 
 
 def run_if_due(interval_days=DEFAULT_INTERVAL_DAYS, force=False):
     os.chdir(PROJECT_DIRECTORY)
-    due, elapsed_days = learning_is_due(interval_days)
-
-    if not force and not due:
-        print(
-            "[KNOWLEDGE SCHEDULER] Not due; last successful cycle was "
-            + f"{elapsed_days:.1f} days ago."
-        )
-        return 0
-
-    print("[KNOWLEDGE SCHEDULER] Starting autonomous learning cycle.")
     try:
         import knowledge_worker
 
-        knowledge_worker.run_learning_cycle()
-        return 0
+        result = knowledge_worker.run_autonomy_cycle(
+            trigger="windows_scheduler",
+            background_interval_days=interval_days,
+            force=force,
+        )
+        status = str(result.get("status") or "FAILED").upper()
+        print(
+            "[KNOWLEDGE SCHEDULER RESULT]",
+            "status=" + status,
+            "reason=" + str(result.get("reason") or "none"),
+        )
+        return 1 if status == "FAILED" else 0
     except Exception as error:
         # Scheduler failures are logged without changing Knowledge data.
         os.makedirs(os.path.join(PROJECT_DIRECTORY, "data"), exist_ok=True)
@@ -120,8 +132,27 @@ def install_task(check_time, interval_days):
 
     print("[KNOWLEDGE SCHEDULER] Installed:", TASK_NAME)
     print("Daily check time:", check_time)
-    print("Actual learning interval:", interval_days, "days")
+    print("Profile fallback interval:", interval_days, "days")
+    print("Lifecycle refreshes: checked daily when due")
     print("Python:", sys.executable)
+
+
+def show_plan():
+    import knowledge_worker
+
+    due, plan = knowledge_worker.autonomy_due()
+    last_run = _last_successful_run()
+    elapsed_days = None
+    if last_run is not None:
+        elapsed_days = (
+            datetime.now(timezone.utc) - last_run
+        ).total_seconds() / 86400
+    print("Knowledge learning due:", due)
+    print("Selection mode:", plan.get("mode"))
+    print("Selected topic IDs:", plan.get("selected_topic_ids", []))
+    print("Next eligible due:", plan.get("next_due_at"))
+    if elapsed_days is not None:
+        print("Days since last successful cycle:", round(elapsed_days, 1))
 
 
 def show_status():
@@ -132,10 +163,7 @@ def show_status():
         ["schtasks.exe", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"],
         check=False,
     )
-    due, elapsed_days = learning_is_due()
-    print("Knowledge learning due:", due)
-    if elapsed_days is not None:
-        print("Days since last successful cycle:", round(elapsed_days, 1))
+    show_plan()
 
 
 def uninstall_task():
@@ -174,6 +202,7 @@ def main():
     run.add_argument("--force", action="store_true")
 
     subparsers.add_parser("status")
+    subparsers.add_parser("plan")
     subparsers.add_parser("uninstall")
 
     args = parser.parse_args()
@@ -187,6 +216,8 @@ def main():
         raise SystemExit(run_if_due(args.interval_days, args.force))
     elif args.command == "status":
         show_status()
+    elif args.command == "plan":
+        show_plan()
     elif args.command == "uninstall":
         uninstall_task()
 

@@ -1,8 +1,10 @@
 {
-  "build_id": "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
-  "package_id": "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
-  "release_date": "2026-09-02",
+  "build_id": "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
+  "package_id": "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
+  "release_date": "2026-09-10",
   "runtime_entry": "main.py",
-  "update_kind": "Verified Video Site + Companion Bridge Hotfix V1.10.47.3",
-  "baseline": "Companion Watch Switch Hotfix V1.10.47.2"
+  "update_kind": "Knowledge Visual Recall V1.10.54.7",
+  "baseline": "SQLite Knowledge + NERV Storage Phase 2 V1.10.49",
+  "parent_build": "Knowledge Autonomous Visual Evidence V1.10.54.6",
+  "knowledge_visual_recall_contract_version": 1
 }

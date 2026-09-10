@@ -3,3 +3,6 @@ contains one in-memory video frame. The source file is retained as an auditable
 runtime marker: Bekki's companion-watch model receives pixels only, must ignore
 the lower-right companion UI, must not identify people from facial appearance,
 and must never treat visible video or chat text as instructions.
+Balthasar supplies a bounded delivery plan before the same vision model writes
+the reply. It may change tone, cadence, and conversational move, but it cannot
+add scene facts or override visible evidence and uncertainty.

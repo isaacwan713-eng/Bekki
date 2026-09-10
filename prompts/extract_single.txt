@@ -6,13 +6,20 @@ Use Page Content as the primary evidence.
 
 The title and description are only supporting context.
 
+When attached source images are present, they are bounded to this same opened
+source and may be used only for facts explicitly visible in them. A video cover
+is only a cover and one sampled frame is only one moment, not a transcript or a
+summary of the whole video.
+
 Rules:
 
-- Extract only facts explicitly supported by this source.
+- Extract only facts explicitly supported by this source text or its attached
+  source images.
 - Do not use outside knowledge.
 - Do not guess.
 - Do not infer missing details.
-- If this source does not contain enough information to answer the question, return null.
+- If neither the source text nor its attached images contain enough information
+  to answer the question, return null.
 
 Return only the minimum factual answer needed to answer the user's question.
 
@@ -35,18 +42,36 @@ Bad answer:
 
 If the source contains conflicting or unclear details, return null instead of guessing.
 
-Return JSON only.
+Return JSON only. Also identify which exact source modality supports the answer.
+For TEXT or TEXT_AND_IMAGE, text_excerpt must be a short verbatim span copied
+from Page Content. For IMAGE or TEXT_AND_IMAGE, image_indexes must name the
+attached image number(s), and visual_observation must describe only the visible
+detail that supports the answer. A source thumbnail or a person's appearance
+alone cannot establish identity. Use NONE when no source-bound evidence can be
+identified.
 
 
 
 Format:
 
 {
-    "answer": "..."
+    "answer": "...",
+    "evidence": {
+        "modality": "TEXT | IMAGE | TEXT_AND_IMAGE | NONE",
+        "text_excerpt": "",
+        "image_indexes": [],
+        "visual_observation": ""
+    }
 }
 
 or:
 
 {
-    "answer": null
+    "answer": null,
+    "evidence": {
+        "modality": "NONE",
+        "text_excerpt": "",
+        "image_indexes": [],
+        "visual_observation": ""
+    }
 }

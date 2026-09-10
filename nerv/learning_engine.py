@@ -18,11 +18,7 @@ class LearningEngine:
         self.directory = governance.data_directory(base_dir)
         self.events_path = self.directory / "learning_events.jsonl"
         self.skills_path = self.directory / "skills.json"
-        if not self.skills_path.exists():
-            governance.save_json(
-                self.skills_path,
-                {"schema_version": SKILL_SCHEMA_VERSION, "revision": 0, "items": []},
-            )
+        governance.ensure_json(self.skills_path, self._default_skills())
 
     @staticmethod
     def _default_skills():

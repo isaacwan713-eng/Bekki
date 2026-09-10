@@ -74,6 +74,84 @@ WATCH_MARKERS = (
     "play",
 )
 
+_PLAYBACK_CONTROL_PREFIX = re.compile(
+    r"^\s*(?:(?:请|麻烦|帮我|给我|把|将|现在|先|再|让它|让视频|这个视频|视频)\s*)*"
+    r"(?:暂停|继续(?:播放|看)?|恢复(?:播放)?|停止(?:播放)?|静音|取消静音|"
+    r"调(?:高|低|大|小)(?:音量|声音)?|声音(?:大|小)一点|音量(?:大|小)一点|"
+    r"快进|快退|倒退|跳到|倍速|全屏|退出全屏|上一集|下一集)",
+    flags=re.IGNORECASE,
+)
+
+_GENERIC_WATCH_TOPICS = {
+    "这个",
+    "那个",
+    "它",
+    "当前",
+    "现在这个",
+    "这个视频",
+    "那个视频",
+    "当前视频",
+    "正在看的视频",
+    "下一集",
+    "上一集",
+    "下一个",
+    "上一个",
+    "视频",
+    "影片",
+    "节目",
+    "内容",
+    "this",
+    "that",
+    "it",
+    "this video",
+    "that video",
+    "the video",
+    "video",
+}
+
+_MEDIA_CONTEXT_MARKERS = (
+    "视频",
+    "短片",
+    "电影",
+    "电视剧",
+    "剧集",
+    "动漫",
+    "动画",
+    "纪录片",
+    "综艺",
+    "直播",
+    "比赛",
+    "演唱会",
+    "mv",
+    "shorts",
+    "video",
+    "movie",
+    "episode",
+    "series",
+    "show",
+)
+
+_RESEARCH_REQUEST_MARKERS = (
+    "搜索",
+    "搜一下",
+    "搜一搜",
+    "检索",
+    "总结",
+    "分析",
+    "评价",
+    "评论",
+    "讨论",
+    "观点",
+    "帖子",
+    "动态",
+    "新闻",
+    "资料",
+    "讲了什么",
+    "search for posts",
+    "summarize",
+    "research",
+)
+
 
 def _compact(value, limit=240):
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
@@ -152,6 +230,78 @@ def looks_like_watch_request(message):
     if not text:
         return False
     return any(marker in text for marker in WATCH_MARKERS)
+
+
+def looks_like_media_discovery_request(message):
+    """Separate finding media from controlling an already-active player.
+
+    This is a narrow routing contract, not a general intent classifier.  It
+    only repairs a lane when the user supplies both a watch/find verb and a
+    concrete media subject (or a random category).  Pause, resume, volume,
+    seek, fullscreen and episode controls remain device/application actions.
+    """
+
+    text = _compact(message, 1200)
+    if not text:
+        return False
+    requested_sites = extract_requested_sites(text)
+    intent_text = re.sub(r"https?://\S+", " ", text, flags=re.IGNORECASE)
+    lowered = intent_text.casefold()
+    if any(marker in lowered for marker in _RESEARCH_REQUEST_MARKERS):
+        return False
+    chinese_intent = any(
+        marker in lowered
+        for marker in WATCH_MARKERS + RANDOM_MARKERS
+        if re.search(r"[\u3400-\u9fff]", marker)
+    )
+    english_watch = re.search(r"\bwatch\b", lowered) is not None
+    english_play = re.search(r"\bplay\b", lowered) is not None
+    english_discovery = re.search(r"\b(?:find|pick)\b", lowered) is not None
+    english_intent = english_watch or english_play or english_discovery
+    site_view_intent = bool(requested_sites) and re.search(
+        r"(?:^|\s|去|在|从)(?:[^。！？!?]{0,80})(?:看|观看)",
+        lowered,
+    ) is not None
+    if not chinese_intent and not english_intent and not site_view_intent:
+        return False
+    if _PLAYBACK_CONTROL_PREFIX.search(lowered) or re.search(
+        r"^\s*(?:please\s+)?(?:pause|resume|unpause|stop|mute|unmute|"
+        r"seek|fullscreen|exit fullscreen|next episode|previous episode)\b",
+        lowered,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    topic = _compact(fallback_topic(text, requested_sites), 180).casefold()
+    topic = re.sub(r"\s+", " ", topic).strip(" .。!！?？")
+    if not topic or topic in _GENERIC_WATCH_TOPICS:
+        return False
+    if re.fullmatch(
+        r"(?:到\s*)?(?:第\s*)?\d+\s*(?:集|话|期|episode)?",
+        topic,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    has_media_context = any(marker in lowered for marker in _MEDIA_CONTEXT_MARKERS)
+    explicit_playback = (
+        "播放" in lowered
+        or "放一个" in lowered
+        or "放个" in lowered
+        or english_watch
+        or (english_play and (bool(requested_sites) or has_media_context))
+    )
+    quoted_title = re.search(r"《[^》]{2,120}》", text) is not None
+    has_random_selection = any(
+        marker in lowered for marker in RANDOM_MARKERS
+    )
+    if not (
+        explicit_playback
+        or quoted_title
+        or site_view_intent
+        or (has_random_selection and has_media_context)
+        or (english_discovery and has_media_context)
+    ):
+        return False
+    return len(re.sub(r"[^a-z0-9\u3400-\u9fff]+", "", topic)) >= 2
 
 
 def fallback_topic(message, requested_sites=None):

@@ -32,7 +32,6 @@ from nerv import external_fact_fallback
 from nerv import objective_fact
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot, QTimer
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -41,12 +40,12 @@ from PySide6.QtWidgets import (
 )
 import document
 
-from ui import BekkiWindow
+from ui import BekkiWindow, build_ui_font
 from worker import AIWorker
 import context as context_manager
 
 
-BEKKI_BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"
+BEKKI_BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
 print("[BEKKI BUILD]", BEKKI_BUILD_ID, os.path.abspath(__file__))
 
 MAX_RECENT_MESSAGES = 6
@@ -295,6 +294,7 @@ current_worker = None
 curiosity_thread = None
 knowledge_curator_thread = None
 stable_knowledge_review_thread = None
+knowledge_autonomy_thread = None
 companion_watch_thread = None
 screen_snip_attempts = 0
 
@@ -569,6 +569,7 @@ def get_ai_response(
     current_emotion_state=None,
     preserve_pending_action=False,
     local_knowledge_context="",
+    local_knowledge_candidates=None,
 ):
     context_profile = str(
         (melchior_plan or {}).get("context_profile") or "MINIMAL"
@@ -693,6 +694,44 @@ def get_ai_response(
             "memory": None,
             "pending_action": None,
         }
+
+    knowledge_visual_recall = {
+        "images": [],
+        "bindings": [],
+        "total_bytes": 0,
+        "skipped_bundles": 0,
+        "skipped_assets": 0,
+    }
+    if (
+        response_mode == "LOCAL_ANSWER"
+        and (melchior_plan or {}).get("knowledge_route_selected") is True
+        and search_result is None
+        and action_context is None
+        and str(local_knowledge_context or "").strip()
+    ):
+        knowledge_visual_recall = knowledge_retrieval.prepare_visual_recall(
+            local_knowledge_candidates
+        )
+    knowledge_visual_context = (
+        knowledge_retrieval.format_visual_recall_context(
+            knowledge_visual_recall
+        )
+    )
+    knowledge_visual_images = [
+        value for value in knowledge_visual_recall.get("images", [])
+        if isinstance(value, str) and value.strip()
+    ][:knowledge_retrieval.MAX_VISUAL_RECALL_IMAGES]
+    print(
+        "[KNOWLEDGE VISUAL RECALL]",
+        "enabled=" + str(bool(knowledge_visual_images)).lower(),
+        "images=" + str(len(knowledge_visual_images)),
+        "skipped_bundles=" + str(
+            knowledge_visual_recall.get("skipped_bundles", 0)
+        ),
+        "skipped_assets=" + str(
+            knowledge_visual_recall.get("skipped_assets", 0)
+        ),
+    )
     history_limit = {
         "MINIMAL": 1,
         "CONVERSATION": 3,
@@ -1024,6 +1063,10 @@ def get_ai_response(
             "NERV Verified Stable Knowledge Context",
             local_knowledge_context,
         ),
+        (
+            "NERV Verified Knowledge Visual Evidence",
+            knowledge_visual_context,
+        ),
         ("Current Conversation State", context_state_text),
         ("Recent Conversation", conversation_text),
         (
@@ -1124,6 +1167,7 @@ def get_ai_response(
         think=False if research_final_model else "low",
         model_name=research_final_model,
         response_format=FINAL_RESPONSE_SCHEMA,
+        images=knowledge_visual_images or None,
     )
 
     print("AI RAW OUTPUT:")
@@ -2636,6 +2680,7 @@ def process_request(message, status_callback):
             emotion_state,
             preserve_pending_action=exact_content_checkpoint_active,
             local_knowledge_context=local_knowledge_context,
+            local_knowledge_candidates=local_knowledge_candidates,
         )
 
     # A LOCAL draft is not proof of its own public facts.  Only fact-heavy
@@ -2909,6 +2954,7 @@ def clear_worker_references():
     # run, start the idle check soon instead of waiting for the periodic timer.
     QTimer.singleShot(15_000, check_daily_knowledge_curator)
     QTimer.singleShot(30_000, check_daily_stable_knowledge_review)
+    QTimer.singleShot(60_000, check_unified_knowledge_autonomy)
 
 
 def _verify_curiosity_knowledge(candidate_id):
@@ -2997,10 +3043,9 @@ def _verify_curiosity_knowledge(candidate_id):
         and isinstance(knowledge_item, dict)
     ):
         try:
-            # Curiosity may continue during a later idle pass from Knowledge
-            # it has just learned.  The existing Writer still owns topic
-            # relatedness and depth; Python only supplies the verified seed and
-            # a bounded semantic shortlist.
+            # An uncurated fact now stops at the topic barrier. After the idle
+            # curator assigns its ecosystem, the topic lifecycle assessor owns
+            # layering, completion, pause, and any later continuation seed.
             import knowledge_retrieval
 
             seed_query = " ".join(
@@ -3116,6 +3161,11 @@ def check_daily_curiosity():
         and stable_knowledge_review_thread.is_alive()
     ):
         return
+    if (
+        knowledge_autonomy_thread is not None
+        and knowledge_autonomy_thread.is_alive()
+    ):
+        return
     if curiosity_thread is not None and curiosity_thread.is_alive():
         return
     active_session = history.get_active_session(history_data)
@@ -3163,6 +3213,11 @@ def check_daily_knowledge_curator():
     if (
         stable_knowledge_review_thread is not None
         and stable_knowledge_review_thread.is_alive()
+    ):
+        return
+    if (
+        knowledge_autonomy_thread is not None
+        and knowledge_autonomy_thread.is_alive()
     ):
         return
     if (
@@ -3222,6 +3277,11 @@ def check_daily_stable_knowledge_review():
         and stable_knowledge_review_thread.is_alive()
     ):
         return
+    if (
+        knowledge_autonomy_thread is not None
+        and knowledge_autonomy_thread.is_alive()
+    ):
+        return
     active_session = history.get_active_session(history_data)
     if memory.loading_pending_action(
         session_id=active_session.get("id", ""),
@@ -3235,6 +3295,73 @@ def check_daily_stable_knowledge_review():
         daemon=True,
     )
     stable_knowledge_review_thread.start()
+
+
+def _run_unified_knowledge_autonomy():
+    """Use the same learning executor as the Windows scheduled task."""
+
+    global knowledge_autonomy_thread
+    try:
+        if not nerv_core.wait_for_pending_writes(timeout_seconds=45):
+            print("[KNOWLEDGE AUTONOMY SKIPPED] pending_nerv_write")
+            return
+        import knowledge_worker
+
+        result = knowledge_worker.run_autonomy_cycle(trigger="desktop_idle")
+        print(
+            "[KNOWLEDGE AUTONOMY RESULT]",
+            "status=" + str(result.get("status") or "unknown"),
+            "mode=" + str(result.get("selection_mode") or "none"),
+        )
+    except Exception as error:
+        print("[KNOWLEDGE AUTONOMY WARNING]", repr(error))
+    finally:
+        knowledge_autonomy_thread = None
+
+
+def check_unified_knowledge_autonomy():
+    """Run one due interest topic only while every interactive lane is idle."""
+
+    global knowledge_autonomy_thread
+    if current_thread is not None or _companion_watch_owns_idle_time():
+        return
+    for background_thread in (
+        curiosity_thread,
+        knowledge_curator_thread,
+        stable_knowledge_review_thread,
+    ):
+        if background_thread is not None and background_thread.is_alive():
+            return
+    if (
+        knowledge_autonomy_thread is not None
+        and knowledge_autonomy_thread.is_alive()
+    ):
+        return
+    active_session = history.get_active_session(history_data)
+    if memory.loading_pending_action(
+        session_id=active_session.get("id", ""),
+    ):
+        return
+    try:
+        import knowledge_worker
+
+        due, plan = knowledge_worker.autonomy_due()
+    except Exception as error:
+        print("[KNOWLEDGE AUTONOMY DUE WARNING]", repr(error))
+        return
+    if not due:
+        return
+    knowledge_autonomy_thread = threading.Thread(
+        target=_run_unified_knowledge_autonomy,
+        name="BekkiUnifiedKnowledgeAutonomy",
+        daemon=True,
+    )
+    knowledge_autonomy_thread.start()
+    print(
+        "[KNOWLEDGE AUTONOMY QUEUED]",
+        "mode=" + str(plan.get("mode") or "unknown"),
+        "topics=" + ",".join(plan.get("selected_topic_ids", [])),
+    )
 
 class RequestUIBridge(QObject):
 
@@ -3414,11 +3541,34 @@ class CompanionWatchBridge(QObject):
 
 
 def _run_companion_watch(payload):
-    global companion_watch_thread
+    global companion_watch_thread, emotion_state
     result = None
     failure = None
     try:
-        result = companion_watch.generate_reply(payload)
+        result = companion_watch.generate_reply(
+            payload,
+            emotion_context=emotion.prompt_context(emotion_state),
+        )
+        balthasar_plan = (
+            result.pop("_balthasar_plan", None)
+            if isinstance(result, dict) else None
+        )
+        if (
+            str(payload.get("request_kind") or "").upper().strip()
+            == "USER_MESSAGE"
+            and isinstance(balthasar_plan, dict)
+        ):
+            try:
+                emotion_state = emotion.apply_balthasar_plan(
+                    emotion_state,
+                    balthasar_plan,
+                )
+                print("[BALTHASAR COMPANION APPLIED] user_message")
+            except Exception as state_error:
+                print(
+                    "[BALTHASAR COMPANION STATE WARNING]",
+                    repr(state_error)[:300],
+                )
     except Exception as error:
         print("[COMPANION WATCH ERROR]", type(error).__name__, repr(error)[:500])
         failure = {
@@ -3446,6 +3596,7 @@ def request_companion_watch(payload):
         curiosity_thread,
         knowledge_curator_thread,
         stable_knowledge_review_thread,
+        knowledge_autonomy_thread,
     ):
         if background_thread is not None and background_thread.is_alive():
             return False
@@ -3493,6 +3644,13 @@ def send_message():
         and stable_knowledge_review_thread.is_alive()
     ):
         window.set_status("NERV 正在随机复查一条 Knowledge…")
+        QTimer.singleShot(1000, send_message)
+        return
+    if (
+        knowledge_autonomy_thread is not None
+        and knowledge_autonomy_thread.is_alive()
+    ):
+        window.set_status("Bekki 正在整理一个最值得继续的兴趣主题…")
         QTimer.singleShot(1000, send_message)
         return
 
@@ -4068,7 +4226,7 @@ app = QApplication(sys.argv)
 # Establish a real point-sized application font before any widget inherits the
 # platform default.  Some Windows/Qt style combinations expose an unset (-1)
 # point size and emit QFont::setPointSize warnings during widget construction.
-app.setFont(QFont("Segoe UI", 10))
+app.setFont(build_ui_font("Segoe UI Variable", 10))
 app.aboutToQuit.connect(casper.clear_desktop_capture)
 
 active_messages = history.get_active_session(history_data).get("messages", [])
@@ -4157,8 +4315,9 @@ curiosity_timer.start(10 * 60 * 1000)
 QTimer.singleShot(120_000, check_daily_curiosity)
 
 # Approved Curiosity and low-impact External-AI facts enter an auditable inbox.
-# Once per local day, the idle-time AI curator groups them into broad topic
-# ecosystem JSON documents. Failed runs leave the inbox untouched for retry.
+# The idle AI curator groups them into topic ecosystems, then the lifecycle
+# assessor layers claims and either opens one gap or pauses a completed topic.
+# Failed runs leave the inbox or unassessed topic available for retry.
 knowledge_curator_timer = QTimer(app)
 knowledge_curator_timer.timeout.connect(check_daily_knowledge_curator)
 knowledge_curator_timer.start(10 * 60 * 1000)
@@ -4173,6 +4332,15 @@ stable_knowledge_review_timer.timeout.connect(
 )
 stable_knowledge_review_timer.start(10 * 60 * 1000)
 QTimer.singleShot(240_000, check_daily_stable_knowledge_review)
+
+# The legacy profile-guided worker and the current NERV topic engine now share
+# one autonomy plan and one cross-process lock. The desktop is only an idle
+# trigger; an installed Windows task calls the exact same executor when Bekki
+# is closed. Event/news findings remain learning-log entries, not Knowledge.
+knowledge_autonomy_timer = QTimer(app)
+knowledge_autonomy_timer.timeout.connect(check_unified_knowledge_autonomy)
+knowledge_autonomy_timer.start(10 * 60 * 1000)
+QTimer.singleShot(300_000, check_unified_knowledge_autonomy)
 
 if not active_messages:
     window.add_welcome_message(

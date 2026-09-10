@@ -25,6 +25,8 @@ from urllib.parse import (
 CDP_PORT = managed_browser.CDP_PORT
 CDP_URL = managed_browser.CDP_URL
 MAX_PAGE_TEXT = 15000
+BILIBILI_OFFICIAL_PUBLISHER_VIDEO_DISCOVERY_VERSION = 1
+TEMPORAL_EVIDENCE_GRACEFUL_FALLBACK_VERSION = 1
 
 SEARCH_ENGINE_CATALOG = [
     {
@@ -367,6 +369,19 @@ def _validate_candidate_answer(
     fact_scope=None,
 ):
     """Ask AI whether one extracted value actually answers the query."""
+    if (
+        isinstance(source, dict)
+        and source.get("official_only") is True
+        and source.get("official_identity_verified") is not True
+    ):
+        print(
+            "[CASPER OFFICIAL SOURCE REJECTED]",
+            "reason=deterministic_identity_proof_missing",
+        )
+        return {
+            "accepted": False,
+            "reason": "Deterministic official-account identity proof is missing.",
+        }
     import tools
 
     validation_schema = {
@@ -1294,6 +1309,340 @@ def _validate_temporal_scope(query, source, answer, fact_scope):
         "requested_period": str(result.get("requested_period", ""))[:200],
         "source_period": str(result.get("source_period", ""))[:200],
         "reason": str(result.get("reason", ""))[:400],
+    }
+
+
+def _validate_temporal_alternative(
+    query,
+    source,
+    answer,
+    fact_scope,
+    temporal_validation,
+    user_request="",
+):
+    """Validate dated evidence for display without answering the target date."""
+
+    temporal_validation = (
+        temporal_validation
+        if isinstance(temporal_validation, dict) else {}
+    )
+    source_period = " ".join(
+        str(temporal_validation.get("source_period") or "").split()
+    ).strip()[:200]
+    if (
+        temporal_validation.get("time_scope_match") is not False
+        or not source_period
+    ):
+        return {
+            "accepted": False,
+            "reason": "A dated, explicitly mismatched source period is required.",
+        }
+    if (
+        isinstance(source, dict)
+        and source.get("official_only") is True
+        and source.get("official_identity_verified") is not True
+    ):
+        print(
+            "[CASPER TEMPORAL ALTERNATIVE REJECTED]",
+            "reason=deterministic_identity_proof_missing",
+        )
+        return {
+            "accepted": False,
+            "reason": "Deterministic official-account identity proof is missing.",
+        }
+
+    import tools
+
+    checks = (
+        "exact_entity_scope",
+        "requested_fact_facet_match",
+        "source_supported",
+        "no_unsupported_additions",
+        "explicit_source_period",
+    )
+    validation_schema = {
+        "type": "object",
+        "properties": {
+            "accepted": {"type": "boolean"},
+            **{name: {"type": "boolean"} for name in checks},
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": ["accepted", *checks, "reason"],
+        "additionalProperties": False,
+    }
+    result = tools.run_ai_prompt(
+        "prompts/fact_temporal_alternative_validate.txt",
+        json.dumps(
+            {
+                "original_user_request": str(user_request or query),
+                "query": query,
+                "fact_intent_scope": fact_scope,
+                "candidate_answer": answer,
+                "temporal_validation": temporal_validation,
+                "source": {
+                    "title": source.get("title", ""),
+                    "description": source.get("description", ""),
+                    "domain": source.get("domain", ""),
+                    "url": source.get("url", ""),
+                    "published": source.get("published", ""),
+                    "page_content": str(
+                        source.get("page_content", "")
+                    )[:5000],
+                    "official_only": source.get("official_only") is True,
+                    "official_identity_verified": (
+                        source.get("official_identity_verified") is True
+                    ),
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        expect_json=True,
+        num_ctx=8192,
+        num_predict=300,
+        think=False,
+        model_name="gemma4:12b",
+        json_schema=validation_schema,
+    )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("accepted"), bool)
+        or any(not isinstance(result.get(name), bool) for name in checks)
+        or not isinstance(result.get("reason"), str)
+        or not result["reason"].strip()
+    ):
+        return None
+    accepted = result["accepted"] is True and all(
+        result[name] is True for name in checks
+    )
+    return {
+        "accepted": accepted,
+        **{name: result[name] for name in checks},
+        "reason": result["reason"].strip()[:400],
+    }
+
+
+def _temporal_period_sort_key(value):
+    """Return a conservative sortable key for common visible source dates."""
+
+    text = " ".join(str(value or "").split()).strip()
+    match = re.search(
+        r"(?<!\d)(\d{4})(?:[-/.年](\d{1,2}))?"
+        r"(?:[-/.月](\d{1,2}))?日?",
+        text,
+    )
+    if not match:
+        return None
+    year = int(match.group(1))
+    month = int(match.group(2) or 1)
+    day = int(match.group(3) or 1)
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    return year, month, day, text.casefold()
+
+
+def _temporal_alternative_answer_text(value, chinese=False):
+    if isinstance(value, str):
+        return " ".join(value.split()).strip()[:1200]
+    if isinstance(value, (list, tuple)):
+        items = [
+            " ".join(str(item).split()).strip()
+            for item in value[:20]
+            if " ".join(str(item).split()).strip()
+        ]
+        return ("、" if chinese else ", ").join(items)[:1200]
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))[
+            :1200
+        ]
+    return " ".join(str(value or "").split()).strip()[:1200]
+
+
+def _validate_temporal_alternative_candidates(
+    query,
+    user_request,
+    fact_scope,
+    answers,
+    read_results,
+    limit=3,
+):
+    """Validate only the best dated fallback after exact research is exhausted."""
+
+    fact_scope = fact_scope if isinstance(fact_scope, dict) else {}
+    scope_type = str(fact_scope.get("scope_type") or "").upper().strip()
+    pending = []
+    for item in answers or []:
+        if not isinstance(item, dict) or item.get("accepted") is True:
+            continue
+        temporal = item.get("temporal_validation")
+        temporal = temporal if isinstance(temporal, dict) else {}
+        if temporal.get("time_scope_match") is not False:
+            continue
+        period_key = _temporal_period_sort_key(
+            temporal.get("source_period")
+        )
+        if period_key is None or item.get("answer") in (None, "", [], {}):
+            continue
+        pending.append((period_key, item))
+    pending.sort(
+        key=lambda value: value[0],
+        reverse=scope_type != "EXPLICIT_PERIOD",
+    )
+    attempted = 0
+    for _period_key, item in pending[:max(1, min(int(limit or 3), 3))]:
+        try:
+            source_index = int(item.get("index") or 0) - 1
+        except (TypeError, ValueError):
+            source_index = -1
+        if not (0 <= source_index < len(read_results)):
+            continue
+        attempted += 1
+        validation = _validate_temporal_alternative(
+            query,
+            read_results[source_index],
+            item.get("answer"),
+            fact_scope,
+            item.get("temporal_validation"),
+            user_request=user_request or query,
+        )
+        item["temporal_alternative_validation"] = validation
+        item["temporal_alternative_accepted"] = bool(
+            isinstance(validation, dict)
+            and validation.get("accepted") is True
+        )
+        if item["temporal_alternative_accepted"]:
+            break
+    return attempted
+
+
+def _build_temporal_evidence_fallback(
+    user_request,
+    fact_scope,
+    answers,
+    read_results,
+    source_contract,
+):
+    """Build a display-only dated fallback without accepting the target scope."""
+
+    fact_scope = fact_scope if isinstance(fact_scope, dict) else {}
+    scope_type = str(fact_scope.get("scope_type") or "").upper().strip()
+    if scope_type not in {
+        "EXPLICIT_PERIOD",
+        "LATEST_COMPLETED_PERIOD",
+        "CURRENT_ACTIVE_STATE",
+    }:
+        return None
+    alternatives = []
+    seen = set()
+    for item in answers or []:
+        if (
+            not isinstance(item, dict)
+            or item.get("accepted") is True
+            or item.get("temporal_alternative_accepted") is not True
+        ):
+            continue
+        temporal = item.get("temporal_validation")
+        temporal = temporal if isinstance(temporal, dict) else {}
+        source_period = " ".join(
+            str(temporal.get("source_period") or "").split()
+        ).strip()[:200]
+        period_key = _temporal_period_sort_key(source_period)
+        if period_key is None:
+            continue
+        try:
+            source_index = int(item.get("index") or 0) - 1
+        except (TypeError, ValueError):
+            source_index = -1
+        source = (
+            read_results[source_index]
+            if 0 <= source_index < len(read_results) else {}
+        )
+        answer_value = item.get("answer")
+        fingerprint = (
+            source_period.casefold(),
+            json.dumps(answer_value, ensure_ascii=False, sort_keys=True),
+        )
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        alternatives.append({
+            "source_period": source_period,
+            "requested_period": " ".join(
+                str(temporal.get("requested_period") or "").split()
+            ).strip()[:200],
+            "period_sort_key": period_key,
+            "answer": answer_value,
+            "source_index": source_index + 1,
+            "source_title": str(source.get("title") or "")[:300],
+            "source_url": str(source.get("url") or "")[:2000],
+            "validation": item.get("temporal_alternative_validation"),
+        })
+    if not alternatives:
+        return None
+
+    if scope_type == "EXPLICIT_PERIOD":
+        selected = min(alternatives, key=lambda value: value["period_sort_key"])
+        selection = "EARLIEST_VERIFIED_ALTERNATIVE"
+    else:
+        selected = max(alternatives, key=lambda value: value["period_sort_key"])
+        selection = "LATEST_VERIFIED_ALTERNATIVE"
+    chinese = bool(re.search(r"[\u3400-\u9fff]", str(user_request or "")))
+    answer_text = _temporal_alternative_answer_text(
+        selected.get("answer"), chinese=chinese
+    )
+    if not answer_text:
+        return None
+    requested_period = " ".join(
+        str(fact_scope.get("requested_period") or "").split()
+    ).strip()
+    if chinese and scope_type == "CURRENT_ACTIVE_STATE":
+        requested_date = re.search(
+            r"(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)",
+            requested_period,
+        )
+        requested_period = (
+            "截至 " + requested_date.group(0) + " 的当前状态"
+            if requested_date else "当前状态"
+        )
+    elif not requested_period:
+        requested_period = "当前状态" if chinese else "the current state"
+    source_period = selected["source_period"]
+    official = bool(
+        isinstance(source_contract, dict)
+        and source_contract.get("official_only") is True
+    )
+    if chinese:
+        source_kind = "官方资料" if official else "资料"
+        direction = "最早" if scope_type == "EXPLICIT_PERIOD" else "最新"
+        reply = (
+            "我没有查到能直接核实 " + requested_period + " 的"
+            + source_kind + "。不过，这次检索中能核实到的" + direction
+            + source_kind + "是 " + source_period + "：" + answer_text
+            + "。这只能作为 " + source_period + " 的记录，不能当作 "
+            + requested_period + " 的结论。"
+        )
+    else:
+        source_kind = "official evidence" if official else "evidence"
+        direction = "earliest" if scope_type == "EXPLICIT_PERIOD" else "latest"
+        reply = (
+            "I could not find " + source_kind + " that directly verifies "
+            + requested_period + ". The " + direction + " verifiable "
+            + source_kind + " found in this search is from " + source_period
+            + ": " + answer_text + ". This is only a " + source_period
+            + " record and does not establish the requested period."
+        )
+    selected = dict(selected)
+    selected.pop("period_sort_key", None)
+    return {
+        "version": TEMPORAL_EVIDENCE_GRACEFUL_FALLBACK_VERSION,
+        "display_only": True,
+        "target_scope_answered": False,
+        "knowledge_eligible": False,
+        "selection": selection,
+        "requested_period": requested_period,
+        "selected_evidence": selected,
+        "candidate_count": len(alternatives),
+        "reply": reply[:3000],
     }
 
 
@@ -3166,10 +3515,23 @@ def _score_media_watch_candidate(candidate, plan):
 
     url = str(candidate.get("url") or "").strip()
     domain = str(candidate.get("domain") or "").casefold().removeprefix("www.")
+    title_for_log = re.sub(
+        r"\s+", " ", str(candidate.get("title") or "")
+    ).strip()[:120]
+
+    def reject(reason):
+        print(
+            "[MEDIA WATCH CANDIDATE REJECTED]",
+            "reason=" + str(reason),
+            "domain=" + (domain or "unknown"),
+            "title=" + repr(title_for_log),
+        )
+        return None
+
     requested_sites = plan.get("requested_sites") or []
     allowed_sites = requested_sites or list(media_watch.ALLOWED_WATCH_SITES)
     if not any(media_watch.domain_matches_site(domain, site) for site in allowed_sites):
-        return None
+        return reject("site_mismatch")
     combined = re.sub(
         r"\s+",
         " ",
@@ -3178,9 +3540,17 @@ def _score_media_watch_candidate(candidate, plan):
     tokens = _media_watch_topic_tokens(plan.get("topic"))
     hits = [token for token in tokens if token and token in combined]
     if tokens and not hits:
-        return None
+        return reject("topic_miss")
     exact_topic = str(plan.get("topic") or "").casefold().strip()
-    score = 60 if exact_topic and exact_topic in combined else min(42, len(hits) * 14)
+    candidate_title = re.sub(
+        r"\s+", " ", str(candidate.get("title") or "")
+    ).casefold().strip()
+    if exact_topic and candidate_title == exact_topic:
+        score = 90
+    elif exact_topic and exact_topic in combined:
+        score = 60
+    else:
+        score = min(42, len(hits) * 14)
     contract = social_video.social_video_contract(url)
     if contract is not None:
         score += 30
@@ -3200,9 +3570,9 @@ def _score_media_watch_candidate(candidate, plan):
     ) and any(marker in combined for marker in derivative_markers):
         # A request for the work itself must fail closed instead of silently
         # replacing it with commentary, clips, trailers, Shorts, or reactions.
-        return None
+        return reject("derived_content")
     if score < 25:
-        return None
+        return reject("score_below_threshold")
     enriched = dict(candidate)
     enriched["watch_score"] = score
     enriched["inline_playable"] = contract is not None
@@ -3315,7 +3685,7 @@ def _video_site_surface_evidence(domain, body_text, links, media_element_count=0
 
 
 def _video_site_links(page, domain, maximum=600):
-    """Read bounded same-site anchors in one browser evaluation."""
+    """Read bounded same-site anchors, retaining the best label per URL."""
 
     import media_watch
 
@@ -3326,12 +3696,13 @@ def _video_site_links(page, domain, maximum=600):
           return {
             url: node.href || "",
             text: (heading?.textContent || node.textContent || node.getAttribute("aria-label") || image?.alt || "").trim(),
-            image_url: image?.currentSrc || image?.src || ""
+            image_url: image?.currentSrc || image?.src || "",
+            has_heading: Boolean(heading)
           };
         })"""
     )
-    results = []
-    seen = set()
+    by_url = {}
+    order = []
     for item in raw_items if isinstance(raw_items, list) else []:
         url = str((item or {}).get("url") or "").strip()
         try:
@@ -3344,19 +3715,61 @@ def _video_site_links(page, domain, maximum=600):
         text_value = re.sub(
             r"\s+", " ", str((item or {}).get("text") or "")
         ).strip()[:300]
-        if not url or url in seen:
+        if not url:
             continue
-        seen.add(url)
-        results.append(
-            {
-                "url": url,
-                "text": text_value,
-                "image_url": str((item or {}).get("image_url") or "").strip()[:2048],
-            }
-        )
-        if len(results) >= max(1, min(int(maximum), 800)):
-            break
-    return results
+        current = {
+            "url": url,
+            "text": text_value,
+            "image_url": str((item or {}).get("image_url") or "").strip()[:2048],
+            "has_heading": bool((item or {}).get("has_heading")),
+        }
+        previous = by_url.get(url)
+        if previous is None:
+            by_url[url] = current
+            order.append(url)
+            continue
+        if (
+            _video_site_link_text_quality(
+                current["text"], current["has_heading"]
+            )
+            > _video_site_link_text_quality(
+                previous.get("text"), previous.get("has_heading")
+            )
+        ):
+            if not current["image_url"]:
+                current["image_url"] = previous.get("image_url", "")
+            by_url[url] = current
+        elif not previous.get("image_url") and current["image_url"]:
+            previous["image_url"] = current["image_url"]
+    limit = max(1, min(int(maximum), 800))
+    return [by_url[url] for url in order[:limit]]
+
+
+_VIDEO_SITE_GENERIC_LABELS = {
+    "立即播放", "播放", "观看", "详情", "查看更多", "更多",
+    "play", "watch", "watch now", "details", "more",
+}
+
+
+def _video_site_link_text_quality(text, has_heading=False):
+    """Rank a catalog label without treating buttons or glyphs as titles."""
+
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not value or not any(character.isalnum() for character in value):
+        return -1000
+    if re.fullmatch(r"[\d\s:./+\-]+", value):
+        return -900
+    folded = value.casefold()
+    score = min(len(value), 120)
+    if bool(has_heading):
+        score += 200
+    if folded in _VIDEO_SITE_GENERIC_LABELS:
+        score -= 500
+    elif any(folded.startswith(label + " ") for label in _VIDEO_SITE_GENERIC_LABELS):
+        score -= 120
+    if re.search(r"[\u3400-\u9fff]", value):
+        score += 20
+    return score
 
 
 def _video_site_search_template(current_url, topic, domain):
@@ -3390,10 +3803,10 @@ def _video_site_aliases(page_title, domain):
 
 
 def _video_site_candidates(links, domain):
-    """Convert catalog detail anchors while excluding episode-number links."""
+    """Keep one meaningful, title-like candidate per catalog detail URL."""
 
-    results = []
-    seen = set()
+    by_url = {}
+    order = []
     for item in links if isinstance(links, list) else []:
         url = str((item or {}).get("url") or "").strip()
         text_value = re.sub(
@@ -3405,25 +3818,42 @@ def _video_site_candidates(links, domain):
             continue
         if not _VIDEO_SITE_DETAIL_PATH.search(path or ""):
             continue
-        if not text_value or re.fullmatch(r"[\d\s:./+-]+", text_value):
+        if (
+            not text_value
+            or not any(character.isalnum() for character in text_value)
+            or re.fullmatch(r"[\d\s:./+\-]+", text_value)
+            or text_value.casefold() in _VIDEO_SITE_GENERIC_LABELS
+        ):
             continue
         canonical = url.split("?", 1)[0]
-        key = (canonical, text_value.casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append(
-            {
-                "title": text_value,
-                "description": text_value,
-                "url": canonical,
-                "domain": domain,
-                "image_url": str((item or {}).get("image_url") or "").strip(),
-                "author": "",
-                "published": "",
-                "discovery_engine": domain + "_native",
-            }
-        )
+        candidate = {
+            "title": text_value,
+            "description": text_value,
+            "url": canonical,
+            "domain": domain,
+            "image_url": str((item or {}).get("image_url") or "").strip(),
+            "author": "",
+            "published": "",
+            "discovery_engine": domain + "_native",
+            "_label_quality": _video_site_link_text_quality(
+                text_value, (item or {}).get("has_heading")
+            ),
+        }
+        previous = by_url.get(canonical)
+        if previous is None:
+            by_url[canonical] = candidate
+            order.append(canonical)
+        elif candidate["_label_quality"] > previous["_label_quality"]:
+            if not candidate["image_url"]:
+                candidate["image_url"] = previous.get("image_url", "")
+            by_url[canonical] = candidate
+        elif not previous.get("image_url") and candidate["image_url"]:
+            previous["image_url"] = candidate["image_url"]
+    results = []
+    for canonical in order:
+        candidate = by_url[canonical]
+        candidate.pop("_label_quality", None)
+        results.append(candidate)
     return results[:80]
 
 
@@ -7970,6 +8400,34 @@ def _try_search_summary_fact_answer(
     """Propose from search summaries, then let a separate AI challenge it."""
     import tools
 
+    source_scope_text = " ".join([
+        str(user_request or ""),
+        str(
+            ((fact_scope or {}).get("entity_scope") or {}).get(
+                "included_scope", ""
+            )
+            if isinstance((fact_scope or {}).get("entity_scope"), dict)
+            else ""
+        ),
+    ])
+    strict_official_only = bool(re.search(
+        r"(?:(?:只|仅)(?:接受|使用|采用|限于|限)?[^。；;\n]{0,40}官方|"
+        r"official[^.;\n]{0,40}(?:only|exclusively)|"
+        r"(?:only|exclusively)[^.;\n]{0,40}official)",
+        source_scope_text,
+        re.IGNORECASE,
+    ))
+    if strict_official_only:
+        # Search snippets do not prove that an account/page is the entity's
+        # official publisher.  Open the candidate page and apply both source
+        # validators instead of accepting an encyclopedia consensus as
+        # "official" evidence.
+        print(
+            "[CASPER SEARCH SUMMARY SKIPPED]",
+            "reason=strict_official_source_scope",
+        )
+        return None
+
     sources = []
     for index, item in enumerate(discovery.get("results", [])[:7], start=1):
         if not isinstance(item, dict):
@@ -8097,15 +8555,702 @@ def _try_search_summary_fact_answer(
     }
 
 
+def _native_fixed_fact_platform(requested_sites):
+    """Return a site-native fact adapter only for an exact supported scope."""
+
+    import source_scope
+
+    sites = source_scope.normalize_domains(list(requested_sites or []))
+    if len(sites) != 1:
+        return ""
+    if source_scope.domain_matches(sites[0], "bilibili.com"):
+        return "bilibili"
+    return ""
+
+
+def _normalized_official_identity_text(value):
+    """Normalize layout punctuation while preserving exact Unicode letters."""
+
+    return re.sub(
+        r"[^\w]+", "", str(value or "").casefold(), flags=re.UNICODE
+    ).replace("_", "")
+
+
+def _native_official_entity_expression(query, entity_name=""):
+    """Return one literal entity expression for native account discovery."""
+
+    value = " ".join(str(entity_name or "").split()).strip()
+    if value:
+        quoted_value = re.findall(r"['\"“]([^'\"”]{2,160})['\"”]", value)
+        if quoted_value:
+            return " ".join(quoted_value[0].split())[:160]
+        value = re.split(r"[（(]", value, maxsplit=1)[0].strip()
+        if value:
+            return value[:160]
+    text = str(query or "")
+    quoted = re.findall(r'["“]([^"”]{2,160})["”]', text)
+    if quoted:
+        return " ".join(quoted[0].split())[:160]
+    text = re.sub(r"(?<!\w)site\s*:\s*[^\s]+", " ", text, flags=re.I)
+    tokens = [
+        token.strip(" \t\r\n:：,，、-_")
+        for token in re.split(r"\s+", text)
+        if token.strip(" \t\r\n:：,，、-_")
+    ]
+    ignored = {
+        "bilibili", "b站", "哔哩哔哩", "官方", "官方账号", "官方资料",
+        "当前", "目前", "成员", "成员名单", "简介", "介绍", "核实", "验证",
+    }
+    for token in tokens:
+        if token.casefold() not in ignored and 2 <= len(token) <= 160:
+            return token[:160]
+    return ""
+
+
+def _canonical_bilibili_publisher_url(value):
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError:
+        return ""
+    publisher_id = str(parsed.path or "").strip("/")
+    if (
+        str(parsed.scheme or "").casefold() != "https"
+        or
+        str(parsed.hostname or "").casefold() != "space.bilibili.com"
+        or port not in {None, 443}
+        or not publisher_id.isdigit()
+    ):
+        return ""
+    return "https://space.bilibili.com/" + publisher_id
+
+
+def _bilibili_official_profile_proof(candidate, entity_expression):
+    """Bind one real /upuser card to the requested entity without AI judgment."""
+
+    if not isinstance(candidate, dict):
+        return None
+    if (
+        str(candidate.get("source_kind") or "") != "profile_result"
+        or candidate.get("profile_result_matched") is not True
+    ):
+        return None
+    url = _canonical_bilibili_publisher_url(candidate.get("url"))
+    if not url:
+        return None
+    profile_name = " ".join(str(
+        candidate.get("profile_name") or candidate.get("title")
+        or candidate.get("author") or ""
+    ).split()).strip()[:160]
+    expected = _normalized_official_identity_text(entity_expression)
+    actual = _normalized_official_identity_text(profile_name)
+    allowed_names = {
+        expected,
+        expected + "official",
+        expected + "官方",
+        "official" + expected,
+        "官方" + expected,
+    }
+    if not expected or actual not in allowed_names:
+        return None
+    verified_badge = candidate.get("profile_verified") is True
+    explicit_marker = bool(re.search(
+        r"(?:官方|official)", profile_name,
+        flags=re.IGNORECASE,
+    ))
+    if not verified_badge and not explicit_marker:
+        return None
+    return {
+        "publisher_name": profile_name,
+        "publisher_url": url,
+        "official_identity_verified": True,
+        "official_identity_basis": (
+            "bilibili_upuser_exact_entity_and_verified_badge"
+            if verified_badge else
+            "bilibili_upuser_exact_entity_and_official_marker"
+        ),
+        "entity_expression": str(entity_expression or "")[:160],
+    }
+
+
+def _bilibili_candidate_owned_by_identity(candidate, identity):
+    """Require a video author URL or exact name to match the proven account."""
+
+    if not isinstance(candidate, dict) or not isinstance(identity, dict):
+        return False
+    author_url = _canonical_bilibili_publisher_url(
+        candidate.get("author_url")
+    )
+    publisher_url = _canonical_bilibili_publisher_url(
+        identity.get("publisher_url")
+    )
+    if author_url and publisher_url and author_url == publisher_url:
+        return True
+    author = _normalized_official_identity_text(candidate.get("author"))
+    publisher = _normalized_official_identity_text(
+        identity.get("publisher_name")
+    )
+    return bool(author and publisher and author == publisher)
+
+
+def _bilibili_publisher_video_keyword(native_query, identity):
+    """Keep only the audited subject words for one publisher-local search."""
+
+    text = re.sub(
+        r"(?<!\w)site\s*:\s*[^\s]+", " ", str(native_query or ""),
+        flags=re.IGNORECASE,
+    )
+    for value in (
+        identity.get("publisher_name"),
+        identity.get("entity_expression"),
+    ):
+        literal = " ".join(str(value or "").split()).strip()
+        if literal:
+            text = re.sub(re.escape(literal), " ", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(?:bilibili|b\s*站|哔哩哔哩|official|官方账号|官方资料|官方|"
+        r"请|重新|搜索|查找|核实|验证|账号|视频)",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if re.search(r"(?:成员|member|roster)", text, flags=re.IGNORECASE):
+        # A publisher-local search already supplies the account boundary.
+        # Keep the literal roster facet instead of sending dates, account
+        # labels, and question wording that can hide the relevant upload.
+        return "成员"
+    text = re.sub(
+        r"(?:分别)?(?:是|有|包括)?谁(?:们)?|是什么|有哪些|多少|"
+        r"现在|当前|目前",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = " ".join(
+        value for value in re.split(r"[^\w\u3400-\u9fff]+", text)
+        if value
+    ).strip()
+    return text[:80]
+
+
+def _bilibili_publisher_video_page_urls(identity, native_query):
+    """Build bounded pages under the already proven numeric publisher UID."""
+
+    publisher_url = _canonical_bilibili_publisher_url(
+        identity.get("publisher_url")
+    )
+    if not publisher_url:
+        return []
+    keyword = _bilibili_publisher_video_keyword(native_query, identity)
+    urls = []
+    if keyword:
+        urls.append(
+            publisher_url + "/search/video?keyword=" + quote(keyword)
+        )
+    urls.append(publisher_url + "/upload/video")
+    return urls
+
+
+def _bilibili_publisher_video_page_is_bound(value, publisher_url):
+    """Accept only video-list routes below the exact proven publisher UID."""
+
+    publisher_url = _canonical_bilibili_publisher_url(publisher_url)
+    if not publisher_url:
+        return False
+    try:
+        expected = urlparse(publisher_url)
+        actual = urlparse(str(value or "").strip())
+        actual_port = actual.port
+    except ValueError:
+        return False
+    publisher_id = str(expected.path or "").strip("/")
+    allowed_paths = {
+        "/" + publisher_id + "/search/video",
+        "/" + publisher_id + "/upload/video",
+        "/" + publisher_id + "/video",
+    }
+    return (
+        actual.scheme.casefold() == "https"
+        and str(actual.hostname or "").casefold() == "space.bilibili.com"
+        and actual_port in {None, 443}
+        and actual.path.rstrip("/") in allowed_paths
+    )
+
+
+def _open_bilibili_publisher_video_page(target_url, publisher_url):
+    """Open one exact publisher-local video route in the managed browser."""
+
+    import social_browser
+    from playwright.sync_api import (
+        sync_playwright,
+        TimeoutError as PlaywrightTimeoutError,
+    )
+
+    if not _bilibili_publisher_video_page_is_bound(
+        target_url, publisher_url
+    ):
+        return ""
+    social_browser.ensure_social_browser()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(
+            social_browser.CDP_URL
+        )
+        if not browser.contexts:
+            raise RuntimeError(
+                "Bekki social browser has no usable context."
+            )
+        context = browser.contexts[0]
+        page = context.new_page()
+        managed_browser.keep_page_background(context, page)
+        social_browser._apply_bilibili_browser_identity(
+            browser, context, page
+        )
+        try:
+            try:
+                page.goto(
+                    target_url,
+                    wait_until="domcontentloaded",
+                    timeout=8000,
+                )
+            except PlaywrightTimeoutError:
+                print(
+                    "[CASPER BILIBILI PUBLISHER NAVIGATION CONTINUES]",
+                    target_url,
+                )
+            page.wait_for_timeout(3500)
+            opened_url = str(page.url or "").strip()
+            if not _bilibili_publisher_video_page_is_bound(
+                opened_url, publisher_url
+            ):
+                page.close(run_before_unload=False)
+                print(
+                    "[CASPER BILIBILI PUBLISHER PAGE REJECTED]",
+                    "url=" + opened_url[:240],
+                )
+                return ""
+            return opened_url
+        except Exception:
+            try:
+                page.close(run_before_unload=False)
+            except Exception:
+                pass
+            raise
+
+
+def _discover_bilibili_verified_publisher_videos(
+    identity,
+    native_query,
+):
+    """Discover videos inside the exact Bilibili account proven above."""
+
+    import social_browser
+
+    if (
+        not isinstance(identity, dict)
+        or identity.get("official_identity_verified") is not True
+    ):
+        return []
+    publisher_url = _canonical_bilibili_publisher_url(
+        identity.get("publisher_url")
+    )
+    if not publisher_url:
+        return []
+    for target_url in _bilibili_publisher_video_page_urls(
+        identity, native_query
+    )[:2]:
+        opened_url = ""
+        try:
+            opened_url = _open_bilibili_publisher_video_page(
+                target_url, publisher_url
+            )
+            if not opened_url:
+                continue
+            time.sleep(2)
+            page = social_browser.inspect_active_social_page(
+                "bilibili",
+                expected_url=opened_url,
+            )
+        except Exception as error:
+            print(
+                "[CASPER BILIBILI PUBLISHER VIDEO ERROR]",
+                repr(error),
+            )
+            continue
+        finally:
+            if opened_url:
+                try:
+                    social_browser.close_social_search(opened_url)
+                except Exception as error:
+                    print(
+                        "[CASPER BILIBILI PUBLISHER TAB CLOSE ERROR]",
+                        repr(error),
+                    )
+        candidates = []
+        for raw in (
+            page.get("post_candidates", [])
+            if isinstance(page, dict) else []
+        ):
+            if not isinstance(raw, dict):
+                continue
+            candidate = dict(raw)
+            if (
+                candidate.get("source_kind") != "result_card"
+                or candidate.get("dom_card_matched") is not True
+                or "/video/" not in str(candidate.get("url") or "")
+            ):
+                continue
+            candidate["author"] = str(
+                identity.get("publisher_name") or ""
+            )[:160]
+            candidate["author_url"] = publisher_url
+            candidate["official_publisher_page_bound"] = True
+            candidate[
+                "official_publisher_video_discovery_version"
+            ] = BILIBILI_OFFICIAL_PUBLISHER_VIDEO_DISCOVERY_VERSION
+            candidates.append(candidate)
+            if len(candidates) >= 30:
+                break
+        print(
+            "[CASPER BILIBILI PUBLISHER VIDEO DISCOVERY]",
+            "route=" + str(urlparse(target_url).path),
+            "candidates=" + str(len(candidates)),
+            "publisher=" + publisher_url.rsplit("/", 1)[-1],
+        )
+        if candidates:
+            return candidates
+    return []
+
+
+def _discover_native_fixed_fact_candidates(
+    query,
+    requested_sites,
+    official_only=False,
+    count=7,
+    status_callback=None,
+    entity_name="",
+):
+    """Use a selected site's own search UI without changing fact semantics."""
+
+    import social_browser
+    import source_scope
+
+    platform = _native_fixed_fact_platform(requested_sites)
+    if not platform:
+        return None
+    site = source_scope.normalize_domains(list(requested_sites or []))[0]
+    native_query = source_scope.native_site_query(query, site)
+    if not native_query:
+        return {
+            "status": "NO_RESULTS",
+            "results": [],
+            "discovery_type": "site_native_fact",
+            "platform": platform,
+        }
+    def run_native_search(search_query, search_kind, profiles):
+        opened_url = ""
+        try:
+            opened = social_browser.open_social_search(
+                platform,
+                search_query,
+                selection_mode="RELEVANCE",
+                search_kind=search_kind,
+            )
+            opened_url = str(opened.get("url") or "")
+            time.sleep(2)
+            page = social_browser.inspect_active_social_page(
+                platform,
+                expected_url=opened_url,
+                include_profile_candidates=profiles,
+            )
+            return page.get("post_candidates", [])
+        except Exception as error:
+            print("[CASPER NATIVE FACT SEARCH ERROR]", platform, repr(error))
+            return []
+        finally:
+            try:
+                social_browser.close_social_search(opened_url)
+            except Exception as error:
+                print("[CASPER NATIVE FACT TAB CLOSE ERROR]", repr(error))
+
+    identity = None
+    if official_only:
+        entity_expression = _native_official_entity_expression(
+            native_query, entity_name
+        )
+        if not entity_expression:
+            return {
+                "status": "LIMITED_EVIDENCE",
+                "results": [],
+                "discovery_type": "site_native_fact",
+                "platform": platform,
+                "official_identity_status": "ENTITY_EXPRESSION_MISSING",
+            }
+        _status(status_callback, "Casper 正在核对 B 站官方账号身份… 🪪")
+        profile_candidates = run_native_search(
+            entity_expression, "profile", True
+        )
+        proofs = [
+            proof
+            for proof in (
+                _bilibili_official_profile_proof(item, entity_expression)
+                for item in (
+                    profile_candidates
+                    if isinstance(profile_candidates, list) else []
+                )
+            )
+            if proof is not None
+        ]
+        unique_publishers = {
+            proof["publisher_url"]: proof for proof in proofs
+        }
+        if len(unique_publishers) != 1:
+            print(
+                "[CASPER BILIBILI OFFICIAL IDENTITY]",
+                "status=UNVERIFIED",
+                "matches=" + str(len(unique_publishers)),
+                "entity=" + repr(entity_expression),
+            )
+            return {
+                "status": "LIMITED_EVIDENCE",
+                "results": [],
+                "discovery_type": "site_native_fact",
+                "platform": platform,
+                "native_query": native_query,
+                "official_identity_status": "UNVERIFIED",
+            }
+        identity = next(iter(unique_publishers.values()))
+        print(
+            "[CASPER BILIBILI OFFICIAL IDENTITY]",
+            "status=VERIFIED",
+            "publisher=" + repr(identity["publisher_name"]),
+            "basis=" + identity["official_identity_basis"],
+        )
+
+    _status(status_callback, "Casper 正在使用 B 站站内搜索… 📺")
+    raw_candidates = []
+    if identity is not None:
+        raw_candidates = _discover_bilibili_verified_publisher_videos(
+            identity, native_query
+        )
+    if not raw_candidates:
+        raw_candidates = run_native_search(native_query, "all", False)
+
+    content_results = []
+    seen_urls = set()
+    for candidate in raw_candidates if isinstance(raw_candidates, list) else []:
+        if not isinstance(candidate, dict):
+            continue
+        url = str(candidate.get("url") or "").strip()
+        try:
+            domain = str(urlparse(url).hostname or "").lower().removeprefix("www.")
+        except ValueError:
+            continue
+        if (
+            not url
+            or url in seen_urls
+            or not source_scope.domain_matches(domain, site)
+        ):
+            continue
+        visible_text = " ".join(
+            str(candidate.get("visible_text") or "").split()
+        ).strip()[:1400]
+        title = " ".join(
+            str(candidate.get("title") or visible_text).split()
+        ).strip()[:300]
+        if not title or not visible_text:
+            continue
+        row = {
+            "title": title,
+            "description": str(
+                candidate.get("description") or visible_text
+            )[:1400],
+            "domain": domain,
+            "url": url,
+            "published": str(candidate.get("published") or "")[:100],
+            "source_score": 100,
+            "native_platform": platform,
+            "native_visible_text": visible_text,
+            "native_source_kind": str(
+                candidate.get("source_kind") or ""
+            )[:80],
+            "official_only": bool(official_only),
+            "author": str(candidate.get("author") or "")[:160],
+            "author_url": str(candidate.get("author_url") or "")[:2000],
+            "official_publisher_page_bound": (
+                candidate.get("official_publisher_page_bound") is True
+            ),
+            "official_publisher_video_discovery_version": (
+                candidate.get(
+                    "official_publisher_video_discovery_version"
+                )
+            ),
+        }
+        if official_only:
+            if not _bilibili_candidate_owned_by_identity(candidate, identity):
+                continue
+            row.update(identity)
+        content_results.append(row)
+        seen_urls.add(url)
+        if len(seen_urls) >= 30:
+            break
+    limit = max(1, min(int(count or 7), 12))
+    results = content_results[:limit]
+    print(
+        "[CASPER NATIVE FACT SEARCH]",
+        "platform=" + platform,
+        "query=" + repr(native_query[:220]),
+        "candidates=" + str(len(results)),
+    )
+    return {
+        "status": "OK" if results else "NO_RESULTS",
+        "results": results,
+        "discovery_type": "site_native_fact",
+        "platform": platform,
+        "native_query": native_query,
+        "official_identity": identity,
+        "official_identity_status": (
+            "VERIFIED" if identity is not None else "NOT_REQUIRED"
+        ),
+    }
+
+
+def _read_native_fact_candidate(candidate):
+    """Read only the selected native result; return None for normal web rows."""
+
+    platform = str(candidate.get("native_platform") or "").strip()
+    if platform != "bilibili":
+        return None
+    import social_browser
+
+    url = str(candidate.get("url") or "").strip()
+    try:
+        hostname = str(urlparse(url).hostname or "").lower()
+    except ValueError:
+        hostname = ""
+    if hostname == "space.bilibili.com":
+        # Profile pages are not video documents. The normal rendered reader is
+        # bounded to this exact URL and lets the official-source validator
+        # inspect the account name, badges, and profile description together.
+        return read_url(url)
+    target = {
+        "platform": platform,
+        "url": url,
+        "post_url": url,
+        "source_url": url,
+        "post_title": str(candidate.get("title") or "")[:300],
+        "visible_text": str(candidate.get("native_visible_text") or "")[:1400],
+        "evidence_level": "native_search_candidate",
+    }
+    best_detail = {}
+    best_visual_detail = {}
+    last_error = None
+    for attempt in range(2):
+        try:
+            details = social_browser.inspect_social_post_details([target])
+            detail = details[0] if isinstance(details, list) and details else {}
+        except Exception as error:
+            last_error = error
+            detail = {}
+        evidence_level = str(detail.get("evidence_level") or "")
+        content = str(detail.get("visible_text") or "").strip()[:MAX_PAGE_TEXT]
+        visual_frames = [
+            str(value or "").strip()
+            for value in detail.get("visual_frames", [])[:2]
+            if str(value or "").strip()
+        ] if (
+            evidence_level == "opened_multimodal"
+            and isinstance(detail.get("visual_frames"), list)
+        ) else []
+        best_evidence_level = str(best_detail.get("evidence_level") or "")
+        best_content = str(best_detail.get("visible_text") or "").strip()
+        score = (
+            (100000 if evidence_level.startswith("opened_") else 0)
+            + min(len(content), MAX_PAGE_TEXT)
+        )
+        best_score = (
+            (100000 if best_evidence_level.startswith("opened_") else 0)
+            + min(len(best_content), MAX_PAGE_TEXT)
+        )
+        if score > best_score:
+            best_detail = detail
+        best_visual_frames = (
+            best_visual_detail.get("visual_frames", [])
+            if isinstance(best_visual_detail.get("visual_frames"), list)
+            else []
+        )
+        if len(visual_frames) > len(best_visual_frames):
+            best_visual_detail = detail
+        if evidence_level.startswith("opened_") and content and visual_frames:
+            break
+        if attempt == 0:
+            print(
+                "[CASPER BILIBILI DETAIL RETRY]",
+                "reason=missing_bound_visual_evidence",
+                "url=" + url[:240],
+            )
+            time.sleep(0.25)
+    detail = dict(best_detail)
+    if best_visual_detail:
+        detail["visual_frames"] = best_visual_detail.get("visual_frames", [])
+        detail["visual_assets"] = best_visual_detail.get("visual_assets", [])
+        if str(detail.get("evidence_level") or "").startswith("opened_"):
+            detail["evidence_level"] = "opened_multimodal"
+    evidence_level = str(detail.get("evidence_level") or "")
+    content = str(detail.get("visible_text") or "").strip()[:MAX_PAGE_TEXT]
+    opened = evidence_level.startswith("opened_")
+    page_images = [
+        str(value or "").strip()
+        for value in detail.get("visual_frames", [])[:2]
+        if str(value or "").strip()
+    ] if (
+        evidence_level == "opened_multimodal"
+        and isinstance(detail.get("visual_frames"), list)
+    ) else []
+    page_image_labels = [
+        str(value.get("label") or "当前视频视觉证据")[:80]
+        for value in detail.get("visual_assets", [])[:len(page_images)]
+        if isinstance(value, dict)
+    ] if isinstance(detail.get("visual_assets"), list) else []
+    return {
+        "success": bool(opened and content),
+        "reader_type": "bilibili_native_fact",
+        "content": content if opened else "",
+        "page_images": page_images,
+        "page_image_labels": page_image_labels,
+        "final_url": str(detail.get("url") or url)[:2048],
+        "published": str(detail.get("visible_time_text") or "")[:160],
+        "error": (
+            None if opened and content else
+            repr(last_error)[:1000] if last_error is not None else
+            "Native result page was not readable."
+        ),
+    }
+
+
 def fact_lookup_controller(
     query,
     user_request="",
     status_callback=None,
     risk="low",
+    requested_sites=None,
+    official_only=False,
 ):
     """Browser-first current fact lookup with automatic source substitution."""
     import json
+    import source_scope
     import tools
+
+    requested_sites = source_scope.normalize_domains(
+        list(requested_sites or [])
+    )
+    source_contract = {
+        "source_scope": (
+            source_scope.SOURCE_FIXED_SITES
+            if requested_sites else source_scope.SOURCE_OPEN_WEB
+        ),
+        "requested_sites": requested_sites,
+        "official_only": bool(official_only and requested_sites),
+    }
 
     _status(status_callback, "Casper 正在确认事实时间范围… 🧭")
     fact_scope = _plan_fact_intent_scope(user_request or query, query)
@@ -8116,6 +9261,7 @@ def fact_lookup_controller(
             "results": [],
             "answers": [],
             "fact_scope": None,
+            "source_contract": source_contract,
             "context": (
                 "Casper could not obtain a valid AI temporal-intent contract. "
                 "Do not guess or substitute a historical period."
@@ -8130,6 +9276,7 @@ def fact_lookup_controller(
             "answers": [],
             "fact_scope": fact_scope,
             "entity_scope": None,
+            "source_contract": source_contract,
             "context": (
                 "Casper could not obtain a valid AI entity-scope contract. "
                 "Do not broaden, narrow, or translate the request by guess."
@@ -8151,13 +9298,17 @@ def fact_lookup_controller(
             "fact_scope": fact_scope,
             "entity_scope": entity_scope,
             "query_scope_audit": None,
+            "source_contract": source_contract,
             "context": (
                 "Casper could not obtain a valid independent AI search-query "
                 "scope audit. The unreviewed query was not executed."
             ),
         }
     proposed_query = query
-    query = query_scope_audit["approved_search_query"]
+    query = source_scope.constrain_query(
+        query_scope_audit["approved_search_query"],
+        requested_sites,
+    )
     print(
         "[CASPER FACT ENTITY SCOPE]",
         json.dumps(entity_scope, ensure_ascii=False),
@@ -8174,9 +9325,23 @@ def fact_lookup_controller(
             repr(query),
         )
     print("[CASPER FACT SCOPE]", json.dumps(fact_scope, ensure_ascii=False))
+    if requested_sites:
+        print(
+            "[CASPER FIXED SOURCE]",
+            "sites=" + ",".join(requested_sites),
+            "official_only=" + str(source_contract["official_only"]),
+        )
 
     def run_external_fallback(results, answers, resolution=None, gap_plan=None):
         """Ask External AI only after bounded browser evidence is incomplete."""
+        if requested_sites:
+            # An external model is not one of the literal websites selected by
+            # the user. Missing fixed-site evidence must remain missing.
+            return {
+                "status": "SKIPPED",
+                "reason": "fixed_source_scope",
+                "requested_sites": requested_sites,
+            }
         from nerv import external_fact_fallback
 
         snapshot = {
@@ -8198,12 +9363,42 @@ def fact_lookup_controller(
             status_callback=status_callback,
         )
 
+    def discover_fact_candidates(search_query, count):
+        language_boundaries = entity_scope.get(
+            "source_language_boundaries", []
+        )
+        literal_entity_expression = next(
+            (
+                str(value.get("source_expression") or "").strip()
+                for value in language_boundaries
+                if isinstance(value, dict)
+                and str(value.get("source_expression") or "").strip()
+            ),
+            "",
+        )
+        native = _discover_native_fixed_fact_candidates(
+            search_query,
+            requested_sites,
+            official_only=source_contract["official_only"],
+            count=count,
+            status_callback=status_callback,
+            entity_name=(
+                literal_entity_expression
+                or entity_scope.get("target_entity")
+                or ""
+            ),
+        )
+        if native is not None:
+            return native
+        return discover_web(
+            search_query,
+            count=count,
+            status_callback=status_callback,
+            allowed_domains=requested_sites,
+        )
+
     _status(status_callback, "Casper 正在后台浏览器中搜索… 🌐")
-    discovery = discover_web(
-        query,
-        count=7,
-        status_callback=status_callback,
-    )
+    discovery = discover_fact_candidates(query, 7)
     if discovery.get("status") == "HUMAN_HANDOFF":
         return {
             "status": "HUMAN_HANDOFF",
@@ -8213,6 +9408,7 @@ def fact_lookup_controller(
                 "reason": "Background browser requires human control.",
             },
             "results": [],
+            "source_contract": source_contract,
             "context": "Casper stopped because the browser requested human verification.",
         }
     candidates = discovery.get("results", [])
@@ -8224,6 +9420,7 @@ def fact_lookup_controller(
                 "query": query,
                 "pending_approval": fallback.get("pending_approval"),
                 "results": [],
+                "source_contract": source_contract,
                 "answers": [],
                 "external_ai_fallback": fallback,
                 "context": "External AI fallback requires user login.",
@@ -8250,6 +9447,7 @@ def fact_lookup_controller(
                     }
                 ],
                 "fact_scope": fact_scope,
+                "source_contract": source_contract,
                 "direct_reply": answer,
                 "external_ai_fallback": fallback,
                 "discovery_type": "external_ai_fact_fallback",
@@ -8266,6 +9464,7 @@ def fact_lookup_controller(
             "answers": [],
             "fact_scope": fact_scope,
             "external_ai_fallback": fallback,
+            "source_contract": source_contract,
         }
 
     if str(risk or "low").casefold() != "high":
@@ -8300,6 +9499,7 @@ def fact_lookup_controller(
                     }
                 ],
                 "fact_scope": fact_scope,
+                "source_contract": source_contract,
                 "context": context,
                 "direct_reply": answer,
                 "summary_audit": summary_answer["audit"],
@@ -8319,7 +9519,9 @@ def fact_lookup_controller(
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
-            page = read_url(url)
+            page = _read_native_fact_candidate(candidate)
+            if page is None:
+                page = read_url(url)
             if page.get("protected_event") == "captcha":
                 print("[CASPER BROWSER CAPTCHA]", candidate.get("domain", ""))
                 return {
@@ -8332,6 +9534,7 @@ def fact_lookup_controller(
                     },
                     "results": read_results,
                     "answers": answers,
+                    "source_contract": source_contract,
                     "context": (
                         "Casper stopped immediately because a source presented "
                         "a CAPTCHA. Human control is required."
@@ -8348,8 +9551,28 @@ def fact_lookup_controller(
                 }
             )
             read_results.append(enriched)
-            extracted = tools.extract_answers(query, [enriched])
-            answer = extracted[0].get("answer") if extracted else None
+            extraction_source = dict(enriched)
+            page_images = [
+                str(value or "").strip()
+                for value in page.get("page_images", [])[:2]
+                if str(value or "").strip()
+            ] if isinstance(page.get("page_images"), list) else []
+            if page_images:
+                page_image_labels = [
+                    str(value or "")[:80]
+                    for value in page.get("page_image_labels", [])[:2]
+                    if str(value or "").strip()
+                ] if isinstance(page.get("page_image_labels"), list) else []
+                extraction_source["page_images"] = page_images
+                extraction_source["page_image_labels"] = page_image_labels
+                # Keep the exact opened-source frames available until the
+                # post-reply Knowledge gate either rejects them or caches only
+                # the selected public evidence assets.
+                enriched["page_images"] = page_images
+                enriched["page_image_labels"] = page_image_labels
+            extracted = tools.extract_answers(query, [extraction_source])
+            extracted_item = extracted[0] if extracted else {}
+            answer = extracted_item.get("answer")
             validation = None
             temporal_validation = None
             if answer not in (None, "", [], {}):
@@ -8380,6 +9603,11 @@ def fact_lookup_controller(
                 {
                     "index": len(read_results),
                     "answer": answer,
+                    "evidence": (
+                        extracted_item.get("evidence")
+                        if isinstance(extracted_item.get("evidence"), dict)
+                        else {}
+                    ),
                     "accepted": accepted,
                     "validation_reason": (
                         validation.get("reason", "")
@@ -8387,6 +9615,8 @@ def fact_lookup_controller(
                         else ""
                     ),
                     "temporal_validation": temporal_validation,
+                    "temporal_alternative_accepted": False,
+                    "temporal_alternative_validation": None,
                 }
             )
             if accepted:
@@ -8437,10 +9667,13 @@ def fact_lookup_controller(
                     repr(reviewed_follow_up_query),
                 )
             follow_up_query = reviewed_follow_up_query
-            follow_up_discovery = discover_web(
+            follow_up_query = source_scope.constrain_query(
                 follow_up_query,
-                count=5,
-                status_callback=status_callback,
+                requested_sites,
+            )
+            follow_up_discovery = discover_fact_candidates(
+                follow_up_query,
+                5,
             )
             if follow_up_discovery.get("status") == "HUMAN_HANDOFF":
                 return {
@@ -8452,6 +9685,7 @@ def fact_lookup_controller(
                     },
                     "results": read_results,
                     "answers": answers,
+                    "source_contract": source_contract,
                     "context": "Casper stopped during bounded follow-up research.",
                 }
             follow_up_candidates = follow_up_discovery.get("results", [])
@@ -8507,6 +9741,7 @@ def fact_lookup_controller(
                 "results": read_results,
                 "answers": answers,
                 "fact_scope": fact_scope,
+                "source_contract": source_contract,
                 "external_ai_fallback": external_fallback,
                 "context": "External AI fallback requires user login.",
             }
@@ -8528,8 +9763,40 @@ def fact_lookup_controller(
                 }
             )
 
-    has_answer = _has_answer(answers)
+    exact_answer = _has_answer(answers)
+    temporal_fallback = None
+    if not exact_answer and str(risk or "low").casefold() == "low":
+        _validate_temporal_alternative_candidates(
+            query,
+            user_request or query,
+            fact_scope,
+            answers,
+            read_results,
+        )
+        temporal_fallback = _build_temporal_evidence_fallback(
+            user_request or query,
+            fact_scope,
+            answers,
+            read_results,
+            source_contract,
+        )
+        if temporal_fallback is not None:
+            print(
+                "[CASPER TEMPORAL EVIDENCE FALLBACK]",
+                "requested=" + repr(
+                    temporal_fallback.get("requested_period")
+                ),
+                "source=" + repr(
+                    (
+                        temporal_fallback.get("selected_evidence") or {}
+                    ).get("source_period")
+                ),
+                "knowledge_eligible=False",
+            )
+    has_answer = bool(exact_answer or temporal_fallback)
     accepted_answer = _accepted_answer_text(answers)
+    if not accepted_answer and temporal_fallback is not None:
+        accepted_answer = str(temporal_fallback.get("reply") or "").strip()
     context = (
         "melchior response mode: FACT_LOOKUP\n"
         "Casper used its managed background browser for discovery and rendered "
@@ -8548,6 +9815,8 @@ def fact_lookup_controller(
         + json.dumps(gap_plan, ensure_ascii=False, indent=2)
         + "\n\nExternal AI fallback:\n"
         + json.dumps(external_fallback, ensure_ascii=False, indent=2)
+        + "\n\nDisplay-only temporal evidence fallback:\n"
+        + json.dumps(temporal_fallback, ensure_ascii=False, indent=2)
         + "\n\nBrowser sources:\n"
         + json.dumps(tools._source_summary(read_results), ensure_ascii=False, indent=2)
     )
@@ -8562,7 +9831,18 @@ def fact_lookup_controller(
         "entity_scope": entity_scope,
         "query_scope_audit": query_scope_audit,
         "external_ai_fallback": external_fallback,
+        "temporal_evidence_fallback": temporal_fallback,
+        "source_contract": source_contract,
         "context": context,
         "direct_reply": accepted_answer,
+        "answer_kind": (
+            "EXACT_FACT"
+            if exact_answer else
+            "TEMPORAL_EVIDENCE_FALLBACK"
+            if temporal_fallback is not None else
+            "NONE"
+        ),
+        "target_scope_answered": bool(exact_answer),
+        "knowledge_capture_eligible": bool(exact_answer),
         "discovery_type": "casper_browser",
     }

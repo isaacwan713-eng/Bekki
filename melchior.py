@@ -14,6 +14,7 @@ import context as context_manager
 import document
 import magi
 import memory
+import source_scope
 import tools
 import vision
 
@@ -261,6 +262,9 @@ DEFAULT_PLAN = {
     "research_profile": "local_context",
     "claim_to_verify": None,
     "social_platforms": [],
+    "source_scope": "OPEN_WEB",
+    "requested_sites": [],
+    "official_only": False,
     "recommendation_domain": None,
     "skill_route": "none",
     "interaction_mode": "TASK",
@@ -522,6 +526,31 @@ def _normalize_plan(plan):
     normalized["social_platforms"] = list(
         dict.fromkeys(normalized["social_platforms"])
     )
+
+    requested_sites = source_scope.normalize_domains(
+        normalized.get("requested_sites", [])
+    )
+    normalized_source_scope = str(
+        normalized.get("source_scope") or source_scope.SOURCE_OPEN_WEB
+    ).upper().strip()
+    if (
+        normalized_source_scope != source_scope.SOURCE_FIXED_SITES
+        or not requested_sites
+        or response_mode == "LOCAL_ANSWER"
+    ):
+        normalized_source_scope = source_scope.SOURCE_OPEN_WEB
+        requested_sites = []
+    normalized["source_scope"] = normalized_source_scope
+    normalized["requested_sites"] = requested_sites
+    normalized["official_only"] = bool(
+        normalized.get("official_only") and requested_sites
+    )
+    if normalized_source_scope == source_scope.SOURCE_FIXED_SITES:
+        normalized["source_policy"] = (
+            "fixed_official_sites"
+            if normalized["official_only"]
+            else "fixed_sites"
+        )
 
     domain = str(normalized.get("recommendation_domain", "")).upper().strip()
     valid_domains = {
@@ -820,6 +849,85 @@ def _annotate_magi(plan, magi_route):
     lane, confidence = route
     plan["magi_lane"] = lane
     plan["magi_confidence"] = confidence
+    requested_sites = source_scope.normalize_domains(
+        magi_route.get("requested_sites", [])
+    )
+    fixed = (
+        lane == "SEARCH"
+        and str(magi_route.get("source_scope") or "").upper().strip()
+        == source_scope.SOURCE_FIXED_SITES
+        and bool(requested_sites)
+    )
+    plan["source_scope"] = (
+        source_scope.SOURCE_FIXED_SITES
+        if fixed else source_scope.SOURCE_OPEN_WEB
+    )
+    plan["requested_sites"] = requested_sites if fixed else []
+    plan["official_only"] = bool(
+        fixed and magi_route.get("official_only")
+    )
+    if fixed:
+        plan["source_policy"] = (
+            "fixed_official_sites"
+            if plan["official_only"] else "fixed_sites"
+        )
+    return plan
+
+
+def _authoritative_fixed_source_plan(user_message, magi_route):
+    """Keep a fixed-site fact/claim purpose without a second semantic router."""
+
+    route = _valid_magi_route(magi_route)
+    if route is None or route[0] != "SEARCH":
+        return None
+    if str(
+        magi_route.get("source_scope") or ""
+    ).upper().strip() != source_scope.SOURCE_FIXED_SITES:
+        return None
+    sites = source_scope.normalize_domains(magi_route.get("requested_sites", []))
+    if not sites:
+        raise RuntimeError("MAGI selected FIXED_SITES without a valid website.")
+    purpose = str(magi_route.get("search_scope") or "").upper().strip()
+    if purpose not in {"FACT_LOOKUP", "CLAIM_CHECK"}:
+        return None
+    return _normalize_plan(
+        {
+            "response_mode": purpose,
+            "risk": "low",
+            "complexity": "medium",
+            "reasoning_profile": "analytical",
+            "claim_to_verify": (
+                str(user_message or "").strip()[:500]
+                if purpose == "CLAIM_CHECK" else None
+            ),
+            "social_platforms": [],
+            "source_scope": source_scope.SOURCE_FIXED_SITES,
+            "requested_sites": sites,
+            "official_only": bool(magi_route.get("official_only")),
+            "skill_route": "none",
+            "device_scope": None,
+            "interaction_mode": "TASK",
+            "context_profile": "MINIMAL",
+            "reason": (
+                "Reliable MAGI selected " + purpose
+                + " while the current message fixed the allowed websites."
+            ),
+        }
+    )
+
+
+def _finish_authoritative_fixed_source_plan(user_message, magi_route):
+    plan = _authoritative_fixed_source_plan(user_message, magi_route)
+    if plan is None:
+        return None
+    plan = _annotate_magi(plan, magi_route)
+    print(
+        "[MELCHIOR FIXED SOURCE ROUTE]",
+        plan["response_mode"],
+        "sites=" + ",".join(plan["requested_sites"]),
+        "official_only=" + str(plan["official_only"]),
+    )
+    print("[MELCHIOR PLAN]", json.dumps(plan, ensure_ascii=False))
     return plan
 
 
@@ -1149,6 +1257,13 @@ def plan_request(
 ):
     """Return a normalized V2 routing plan for one user message."""
 
+    media_watch_reconciler = getattr(
+        magi,
+        "reconcile_media_watch_route",
+        None,
+    )
+    if callable(media_watch_reconciler):
+        magi_route = media_watch_reconciler(user_message, magi_route)
     memory_data = memory.initialize_memory()
     state = context_manager.load_context()
 
@@ -1161,6 +1276,12 @@ def plan_request(
     media_watch_plan = _finish_authoritative_media_watch_plan(magi_route)
     if media_watch_plan is not None:
         return media_watch_plan
+    fixed_source_plan = _finish_authoritative_fixed_source_plan(
+        user_message,
+        magi_route,
+    )
+    if fixed_source_plan is not None:
+        return fixed_source_plan
     social_plan = _finish_authoritative_social_plan(magi_route)
     if social_plan is not None:
         return social_plan
@@ -1306,6 +1427,12 @@ def plan_request(
         media_watch_plan = _finish_authoritative_media_watch_plan(magi_route)
         if media_watch_plan is not None:
             return media_watch_plan
+        fixed_source_plan = _finish_authoritative_fixed_source_plan(
+            user_message,
+            magi_route,
+        )
+        if fixed_source_plan is not None:
+            return fixed_source_plan
         social_plan = _finish_authoritative_social_plan(magi_route)
         if social_plan is not None:
             return social_plan

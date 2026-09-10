@@ -20,9 +20,12 @@ Classify every atomic claim independently:
   or exact completed historical snapshot may be stable.
 - A maintained formal set or organizational structure may be stable or
   reviewable according to realistic change rate and stale-answer cost.
-- Current people rosters, individual current affiliations, schedules, prices,
-  office holders, product versions, news, and other live states are changing,
-  event, or news with persist=false.
+- A complete current official people roster may be reviewable when the
+  accepted answer and bounded evidence establish the whole set. Choose a
+  proportional refresh interval so it expires instead of becoming stale.
+  Isolated current affiliations, incomplete/open lineups, schedules, prices,
+  office holders, product versions, news, and other live states remain
+  changing, event, or news with persist=false.
 
 A completed one-time public milestone is FIXED_HISTORY. For example, an
 accepted answer stating when a group officially debuted, when an organization
@@ -45,9 +48,11 @@ Historical people-roster contract:
   persist=true under FIXED_HISTORY when the remaining safety conditions below
   pass. Do not call it changing or set persist=false merely because it lists
   people or because the roster was changeable before the snapshot closed.
-- Reserve changing + persist=false for a current roster, an open-ended roster,
-  a date range whose membership can vary inside the range, or a roster whose
-  exact historical boundary is unsupported.
+- Reserve changing + persist=false for an isolated current affiliation, an
+  incomplete or open-ended roster, a date range whose membership can vary
+  inside the range, or a roster whose exact historical boundary and current
+  completeness are both unsupported. A fully supported current official roster
+  may instead be a reviewable maintained set, never stable.
 - additional_context.source_supported_periods is the closed list of exact
   period strings supplied by Casper's accepted temporal validation. The legacy
   temporal_scope.requested_period field must use one exact value from that
@@ -77,5 +82,11 @@ a valid stable or reviewable lifecycle. Use temporal_scope=null for ordinary
 durable or maintained claims. For fixed history, temporal_scope is mandatory,
 scope_type must be EXPLICIT_PERIOD or LATEST_COMPLETED_PERIOD, and
 allow_previous_period must be false.
+
+Relationship precision matters downstream. Keep a complete official roster as
+one set-level claim, but when an answer says several named people each had a
+separate former affiliation, split that statement into one atomic claim per
+person. This lets each later relationship edge cite the exact claim that proves
+it. Never turn a suspicion such as "疑似" or "可能" into a persistable claim.
 
 Use the user's language where possible. Return only the required JSON object.

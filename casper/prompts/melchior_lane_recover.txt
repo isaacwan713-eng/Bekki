@@ -20,7 +20,9 @@ not agree and are not news. FACT_LOOKUP is one changing fact. CLAIM_CHECK
 verifies one explicit claim. SOCIAL_RESEARCH is an explicit supported native
 social-platform research request. MEDIA_WATCH finds a specific or random item
 for the user to watch; a named playback website is a hard source condition and
-social_platforms remains empty. SHOPPING_RESEARCH asks to buy, find price,
+social_platforms remains empty. “去 iyf.tv 播放名侦探柯南” is MEDIA_WATCH;
+“暂停视频” and other controls for an already-active player are DEVICE_ACTION.
+SHOPPING_RESEARCH asks to buy, find price,
 stock, seller, or merchant items. RECOMMENDATION_RESEARCH asks what is worth
 choosing from independent evidence. TASK_ACTION manages reminders.
 Never select SOCIAL_RESEARCH when the user did not name a supported platform.

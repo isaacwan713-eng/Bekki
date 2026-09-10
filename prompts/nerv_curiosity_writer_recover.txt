@@ -9,6 +9,12 @@ return proposal=null. Use only named public/general entities present in the
 input. Never use private user details, invent an identity, or treat an
 unverified assistant reply as evidence.
 
+Honor curiosity_seed lifecycle fields. TOPIC_GAP requires ACTIVE + OPEN_GAP;
+TOPIC_REFRESH requires PAUSED_COMPLETE plus AUTO_INTEREST_REFRESH or
+REVIEW_DUE. Any other idle continuation from PAUSED_COMPLETE returns
+proposal=null. A lifecycle-owned proposal must cite an exact supplied
+related_knowledge_id from that topic.
+
 Keep question, reason, and trigger_summary in the same primary language as the
 completed user message. Keep them short. Treat a fandom pairing/ship nickname
 as one compound label; never split its characters into separate people or

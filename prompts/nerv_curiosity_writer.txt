@@ -14,6 +14,25 @@ repeat or paraphrase the source question or the verified claim merely to keep
 the chain moving. The journal's daily limit, selection, privacy, and duplicate
 rules still apply outside this Writer.
 
+TOPIC_GAP and TOPIC_REFRESH are stricter lifecycle-owned idle seeds.
+TOPIC_GAP is allowed only when curiosity_seed.topic_lifecycle_state=ACTIVE,
+wake_reason=OPEN_GAP, and next_focus names a real missing direction. Stay on
+that supplied topic and propose one question that addresses the gap without
+asserting an answer. TOPIC_REFRESH is allowed only when the topic is
+PAUSED_COMPLETE and wake_reason is AUTO_INTEREST_REFRESH or REVIEW_DUE. Ask one
+focused question that checks for a worthwhile change or refreshed explanation;
+do not assume that a change occurred. A PAUSED_COMPLETE topic must otherwise
+produce proposal=null during idle continuation. USER_TURN may show renewed
+user interest and can reopen a paused topic, but an idle verified fact alone
+cannot bypass the pause.
+
+active_topic_knowledge may include exact topic_id, knowledge_layer, and
+topic_lifecycle_state metadata. These fields are organization and lifecycle
+signals, not new facts. For a lifecycle-owned seed, related_knowledge_ids must
+cite at least one supplied claim from that exact topic. DRAFT and
+ANSWERED_UNVERIFIED history show interest or an open question, never learned
+coverage.
+
 A worthwhile curiosity may come from an unresolved contradiction, an
 interesting mechanism, a surprising connection, or a question whose answer
 could improve future reasoning. It may also fill a contextual knowledge gap:

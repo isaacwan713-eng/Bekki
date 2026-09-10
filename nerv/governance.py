@@ -1,12 +1,11 @@
 """Durable storage, provenance and policy boundaries for NERV."""
 
-import json
-import os
 import sys
-import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
+import sqlite_storage
 
 
 _LOCK = threading.RLock()
@@ -28,80 +27,53 @@ def data_directory(base_dir=None):
     return path
 
 
-def _read_json(path):
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-
-
 def load_json(path, default):
-    """Load primary or backup; a malformed generation never becomes state."""
+    """Load authoritative state and preserve a rollback-compatible mirror."""
+
     with _LOCK:
-        value = _read_json(path)
-        if value is not None:
-            return value
-        value = _read_json(str(path) + ".bak")
-        if value is not None:
-            return value
-        return default
+        return sqlite_storage.load_document(
+            "nerv",
+            sqlite_storage.document_key_for(path),
+            path,
+            default,
+            migration_backup_suffix=(
+                sqlite_storage.PHASE_TWO_MIGRATION_BACKUP_SUFFIX
+            ),
+        )
 
 
-def _temporary_json(directory, name, value):
-    descriptor, temporary = tempfile.mkstemp(
-        prefix="." + name + ".", suffix=".tmp", dir=directory, text=True
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-            json.dump(value, file, ensure_ascii=False, indent=2)
-            file.write("\n")
-            file.flush()
-            os.fsync(file.fileno())
-    except Exception:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
-    return temporary
+def ensure_json(path, default):
+    """Ensure both stores exist without overwriting an existing SQLite row."""
+
+    return load_json(path, default)
 
 
 def save_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     with _LOCK:
-        primary_tmp = _temporary_json(str(path.parent), path.name, value)
-        backup_tmp = None
-        try:
-            previous = _read_json(path)
-            if previous is not None:
-                backup_tmp = _temporary_json(
-                    str(path.parent), path.name + ".bak", previous
-                )
-                os.replace(backup_tmp, str(path) + ".bak")
-                backup_tmp = None
-            os.replace(primary_tmp, path)
-            primary_tmp = None
-        finally:
-            for temporary in (primary_tmp, backup_tmp):
-                if temporary:
-                    try:
-                        os.unlink(temporary)
-                    except OSError:
-                        pass
+        return sqlite_storage.save_document(
+            "nerv",
+            sqlite_storage.document_key_for(path),
+            path,
+            value,
+            migration_backup_suffix=(
+                sqlite_storage.PHASE_TWO_MIGRATION_BACKUP_SUFFIX
+            ),
+        )
 
 
 def append_jsonl(path, event):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     record = dict(event) if isinstance(event, dict) else {"event": str(event)}
     record.setdefault("at", now_iso())
     with _LOCK:
-        with open(path, "a", encoding="utf-8") as file:
-            file.write(json.dumps(record, ensure_ascii=False) + "\n")
-            file.flush()
-            os.fsync(file.fileno())
+        return sqlite_storage.append_event(
+            "nerv",
+            sqlite_storage.document_key_for(path),
+            path,
+            record,
+            migration_backup_suffix=(
+                sqlite_storage.PHASE_TWO_MIGRATION_BACKUP_SUFFIX
+            ),
+        )
 
 
 def compact_text(value, maximum):

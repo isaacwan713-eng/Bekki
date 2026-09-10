@@ -1060,7 +1060,8 @@ class LiveAIContractTests(unittest.TestCase):
         import tools
         from nerv.knowledge_curator import KnowledgeCurator
 
-        knowledge_ids = ["curator_contract_0", "curator_contract_1"]
+        knowledge_ids = ["curator_contract_1"]
+        fingerprint = "a" * 64
         catalog = [{
             "topic_id": "snh48-ecosystem",
             "title": "SNH48 ecosystem",
@@ -1088,39 +1089,31 @@ class LiveAIContractTests(unittest.TestCase):
             ],
             "claims": [],
         }]
+        current_item = {
+            "knowledge_id": knowledge_ids[0],
+            "subject": "Team SII与SNH48的关系",
+            "claim": "Team SII是SNH48内部的正式Team，不是其姐妹团体。",
+            "topics": ["SNH48", "Team SII"],
+            "knowledge_domain": "culture_entertainment",
+            "cluster_label": "SNH48",
+            "knowledge_type": "stable",
+            "expires_at": None,
+            "status": "verified",
+            "verification_status": "contract_test",
+            "verification_level": "contract_test",
+            "provenance": {},
+            "display_context": {},
+            "curation_fingerprint": fingerprint,
+        }
         packet = {
+            "curator_plan_contract_version": 2,
+            "curator_isolation_contract_version": 1,
             "local_date": "2026-08-29",
-            "already_verified_items": [
-                {
-                    "knowledge_id": knowledge_ids[0],
-                    "subject": "SNH48的期生概念",
-                    "claim": "SNH48采用“期生”表示成员加入该团体的批次。",
-                    "topics": ["SNH48"],
-                    "knowledge_domain": "culture_entertainment",
-                    "cluster_label": "SNH48",
-                    "knowledge_type": "stable",
-                    "expires_at": None,
-                    "status": "verified",
-                    "verification_status": "contract_test",
-                    "verification_level": "contract_test",
-                    "provenance": {},
-                },
-                {
-                    "knowledge_id": knowledge_ids[1],
-                    "subject": "Team SII与SNH48的关系",
-                    "claim": "Team SII是SNH48内部的正式Team，不是其姐妹团体。",
-                    "topics": ["SNH48", "Team SII"],
-                    "knowledge_domain": "culture_entertainment",
-                    "cluster_label": "SNH48",
-                    "knowledge_type": "stable",
-                    "expires_at": None,
-                    "status": "verified",
-                    "verification_status": "contract_test",
-                    "verification_level": "contract_test",
-                    "provenance": {},
-                },
-            ],
-            "existing_topic_ecosystems": catalog,
+            "current_knowledge_id": knowledge_ids[0],
+            "required_curation_fingerprint": fingerprint,
+            "current_verified_item": current_item,
+            "relevant_topic_ecosystems": catalog,
+            "allowed_existing_topic_ids": ["snh48-ecosystem"],
             "immutable_rules": {
                 "verification_may_not_be_changed": True,
                 "changing_event_news_are_not_in_this_queue": True,
@@ -1137,27 +1130,21 @@ class LiveAIContractTests(unittest.TestCase):
             num_predict=1800,
             think=False,
             model_name="gemma4:12b",
-            json_schema=KnowledgeCurator._schema_for(knowledge_ids),
+            json_schema=KnowledgeCurator._schema_for(
+                knowledge_ids,
+                fingerprint,
+            ),
         )
         assignments, errors = KnowledgeCurator._validate_plan(
             raw,
             knowledge_ids,
             catalog,
+            evidence_items={knowledge_ids[0]: current_item},
+            expected_fingerprint=fingerprint,
         )
         self.assertIsNotNone(assignments, errors)
         by_id = {item["knowledge_id"]: item for item in assignments}
-        generation = by_id[knowledge_ids[0]]
-        self.assertEqual(generation.get("decision"), "STORE")
-        self.assertEqual(
-            (generation.get("subject_entity") or {}).get("id"),
-            "snh48",
-        )
-        self.assertEqual(
-            generation.get("selected_subject_entity_id"),
-            "snh48",
-        )
-        self.assertIn("SNH48", generation.get("literal_claim_subject") or "")
-        relation = by_id[knowledge_ids[1]]
+        relation = by_id[knowledge_ids[0]]
         self.assertEqual(relation.get("decision"), "STORE")
         self.assertIs(relation.get("entity_scope_preserved"), True)
         self.assertIs(

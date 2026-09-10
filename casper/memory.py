@@ -3,6 +3,8 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 
+import sqlite_storage
+
 DATA_FOLDER = "data"
 TEMPORARY_FILE = os.path.join(DATA_FOLDER, "temporary.json")
 TASK_FILE = os.path.join(DATA_FOLDER, "task.json")
@@ -64,57 +66,27 @@ def _write_json_temporary(directory, file_name, data):
 
 
 def create_json_file(file_path, default_data):
-    if not os.path.exists(file_path):
-        save_json_file(file_path, default_data)
+    # First access imports a readable JSON generation or creates the default in
+    # SQLite. The compatibility mirror is reconstructed if it was removed.
+    load_json_file(file_path, default_data)
 
 
 def load_json_file(file_path, default_data=None):
-    for candidate in (file_path, file_path + ".bak"):
-        try:
-            with open(candidate, "r", encoding="utf-8") as file:
-                return json.load(file)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            continue
-    return default_data
+    return sqlite_storage.load_document(
+        "core_memory",
+        os.path.basename(file_path),
+        file_path,
+        default_data,
+    )
 
 
 def save_json_file(file_path, data):
-    absolute_path = os.path.abspath(file_path)
-    directory = os.path.dirname(absolute_path) or os.path.abspath(".")
-    file_name = os.path.basename(absolute_path)
-    backup_path = absolute_path + ".bak"
-    os.makedirs(directory, exist_ok=True)
-
-    primary_temporary = _write_json_temporary(directory, file_name, data)
-    backup_temporary = None
-    try:
-        # Preserve only a readable prior generation. A corrupt primary must not
-        # replace the last known-good backup.
-        try:
-            with open(absolute_path, "r", encoding="utf-8") as file:
-                previous_data = json.load(file)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            previous_data = None
-
-        if previous_data is not None:
-            backup_temporary = _write_json_temporary(
-                directory,
-                file_name + ".bak",
-                previous_data,
-            )
-            os.replace(backup_temporary, backup_path)
-            backup_temporary = None
-
-        os.replace(primary_temporary, absolute_path)
-        primary_temporary = None
-        _fsync_directory(directory)
-    finally:
-        for temporary_path in (primary_temporary, backup_temporary):
-            if temporary_path:
-                try:
-                    os.unlink(temporary_path)
-                except OSError:
-                    pass
+    return sqlite_storage.save_document(
+        "core_memory",
+        os.path.basename(file_path),
+        file_path,
+        data,
+    )
 
 
 def initialize_memory():

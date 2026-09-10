@@ -3,11 +3,12 @@
 # Copyright (c) 2026 YW49. All rights reserved.
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
 from datetime import datetime
+
+import sqlite_storage
 
 
 DEFAULT_CONTEXT = {
@@ -49,23 +50,36 @@ def _context_file():
     return path / f"{safe_id}.json"
 
 
+def _context_storage_key(session_id=None):
+    value = _active_session_id if session_id is None else session_id
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(value or ""))
+    return "session:" + safe_id if safe_id else "legacy"
+
+
 def set_active_session(session_id, migrate_legacy=False):
     """Select the context file belonging to the active chat session."""
     global _active_session_id
     _active_session_id = session_id
 
-    if migrate_legacy and not _context_file().exists():
+    target = _context_file()
+    if migrate_legacy and not sqlite_storage.document_exists(
+        "conversation_context",
+        _context_storage_key(),
+        target,
+    ):
         legacy = load_legacy_context()
         save_context(legacy)
 
 
 def load_legacy_context():
     path = _legacy_context_file()
-    if not path.exists():
-        return DEFAULT_CONTEXT.copy()
     try:
-        with open(path, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        data = sqlite_storage.load_document(
+            "conversation_context",
+            "legacy",
+            path,
+            DEFAULT_CONTEXT.copy(),
+        )
         return (
             {**DEFAULT_CONTEXT, **data}
             if isinstance(data, dict)
@@ -78,11 +92,13 @@ def load_legacy_context():
 
 def load_context():
     path = _context_file()
-    if not path.exists():
-        return DEFAULT_CONTEXT.copy()
     try:
-        with open(path, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        data = sqlite_storage.load_document(
+            "conversation_context",
+            _context_storage_key(),
+            path,
+            DEFAULT_CONTEXT.copy(),
+        )
         return (
             {**DEFAULT_CONTEXT, **data}
             if isinstance(data, dict)
@@ -95,8 +111,12 @@ def load_context():
 
 def save_context(context):
     path = _context_file()
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(context, file, ensure_ascii=False, indent=2)
+    sqlite_storage.save_document(
+        "conversation_context",
+        _context_storage_key(),
+        path,
+        context,
+    )
 
 
 def clear_context():
@@ -111,8 +131,11 @@ def delete_session_context(session_id):
 
     path = _data_dir() / "contexts" / f"{safe_id}.json"
     try:
-        if path.exists():
-            path.unlink()
+        sqlite_storage.delete_document(
+            "conversation_context",
+            _context_storage_key(session_id),
+            path,
+        )
     except OSError as error:
         print("[CONTEXT DELETE ERROR]", error)
 

@@ -165,8 +165,8 @@ class CompanionWatchV11047Tests(unittest.TestCase):
         self.assertIn("self._companion_watch_enabled = False", source)
         self.assertIn('QPushButton("Bekki 陪看  ○")', source)
         self.assertIn("from qtwebview2 import DictJsBridge", source)
-        self.assertIn("@js_bridge.bind_js_api_func", source)
-        self.assertIn("js_apis=js_bridge", source)
+        self.assertIn("js_bridge.bind_js_api_func(", source)
+        self.assertIn('"js_apis": js_bridge', source)
         self.assertNotIn("core_webview.WebMessageReceived +=", source)
         self.assertIn("self._video_core.ExecuteScriptAsync", source)
         self.assertIn("screen.grabWindow(", source)
@@ -193,7 +193,7 @@ class CompanionWatchV11047Tests(unittest.TestCase):
         self.assertIn("_companion_watch_owns_idle_time", source)
 
     def test_runtime_mirrors_and_prompt_audit_copy_match(self):
-        build_id = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"
+        build_id = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
         metadata = json.loads((ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8"))
         self.assertEqual(metadata["build_id"], build_id)
         self.assertIn(

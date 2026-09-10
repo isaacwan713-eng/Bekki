@@ -85,6 +85,26 @@ class KnowledgeCuratorTests(unittest.TestCase):
         value.update(updates)
         return value
 
+    @staticmethod
+    def _isolated_model(plan):
+        """Echo the dynamic identity fields a schema-bound model must return."""
+
+        def run(_prompt_path, payload, **_kwargs):
+            packet = json.loads(payload)
+            value = json.loads(json.dumps(plan, ensure_ascii=False))
+            current_id = packet["current_knowledge_id"]
+            value["assignments"] = [
+                assignment
+                for assignment in value.get("assignments", [])
+                if assignment.get("knowledge_id") == current_id
+            ]
+            value["curation_fingerprint"] = packet[
+                "required_curation_fingerprint"
+            ]
+            return value
+
+        return Mock(side_effect=run)
+
     def test_verified_curiosity_items_are_queued_and_grouped_in_one_ecosystem(self):
         first = self._item(
             "knowledge-snh-structure",
@@ -103,17 +123,6 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "assignments": [
                 self._assignment(
                     first["id"], "snh48", "SNH48",
-                    related_entities=[{
-                        "id": "gnz48",
-                        "name": "GNZ48",
-                        "type": "organization",
-                        "aliases": [],
-                        "relation": "sister_group",
-                        "claim_relation_evidence": (
-                            "The claim places both organizations in one "
-                            "sister-group ecosystem."
-                        ),
-                    }],
                 ),
                 self._assignment(
                     second["id"], "li_yitong", "李艺彤",
@@ -129,6 +138,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
                         "type": "organization",
                         "aliases": ["SNH"],
                         "relation": "former_member_of",
+                        "relation_direction": "SUBJECT_TO_RELATED",
                         "claim_relation_evidence": "曾是SNH48成员",
                     }],
                     facet="membership_history",
@@ -137,14 +147,14 @@ class KnowledgeCuratorTests(unittest.TestCase):
             ],
             "reason": "Both claims belong to one ecosystem.",
         }
-        model = Mock(return_value=plan)
+        model = self._isolated_model(plan)
         result = KnowledgeCurator(model).run_once(force=True)
 
         self.assertEqual(result["status"], "COMPLETED")
         topic_path = Path(knowledge._topic_path("snh48"))
         topic = json.loads(topic_path.read_text(encoding="utf-8"))
         self.assertEqual(len(topic["claims"]), 2)
-        self.assertEqual(set(topic["entities"]), {"snh48", "gnz48", "li_yitong"})
+        self.assertEqual(set(topic["entities"]), {"snh48", "li_yitong"})
         self.assertEqual(
             {claim["curation"]["subject_entity_id"] for claim in topic["claims"]},
             {"snh48", "li_yitong"},
@@ -152,14 +162,23 @@ class KnowledgeCuratorTests(unittest.TestCase):
         index = json.loads(
             Path(knowledge._topic_index_file()).read_text(encoding="utf-8")
         )
-        self.assertEqual(index["terms"]["snh"], ["snh48"])
+        self.assertNotIn("snh", index["terms"])
         self.assertEqual(index["terms"]["李艺彤"], ["snh48"])
         self.assertEqual(
             {
                 item["id"]
-                for item in knowledge_retrieval.shortlist("塞纳河组织如何运作？")
+                for item in knowledge_retrieval.shortlist("SNH48组织如何运作？")
             },
             {first["id"], second["id"]},
+        )
+        relationships = knowledge.load_topic_relationships("snh48")
+        self.assertEqual(len(relationships), 1)
+        self.assertEqual(relationships[0]["source_entity_id"], "li_yitong")
+        self.assertEqual(relationships[0]["relation"], "former_member_of")
+        self.assertEqual(relationships[0]["target_entity_id"], "snh48")
+        self.assertEqual(
+            relationships[0]["active_supporting_knowledge_ids"],
+            [second["id"]],
         )
         self.assertFalse(KnowledgeCurator(model).due())
 
@@ -226,7 +245,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "knowledge_type": "reviewable",
             "valid_for_days": 180,
             "lifecycle_proportional": True,
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
             "reason": "The present complete set can change occasionally.",
         }])
         self.assertEqual(result["reviewable"], 1)
@@ -266,7 +285,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
                 "knowledge_type": "reviewable",
                 "valid_for_days": 180,
                 "lifecycle_proportional": True,
-                "partition_lifecycle_audit_version": 7,
+                "partition_lifecycle_audit_version": 10,
                 "reason": "Contradictory synthetic decision.",
             }])
 
@@ -302,7 +321,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "lifecycle_audit_status": "PASSED",
             "lifecycle_audit_reason": "Present complete sets need review.",
             "lifecycle_basis": "MAINTAINED_SET_OR_STRUCTURE",
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
         })
         status, item = knowledge.apply_external_ai_partitioned_claim(
             "该组织目前有哪些正式单位？",
@@ -340,7 +359,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "cluster_label": "Manchester United",
             "lifecycle_audit_status": "PASSED",
             "lifecycle_audit_reason": "A completed season is fixed history.",
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
         }
 
         status, item = knowledge.apply_external_ai_partitioned_claim(
@@ -392,7 +411,10 @@ class KnowledgeCuratorTests(unittest.TestCase):
         )
         knowledge._save_knowledge([item])
         knowledge.apply_curator_assignments([
-            self._assignment(item["id"], "example_org", "示例组织")
+            self._assignment(
+                item["id"], "some_org", "某组织",
+                topic_id="some_org", topic_title="某组织",
+            )
         ])
         knowledge.record_curator_run(
             "COMPLETED",
@@ -401,11 +423,14 @@ class KnowledgeCuratorTests(unittest.TestCase):
         )
         plan = {
             "assignments": [
-                self._assignment(item["id"], "example_org", "示例组织")
+                self._assignment(
+                    item["id"], "some_org", "某组织",
+                    topic_id="some_org", topic_title="某组织",
+                )
             ],
             "reason": "Re-curate corrected lifecycle metadata.",
         }
-        curator = KnowledgeCurator(Mock(return_value=plan))
+        curator = KnowledgeCurator(self._isolated_model(plan))
         self.assertTrue(curator.due())
         audit = [{
             "id": item["id"],
@@ -414,7 +439,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "knowledge_type": "reviewable",
             "valid_for_days": 180,
             "lifecycle_proportional": True,
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
             "reason": "The present complete set can change occasionally.",
         }]
         with patch(
@@ -426,7 +451,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
         self.assertEqual(result["lifecycle_reaudit"]["reviewable"], 1)
         updated = knowledge.load_items()[0]
         self.assertEqual(updated["knowledge_type"], "reviewable")
-        self.assertEqual(updated["partition_lifecycle_audit_version"], 7)
+        self.assertEqual(updated["partition_lifecycle_audit_version"], 10)
         self.assertFalse(curator.due())
 
     def test_browser_verified_correction_claim_has_source_provenance(self):
@@ -446,7 +471,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "reason": "Accepted audited browser answer.",
             "lifecycle_audit_status": "PASSED",
             "lifecycle_audit_reason": "Maintained current set.",
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
         }
         status, item = knowledge.apply_verified_correction_partitioned_claim(
             "你之前的名单不对，请重新核实。",
@@ -504,7 +529,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "reason": "Accepted exact historical snapshot.",
             "lifecycle_audit_status": "PASSED",
             "lifecycle_audit_reason": "Closed historical roster snapshot.",
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
         }
         search_result = {
             "status": "OK",
@@ -576,16 +601,16 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "knowledge_type": "reviewable",
             "valid_for_days": 180,
             "lifecycle_proportional": True,
-            "partition_lifecycle_audit_version": 7,
+            "partition_lifecycle_audit_version": 10,
             "reason": "Official unit sets are reusable structures.",
         }])
         self.assertEqual(counts["reviewable"], 1)
         repaired = knowledge.load_items()[0]
         self.assertEqual(repaired["status"], "verified")
         self.assertEqual(repaired["knowledge_type"], "reviewable")
-        self.assertEqual(repaired["partition_lifecycle_audit_version"], 7)
+        self.assertEqual(repaired["partition_lifecycle_audit_version"], 10)
 
-    def test_v4_stable_mixed_structure_is_selected_for_v7_reaudit(self):
+    def test_v4_stable_mixed_structure_is_selected_for_v8_reaudit(self):
         item = self._item(
             "knowledge-v2-overstable-structure",
             "某组织当前正式单位",
@@ -724,11 +749,11 @@ class KnowledgeCuratorTests(unittest.TestCase):
     def test_conflict_is_quarantined_without_changing_verified_status(self):
         original = self._item(
             "knowledge-original",
-            "组织结构",
-            "该组织有四个正式分队。",
+            "示例组织",
+            "示例组织有四个正式分队。",
         )
         knowledge._save_knowledge([original])
-        curator = KnowledgeCurator(Mock(return_value={
+        curator = KnowledgeCurator(self._isolated_model({
             "assignments": [self._assignment(
                 original["id"], "example_org", "示例组织",
                 topic_id="example_org",
@@ -740,8 +765,8 @@ class KnowledgeCuratorTests(unittest.TestCase):
 
         conflicting = self._item(
             "knowledge-conflicting",
-            "组织结构",
-            "该组织没有正式分队。",
+            "示例组织",
+            "示例组织没有正式分队。",
         )
         knowledge._save_knowledge([*knowledge.load_items(), conflicting])
         conflict_assignment = self._assignment(
@@ -751,7 +776,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             topic_title="示例组织",
             related_claim_ids=[original["id"]],
         )
-        result = KnowledgeCurator(Mock(return_value={
+        result = KnowledgeCurator(self._isolated_model({
             "assignments": [conflict_assignment],
             "reason": "Material contradiction.",
         })).run_once(force=True)
@@ -775,7 +800,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             )],
             "reason": "Invalid path.",
         }
-        model = Mock(side_effect=[invalid, invalid])
+        model = self._isolated_model(invalid)
         result = KnowledgeCurator(model).run_once(force=True)
         self.assertEqual(result["status"], "FAILED")
         self.assertEqual(model.call_count, 2)
@@ -828,6 +853,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "type": "umbrella_organization",
             "aliases": [],
             "relation": "part_of",
+            "relation_direction": "SUBJECT_TO_RELATED",
             "claim_relation_evidence": "",
         }]
         assignments, errors = KnowledgeCurator._validate_plan(
@@ -852,31 +878,33 @@ class KnowledgeCuratorTests(unittest.TestCase):
 
         def plan(_prompt_path, payload, **_kwargs):
             packet = json.loads(payload)
-            batch = packet["already_verified_items"]
-            observed_batch_sizes.append(len(batch))
+            item = packet["current_verified_item"]
+            observed_batch_sizes.append(1)
             return {
-                "assignments": [
-                    self._assignment(
-                        item["knowledge_id"],
-                        "subject_" + item["knowledge_id"].rsplit("-", 1)[-1],
-                        item["subject"],
-                        topic_id="bounded_batch_topic",
-                        topic_title="Bounded batch topic",
-                        facet="fact_" + item["knowledge_id"].rsplit("-", 1)[-1],
-                    )
-                    for item in batch
+                "curation_fingerprint": packet[
+                    "required_curation_fingerprint"
                 ],
+                "assignments": [self._assignment(
+                    item["knowledge_id"],
+                    "subject_" + item["knowledge_id"].rsplit("-", 1)[-1],
+                    item["subject"],
+                    topic_id="bounded_batch_topic",
+                    topic_title=item["subject"],
+                    facet="fact_" + item["knowledge_id"].rsplit("-", 1)[-1],
+                )],
                 "reason": "Each batch is small enough to close its JSON.",
             }
 
         result = KnowledgeCurator(Mock(side_effect=plan)).run_once(force=True)
         self.assertEqual(result["status"], "COMPLETED")
         self.assertEqual(result["processed"], 7)
-        self.assertEqual(observed_batch_sizes, [3, 3, 1])
+        self.assertEqual(observed_batch_sizes, [1, 1, 1, 1, 1, 1, 1])
         self.assertEqual(knowledge.load_curation_inbox(pending_only=True), [])
 
     def test_topic_copy_cannot_outlive_authoritative_flat_ledger(self):
-        item = self._item("knowledge-removable", "主题", "一条已验证知识。")
+        item = self._item(
+            "knowledge-removable", "示例主题", "示例主题包含一条已验证知识。"
+        )
         knowledge._save_knowledge([item])
         plan = {
             "assignments": [self._assignment(
@@ -887,7 +915,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             "reason": "Store once.",
         }
         self.assertEqual(
-            KnowledgeCurator(Mock(return_value=plan)).run_once(force=True)["status"],
+            KnowledgeCurator(self._isolated_model(plan)).run_once(force=True)["status"],
             "COMPLETED",
         )
         self.assertEqual(len(knowledge.load_active_items()), 1)
@@ -898,7 +926,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
         item = self._item(
             "knowledge-native-name",
             "Chen Yuxuan",
-            "In November 2025, Chen Yuxuan was a Team SII member.",
+            "In November 2025, Chen Yuxuan was an SNH48 Team SII member.",
             temporal_scope={
                 "scope_type": "EXPLICIT_PERIOD",
                 "requested_period": "November 2025",
@@ -907,7 +935,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             },
             verification={
                 "original_question": "2025年Team SII有哪些成员？",
-                "accepted_answer": "In November 2025, Chen Yuxuan was a Team SII member.",
+                "accepted_answer": "In November 2025, Chen Yuxuan was an SNH48 Team SII member.",
             },
         )
         knowledge._save_knowledge([item])
@@ -932,7 +960,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
             facet="historical_roster",
         )
         result = KnowledgeCurator(
-            Mock(return_value={
+            self._isolated_model({
                 "assignments": [assignment],
                 "reason": "Use the established Chinese display name.",
             })
@@ -941,7 +969,7 @@ class KnowledgeCuratorTests(unittest.TestCase):
         stored = knowledge.load_active_items()[0]
         self.assertEqual(
             stored["claim"],
-            "In November 2025, Chen Yuxuan was a Team SII member.",
+            "In November 2025, Chen Yuxuan was an SNH48 Team SII member.",
         )
         self.assertEqual(
             stored["curation"]["preferred_display_claim"],

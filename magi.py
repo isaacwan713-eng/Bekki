@@ -10,6 +10,8 @@ Casper still owns execution.
 import json
 import re
 
+import media_watch
+import source_scope
 import tools
 
 
@@ -153,6 +155,20 @@ def _valid_ai_route(raw):
         return None
     if lane == "LOCAL" and local_knowledge_sufficiency == "PARTIAL":
         return None
+    fixed_sites = source_scope.normalize_domains(raw.get("requested_sites", []))
+    normalized_source_scope = str(
+        raw.get("source_scope") or source_scope.SOURCE_OPEN_WEB
+    ).upper().strip()
+    if normalized_source_scope not in source_scope.VALID_SOURCE_SCOPES:
+        return None
+    if normalized_source_scope == source_scope.SOURCE_FIXED_SITES:
+        if lane != "SEARCH" or not fixed_sites:
+            return None
+    elif fixed_sites:
+        return None
+    official_only = raw.get("official_only", False)
+    if not isinstance(official_only, bool):
+        return None
     return {
         "lane": lane,
         "confidence": confidence,
@@ -162,7 +178,56 @@ def _valid_ai_route(raw):
         "search_scope": search_scope,
         "recommendation_domain": recommendation_domain,
         "local_knowledge_sufficiency": local_knowledge_sufficiency,
+        "source_scope": normalized_source_scope,
+        "requested_sites": fixed_sites,
+        "official_only": official_only,
     }
+
+
+def reconcile_media_watch_route(user_message, route):
+    """Repair a model lane conflict for one closed media-discovery contract."""
+
+    if not isinstance(route, dict):
+        return route
+    if not media_watch.looks_like_media_discovery_request(user_message):
+        return route
+    if (
+        str(route.get("lane") or "").upper().strip() == "SEARCH"
+        and str(route.get("search_scope") or "").upper().strip()
+        == "MEDIA_WATCH"
+        and str(route.get("social_scope") or "OTHER").upper().strip()
+        == "OTHER"
+        and not route.get("social_platforms")
+    ):
+        return route
+    previous_lane = str(route.get("lane") or "unknown").upper().strip()
+    previous_scope = str(
+        route.get("search_scope") or "OTHER"
+    ).upper().strip()
+    repaired = dict(route)
+    repaired.update(
+        {
+            "lane": "SEARCH",
+            "social_scope": "OTHER",
+            "social_platforms": [],
+            "search_scope": "MEDIA_WATCH",
+            "recommendation_domain": None,
+            "local_knowledge_sufficiency": "NONE",
+            "reason": (
+                "The requested outcome is to find a concrete or random media "
+                "item to watch; any named website is a downstream hard source "
+                "condition, not a local device action."
+            ),
+        }
+    )
+    if repaired.get("source"):
+        repaired["source"] = str(repaired["source"]) + "_watch_contract"
+    print(
+        "[MAGI MEDIA WATCH CONTRACT]",
+        "from=" + previous_lane + "/" + previous_scope,
+        "to=SEARCH/MEDIA_WATCH",
+    )
+    return repaired
 
 
 def _route_schema():
@@ -247,12 +312,15 @@ def _run_gate(prompt_path, packet, source_prefix):
             attempt_packet["retry_instruction"] = (
                 "The previous AI route was unavailable, invalid, or below the "
                 "minimum confidence. Independently classify only the current "
-                "message and return one complete JSON object. Resolve every "
-                "closed-contract conflict: when your own judgment sets "
-                "social_scope to SOCIAL_RESEARCH, search_scope must also be "
-                "SOCIAL_RESEARCH and recommendation_domain must be null, even "
-                "when the posts discuss restaurants, products, or other "
-                "recommendations. Keep local_knowledge_sufficiency consistent "
+                "message and return one complete JSON object. Classify the "
+                "requested answer independently from its named website: one "
+                "changing fact from Bilibili, YouTube, or Wikipedia remains "
+                "FACT_LOOKUP; only a requested synthesis of platform posts, "
+                "videos, comments, or viewpoints is SOCIAL_RESEARCH. When the "
+                "answer itself is SOCIAL_RESEARCH, search_scope and "
+                "social_scope must both be SOCIAL_RESEARCH and "
+                "recommendation_domain must be null. Keep "
+                "local_knowledge_sufficiency consistent "
                 "with both the active candidate packet and the lane: PARTIAL "
                 "cannot choose LOCAL, and COMMAND always uses NONE."
             )
@@ -280,7 +348,25 @@ def _run_gate(prompt_path, packet, source_prefix):
         finally:
             _release_router_model(model_name)
         previous_raw = raw
-        result = _valid_ai_route(raw)
+        candidate = reconcile_media_watch_route(
+            packet.get("current_user_message"),
+            raw,
+        )
+        media_watch_contract_applied = bool(
+            isinstance(raw, dict)
+            and isinstance(candidate, dict)
+            and (
+                str(raw.get("lane") or "").upper().strip()
+                != str(candidate.get("lane") or "").upper().strip()
+                or str(raw.get("search_scope") or "").upper().strip()
+                != str(candidate.get("search_scope") or "").upper().strip()
+            )
+        )
+        candidate = source_scope.reconcile_magi_route(
+            packet.get("current_user_message"),
+            candidate,
+        )
+        result = _valid_ai_route(candidate)
         if (
             result
             and not packet.get(
@@ -307,6 +393,12 @@ def _run_gate(prompt_path, packet, source_prefix):
                 source_prefix + "_primary"
                 if not attempt
                 else source_prefix + "_recovery"
+            )
+            if media_watch_contract_applied:
+                result["source"] += "_watch_contract"
+            result = reconcile_media_watch_route(
+                packet.get("current_user_message"),
+                result,
             )
             print("[MAGI ROUTE]", json.dumps(result, ensure_ascii=False))
             return result
@@ -352,7 +444,10 @@ def route_request(
             knowledge_context, 3000
         ),
     }
-    return _run_gate("prompts/magi_gate.txt", packet, "ai")
+    return reconcile_media_watch_route(
+        user_message,
+        _run_gate("prompts/magi_gate.txt", packet, "ai"),
+    )
 
 
 def audit_route(
@@ -378,6 +473,9 @@ def audit_route(
             "the requested outcome; do not automatically agree with either AI."
         ),
     }
-    result = _run_gate("prompts/magi_audit.txt", packet, "ai_audit")
+    result = reconcile_media_watch_route(
+        user_message,
+        _run_gate("prompts/magi_audit.txt", packet, "ai_audit"),
+    )
     print("[MAGI AUDIT]", json.dumps(result, ensure_ascii=False))
     return result

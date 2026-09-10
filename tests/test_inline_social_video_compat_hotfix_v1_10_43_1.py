@@ -47,9 +47,9 @@ class InlineSocialVideoCompatHotfixV110431Tests(unittest.TestCase):
     def test_ui_uses_verified_https_wrapper_inside_edge_webview2(self):
         source = (ROOT / "ui.py").read_text(encoding="utf-8")
         self.assertIn("QtWebView2Widget", source)
-        self.assertIn("social_video.webview_wrapper_url", source)
+        self.assertIn("social_video.webview_start_url", source)
         self.assertIn("social_video.webview_wsgi_app", source)
-        self.assertIn("wsgi_host_name=social_video.WEBVIEW_WRAPPER_HOST", source)
+        self.assertIn('"wsgi_host_name": social_video.WEBVIEW_WRAPPER_HOST', source)
         self.assertNotIn("QWebEngine", source)
 
     def test_ui_logs_webview2_readiness_instead_of_qt_codec_probe(self):

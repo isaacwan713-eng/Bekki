@@ -4,11 +4,12 @@
 
 """Deterministic local task and reminder storage for Bekki."""
 
-import json
 import os
 import sys
 import uuid
 from datetime import datetime, timedelta
+
+import sqlite_storage
 
 
 VALID_ACTIONS = {
@@ -65,27 +66,12 @@ def _new_store():
 
 def load_tasks():
     path = _tasks_path()
-
-    if not os.path.exists(path):
-        return _new_store()
-
-    try:
-        with open(
-            path,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            data = json.load(file)
-
-    except (
-        OSError,
-        json.JSONDecodeError,
-    ) as error:
-        print(
-            "[TASKS] load failed:",
-            repr(error),
-        )
-        return _new_store()
+    data = sqlite_storage.load_document(
+        "task_manager",
+        "tasks",
+        path,
+        _new_store(),
+    )
 
     if not isinstance(data, dict):
         return _new_store()
@@ -109,7 +95,6 @@ def load_tasks():
 
 def save_tasks(task_data):
     path = _tasks_path()
-    temporary_path = path + ".tmp"
 
     safe_data = {
         "version": 1,
@@ -120,21 +105,11 @@ def save_tasks(task_data):
     }
 
     try:
-        with open(
-            temporary_path,
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                safe_data,
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
-
-        os.replace(
-            temporary_path,
+        sqlite_storage.save_document(
+            "task_manager",
+            "tasks",
             path,
+            safe_data,
         )
 
     except OSError as error:

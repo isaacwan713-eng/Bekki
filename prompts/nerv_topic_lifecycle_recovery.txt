@@ -1,0 +1,35 @@
+Return one corrected Topic Lifecycle JSON object only. The first assessment
+failed the closed contract shown in contract_errors.
+
+This is a fresh isolated retry; the invalid first response is intentionally not
+included. Echo required_assessment_contract_version as
+assessment_contract_version and required_assessment_fingerprint as
+assessment_fingerprint exactly. Use only the supplied Topic and exact pending
+Knowledge IDs. Do not reconstruct or repeat content from an earlier response.
+
+Use the exact topic_id. Assign every exact pending_layer_claim_id once and no
+other ID, using L1_FOUNDATION, L2_CONTEXT, L3_RELATIONSHIPS, L4_MECHANISMS, or
+L5_SPECIALIST. Return every layer exactly once in coverage and cite only exact
+supplied claim IDs. Curiosity signals show interest, never factual coverage.
+Every supplied claim with has_relationships=true must be assigned exactly
+L3_RELATIONSHIPS.
+
+Return one valid topic_classification using the supplied classification
+version and granularity_version, one allowed domain, and exactly two
+category_path nodes: a broad family followed by a stable kind. Reuse exact IDs
+and labels from existing_category_catalog when they fit. Do not create
+singular/plural or near-synonym sibling duplicates, classify by source/date, or
+use the topic itself as a category. Preserve every node in a supplied legacy
+path and only add missing depth; an existing current two-node path is locked.
+Assign every exact
+pending_classification_claim_id once and no other ID using one allowed
+fact_type. A claim with has_relationships=true must use RELATIONSHIP. Keep
+classification, facet, learning layer, and lifecycle as distinct concepts.
+
+ACTIVE requires a concrete next_focus, null refresh_after_days, and at least
+one required MISSING or PARTIAL layer. PAUSED_COMPLETE requires complete
+context, no remaining unlayered claim, completion_score at least 0.75, no
+required gap, an empty next_focus, a nonempty pause_reason, and an in-range
+integer refresh_after_days. If the batch cannot finish layering or the input
+context is incomplete, use ACTIVE. Do not change or invent any claim. Output
+only the complete JSON object.

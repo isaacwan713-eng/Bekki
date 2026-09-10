@@ -121,6 +121,43 @@ class SummaryFirstTests(unittest.TestCase):
         self.assertEqual(result["answer"], "答案是 42。")
         self.assertEqual(fake_tools.run_ai_prompt.call_count, 2)
 
+    def test_official_only_request_never_uses_search_snippet_fast_path(self):
+        discovery = {
+            "status": "OK",
+            "results": [
+                {
+                    "title": "Unofficial encyclopedia",
+                    "description": "It claims to list the official roster.",
+                    "domain": "wiki.example",
+                    "url": "https://wiki.example/roster",
+                },
+                {
+                    "title": "Fan mirror",
+                    "description": "It repeats the same list.",
+                    "domain": "fan.example",
+                    "url": "https://fan.example/roster",
+                },
+            ],
+        }
+        fake_tools = types.SimpleNamespace(run_ai_prompt=Mock())
+        with patch.dict(sys.modules, {"tools": fake_tools}):
+            result = browser._try_search_summary_fact_answer(
+                "四禧丸子 官方成员名单",
+                "只接受组合官方账号或官方资料。",
+                {
+                    "scope_type": "CURRENT_ACTIVE_STATE",
+                    "entity_scope": {
+                        "included_scope": (
+                            "official accounts or official materials only"
+                        ),
+                    },
+                },
+                discovery,
+            )
+
+        self.assertIsNone(result)
+        fake_tools.run_ai_prompt.assert_not_called()
+
     def test_recommendation_controller_has_no_default_page_enrichment(self):
         tree = ast.parse(Path(browser.__file__).read_text(encoding="utf-8"))
         controller = next(

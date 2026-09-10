@@ -84,25 +84,42 @@ Classify by the requested outcome, never by isolated keywords:
 - "帮我问 ChatGPT：为什么猫会呼噜" -> COMMAND because it sends a message
   through an external service
 
-In the same judgment, distinguish platform-native research from a cross-site
-discussion roundup:
+In the same judgment, keep the requested outcome separate from the requested
+source. Python extracts a literally named website as a fixed source contract;
+do not change the semantic search_scope merely because Bilibili, YouTube,
+Wikipedia, Reddit, or another site was named:
 - A request whose final outcome is to find something to watch or play is
   MEDIA_WATCH, even when Bilibili or YouTube is explicitly named. Examples:
   "我想看名侦探柯南", "去 B 站找一个下饭视频", and "在 YouTube 播放
   aespa MV". Keep social_scope OTHER and social_platforms [] because the named
   website is a hard watch-search condition extracted downstream, not a request
-  to summarize posts. Researching or summarizing videos remains SOCIAL_RESEARCH.
-- social_scope is SOCIAL_RESEARCH only when the user explicitly asks to
-  search, inspect, or summarize X/Twitter, Instagram, Xiaohongshu,
-  Bilibili/B站/哔哩哔哩, YouTube/油管 (including YouTube Shorts), or Reddit
-  posts/videos.
+  to summarize posts. "去 iyf.tv 播放名侦探柯南" is MEDIA_WATCH for the same
+  reason. Commands that control an already-active player—such as "暂停视频",
+  "继续播放", volume, seek, fullscreen, or next episode—remain COMMAND.
+  Researching or summarizing videos remains classified by the requested
+  information outcome.
+- social_scope is SOCIAL_RESEARCH only when the requested answer is a summary,
+  sample, comparison, ranking, or description of posts, videos, comments, or
+  community viewpoints from X/Twitter, Instagram, Xiaohongshu, Bilibili,
+  YouTube, or Reddit.
 - Set social_platforms to the requested values from bilibili, instagram,
-  reddit, x, xiaohongshu, youtube. "去小红书搜索最近的亲子餐厅推荐" is SEARCH with
-  social_scope SOCIAL_RESEARCH and social_platforms ["xiaohongshu"].
-- "去B站搜索又一充电中" uses social_platforms ["bilibili"].
-- "去 YouTube 搜索 aespa live clips" uses social_platforms ["youtube"].
+  reddit, x, xiaohongshu, youtube only for that SOCIAL_RESEARCH outcome.
+  "去小红书总结最近的亲子餐厅推荐帖" is SOCIAL_RESEARCH with
+  social_platforms ["xiaohongshu"].
+- "去B站总结又一充电中的最近视频" is SOCIAL_RESEARCH with
+  ["bilibili"].
+- "去 YouTube 比较 aespa live clips 里的评论" is SOCIAL_RESEARCH with
+  social_platforms ["youtube"].
 - "去Reddit看看大家怎么评价Microduck" uses social_platforms ["reddit"].
-- Mentioning a platform without asking to inspect its content is OTHER.
+- A single changing fact remains FACT_LOOKUP even when a platform is the fixed
+  source. Example: "去B站核实四禧丸子当前官方成员名单" is
+  FACT_LOOKUP with social_scope OTHER and social_platforms []. Python will
+  attach bilibili.com as the fixed source.
+- A closed truth claim remains CLAIM_CHECK when a site is named. A Wikipedia
+  lookup remains FACT_LOOKUP or CLAIM_CHECK, never SOCIAL_RESEARCH. Python
+  will attach wikipedia.org as the fixed source.
+- Mentioning a platform without asking to inspect its content is OTHER unless
+  another semantic search outcome applies.
 - DISCUSSION_FEED is a SEARCH outcome for an open-ended request to collect and
   synthesize what multiple public posts, Q&A threads, fan discussions, forum
   pages, or community sources say. Use it when no supported native platform
@@ -124,11 +141,10 @@ discussion roundup:
   the user selected a supported native platform.
 - Every non-social request and every LOCAL/COMMAND lane uses social_scope
   OTHER and an empty social_platforms array.
-- Named-platform research takes precedence over the subject inside the posts.
-  If social_scope is SOCIAL_RESEARCH, search_scope must be SOCIAL_RESEARCH and
-  recommendation_domain must be null. Never also classify it as shopping or
-  recommendation research merely because the posts discuss a restaurant or
-  product.
+- If social_scope is SOCIAL_RESEARCH, search_scope must also be
+  SOCIAL_RESEARCH and recommendation_domain must be null. This equality means
+  the requested answer itself is social-content research; it does not encode
+  the fixed website source.
 
 For every SEARCH lane, also classify the requested search outcome:
 - NEWS_FEED: broad current updates, recent news, or multiple headlines.
@@ -158,10 +174,11 @@ null. Examples:
   RECOMMENDATION_RESEARCH and recommendation_domain RESTAURANT, never NEWS_FEED.
 - "圣盖博地区有什么好吃的中餐厅" has the same recommendation outcome:
   RECOMMENDATION_RESEARCH + RESTAURANT, not a news request.
-- "去小红书搜索罗兰岗餐厅" -> search_scope SOCIAL_RESEARCH and
-  recommendation_domain null.
-- "去小红书搜索美国麦当劳新出的玩具" -> search_scope SOCIAL_RESEARCH
-  and recommendation_domain null, not RECOMMENDATION_RESEARCH + PRODUCT.
+- "去小红书总结罗兰岗餐厅推荐帖" -> SOCIAL_RESEARCH.
+- "去小红书查哪家罗兰岗餐厅最值得选" ->
+  RECOMMENDATION_RESEARCH + RESTAURANT; the fixed Xiaohongshu source is a
+  separate Python-owned constraint.
+- "去 Wiki 查四禧丸子的背景" -> FACT_LOOKUP, not SOCIAL_RESEARCH.
 - "我现在想看名侦探柯南" -> search_scope MEDIA_WATCH.
 - "去 B 站找一个下饭视频" -> search_scope MEDIA_WATCH with social_scope
   OTHER and social_platforms []; B 站 remains a hard downstream site condition.

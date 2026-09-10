@@ -147,21 +147,45 @@ class RuntimeTopologyTests(unittest.TestCase):
             ).exists()
         )
 
-    def test_runtime_build_id_is_media_watch_native_discovery_v1_10_46_1(self):
+    def test_runtime_build_id_is_knowledge_relationship_v1_10_51(self):
         source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
         manifest = json.loads(
             (PROJECT_ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8")
         )
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"',
+            'BEKKI_BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"',
             source,
         )
         self.assertIn('print("[BEKKI BUILD]", BEKKI_BUILD_ID', source)
         self.assertEqual(
             manifest["build_id"],
-            "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902",
+            "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
         )
         self.assertEqual(manifest["package_id"], manifest["build_id"])
+
+    def test_topic_lifecycle_is_wired_into_both_learning_paths(self):
+        core = (PROJECT_ROOT / "nerv" / "core.py").read_text(encoding="utf-8")
+        worker = (PROJECT_ROOT / "knowledge_worker.py").read_text(
+            encoding="utf-8"
+        )
+        installer = (PROJECT_ROOT / "INSTALL_STABLE_V1.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("self.topic_lifecycle = TopicLifecycleManager", core)
+        self.assertIn("topic_lifecycle=self.topic_lifecycle", core)
+        self.assertIn("def organize_learned_knowledge", worker)
+        self.assertIn("TopicLifecycleManager(", worker)
+        self.assertIn('"nerv\\topic_lifecycle.py"', installer)
+        self.assertIn('"knowledge_worker.py"', installer)
+        self.assertIn('"knowledge_scheduler.py"', installer)
+        for relative in (
+            "prompts/nerv_topic_lifecycle.txt",
+            "prompts/nerv_topic_lifecycle_recovery.txt",
+            "KNOWLEDGE_AUTONOMY_TOPIC_LIFECYCLE_V1_10_50_NOTES.md",
+            "TEST_KNOWLEDGE_AUTONOMY_V1_10_50.ps1",
+        ):
+            with self.subTest(relative=relative):
+                self.assertTrue((PROJECT_ROOT / relative).is_file())
 
     def test_audited_fact_lookup_knowledge_intake_is_async_and_internal(self):
         source = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
@@ -723,7 +747,7 @@ class MemoryPersistenceTests(unittest.TestCase):
                     ).total_seconds()
                     self.assertEqual(approval_delta, 15 * 60)
 
-    def test_atomic_save_keeps_last_known_good_backup(self):
+    def test_atomic_save_keeps_backup_and_sqlite_recovers_corrupt_primary(self):
         for module in self.MODULES:
             with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / "state.json"
@@ -742,6 +766,18 @@ class MemoryPersistenceTests(unittest.TestCase):
                 path.write_text("{broken", encoding="utf-8")
                 self.assertEqual(
                     module.load_json_file(str(path), {}),
+                    {"generation": 2},
+                )
+                self.assertEqual(
+                    json.loads(path.read_text(encoding="utf-8")),
+                    {"generation": 2},
+                )
+                self.assertEqual(
+                    json.loads(
+                        (path.parent / "state.json.bak").read_text(
+                            encoding="utf-8"
+                        )
+                    ),
                     {"generation": 1},
                 )
                 self.assertFalse(

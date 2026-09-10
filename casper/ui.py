@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import math
+import secrets
 import weakref
 import localization as i18n
 import image_loader
@@ -123,6 +124,11 @@ def resource_path(relative_path):
 
 
 UI_FONT = '"Segoe UI Variable", "Microsoft YaHei UI", "Segoe UI"'
+CHAT_FONT_FALLBACKS = (
+    "Microsoft YaHei UI",
+    "Segoe UI Variable",
+    "Segoe UI",
+)
 _AVATAR_CACHE = {}
 
 COLORS = {
@@ -154,6 +160,75 @@ MESSAGE_BUBBLE_NATURAL_WIDTH_SAFETY = 14
 MESSAGE_BUBBLE_WRAP_WIDTH_SAFETY = 8
 
 _ACTIVE_VIDEO_CARD_REF = None
+
+
+def _clean_chat_font_family(value):
+    return re.sub(
+        r"[^0-9A-Za-z \-\u3400-\u9fff]",
+        "",
+        str(value or ""),
+    ).strip() or ui_preferences.DEFAULTS["font_family"]
+
+
+def _chat_font_family_chain(family=None):
+    """Return one deterministic Latin/CJK fallback request for every surface."""
+
+    requested = _clean_chat_font_family(family)
+    output = []
+    seen = set()
+    for value in (requested, *CHAT_FONT_FALLBACKS):
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(value)
+    return output
+
+
+def _chat_font_css_stack(family=None):
+    return ", ".join(
+        '"' + value + '"'
+        for value in _chat_font_family_chain(family)
+    )
+
+
+def build_ui_font(family=None, point_size=13, weight=None):
+    """Build a fully specified font shared by widgets and rich documents.
+
+    Segoe UI Variable does not own every CJK glyph. Supplying the same family
+    chain everywhere, and asking modern Qt to merge fallback by context, keeps
+    one Chinese run from being assembled out of visually different fonts.
+    """
+
+    try:
+        point_size = int(point_size)
+    except (TypeError, ValueError):
+        point_size = 13
+    point_size = max(1, min(96, point_size))
+
+    font = QFont()
+    font.setFamilies(_chat_font_family_chain(family))
+    font.setPointSize(point_size)
+    font.setWeight(weight or QFont.Weight.Normal)
+    try:
+        strategy = QFont.StyleStrategy.PreferAntialias
+        context_merging = getattr(
+            QFont.StyleStrategy,
+            "ContextFontMerging",
+            None,
+        )
+        if context_merging is not None:
+            strategy = strategy | context_merging
+        font.setStyleStrategy(strategy)
+    except (AttributeError, TypeError, ValueError):
+        pass
+    try:
+        font.setHintingPreference(
+            QFont.HintingPreference.PreferVerticalHinting
+        )
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return font
 
 
 def _qt_object_is_alive(value):
@@ -416,7 +491,12 @@ class AppearanceDialog(QDialog):
         )
 
         self.font_combo = QFontComboBox()
-        self.font_combo.setCurrentFont(QFont(self._original["font_family"]))
+        self.font_combo.setCurrentFont(
+            build_ui_font(
+                self._original["font_family"],
+                self._original["font_size"],
+            )
+        )
         self.font_size = QSpinBox()
         self.font_size.setRange(11, 20)
         self.font_size.setSuffix(" pt")
@@ -498,7 +578,7 @@ class AppearanceDialog(QDialog):
     def _refresh_preview(self, *_args):
         family = self.font_combo.currentFont().family()
         size = self.font_size.value()
-        self.text_preview.setFont(QFont(family, size))
+        self.text_preview.setFont(build_ui_font(family, size))
         avatar_path = self._avatar_path or self._default_avatar_path()
         avatar = create_round_avatar(avatar_path, 72)
         if avatar.isNull():
@@ -534,7 +614,9 @@ class AppearanceDialog(QDialog):
 
     def _restore_defaults(self):
         defaults = ui_preferences.normalize_preferences({})
-        self.font_combo.setCurrentFont(QFont(defaults["font_family"]))
+        self.font_combo.setCurrentFont(
+            build_ui_font(defaults["font_family"], defaults["font_size"])
+        )
         self.font_size.setValue(defaults["font_size"])
         self._use_default_avatar()
 
@@ -730,11 +812,7 @@ def create_round_avatar(path, size=42):
 
 def _chat_font_values(preferences):
     value = ui_preferences.normalize_preferences(preferences)
-    family = re.sub(
-        r"[^0-9A-Za-z \-\u3400-\u9fff]",
-        "",
-        value["font_family"],
-    ).strip() or ui_preferences.DEFAULTS["font_family"]
+    family = _clean_chat_font_family(value["font_family"])
     return family, value["font_size"]
 
 
@@ -749,12 +827,16 @@ def _build_markdown_document(
     """Build the same document used for both rendering and exact measurement."""
 
     decorated = message_markdown.apply_highlights(markdown, highlights)
-    safe_markdown = message_markdown.sanitize_markdown(decorated)
+    rich_text = bool(highlights) or message_markdown.has_rich_markdown(decorated)
+    point_size = max(1, min(96, int(size or 13)))
+    font_family = family or ui_preferences.DEFAULTS["font_family"]
     document = QTextDocument()
     document.setDocumentMargin(0)
-    document.setDefaultFont(QFont(family or "Segoe UI Variable", int(size or 13)))
+    document.setDefaultFont(build_ui_font(font_family, point_size))
     document.setDefaultStyleSheet(
-        "html,body{margin:0;padding:0;color:" + color + ";}"
+        "html,body{margin:0;padding:0;color:" + color
+        + ";font-family:" + _chat_font_css_stack(font_family)
+        + ";font-size:" + str(point_size) + "pt;font-weight:400;}"
         "p{margin:0 0 7px 0;}"
         "h1,h2,h3,h4{color:#344b63;margin:6px 0 5px 0;font-weight:700;}"
         "h1{font-size:18px;}h2{font-size:16px;}h3{font-size:14px;}h4{font-size:13px;}"
@@ -767,17 +849,21 @@ def _build_markdown_document(
         "table{border-collapse:collapse;margin:5px 0;}"
         "th,td{border:1px solid #d7e7f5;padding:4px;}"
     )
-    try:
-        dialect = getattr(QTextDocument, "MarkdownDialectGitHub", None)
-        if dialect is None:
-            feature_enum = getattr(QTextDocument, "MarkdownFeature", None)
-            dialect = getattr(feature_enum, "MarkdownDialectGitHub", None)
-        if dialect is None:
+    if rich_text:
+        safe_markdown = message_markdown.sanitize_markdown(decorated)
+        try:
+            dialect = getattr(QTextDocument, "MarkdownDialectGitHub", None)
+            if dialect is None:
+                feature_enum = getattr(QTextDocument, "MarkdownFeature", None)
+                dialect = getattr(feature_enum, "MarkdownDialectGitHub", None)
+            if dialect is None:
+                document.setMarkdown(safe_markdown)
+            else:
+                document.setMarkdown(safe_markdown, dialect)
+        except (AttributeError, TypeError):
             document.setMarkdown(safe_markdown)
-        else:
-            document.setMarkdown(safe_markdown, dialect)
-    except (AttributeError, TypeError):
-        document.setMarkdown(safe_markdown)
+    else:
+        document.setPlainText(message_markdown.bounded_markdown(decorated))
     if text_width is not None:
         document.setTextWidth(max(1.0, float(text_width)))
     return document
@@ -880,7 +966,12 @@ def _open_safe_markdown_link(value):
 
 
 def _set_markdown_label(label, markdown, highlights=None, family=None, size=13, color="#35465a"):
-    label.setTextFormat(Qt.RichText)
+    font_family = family or ui_preferences.DEFAULTS["font_family"]
+    point_size = max(1, min(96, int(size or 13)))
+    decorated = message_markdown.apply_highlights(markdown, highlights)
+    rich_text = bool(highlights) or message_markdown.has_rich_markdown(decorated)
+    label.setFont(build_ui_font(font_family, point_size))
+    label.setTextFormat(Qt.RichText if rich_text else Qt.PlainText)
     label.setWordWrap(True)
     label.setTextInteractionFlags(
         Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
@@ -889,15 +980,18 @@ def _set_markdown_label(label, markdown, highlights=None, family=None, size=13, 
     if not getattr(label, "_bekki_markdown_link_connected", False):
         label.linkActivated.connect(_open_safe_markdown_link)
         label._bekki_markdown_link_connected = True
-    label.setText(
-        _markdown_to_rich_text(
-            markdown,
-            highlights=highlights,
-            family=family,
-            size=size,
-            color=color,
+    if rich_text:
+        label.setText(
+            _markdown_to_rich_text(
+                markdown,
+                highlights=highlights,
+                family=font_family,
+                size=point_size,
+                color=color,
+            )
         )
-    )
+    else:
+        label.setText(message_markdown.bounded_markdown(markdown))
 
 
 class HeaderWidget(QWidget):
@@ -1702,6 +1796,7 @@ class ResultCard(QFrame):
         self._video_view = None
         self._video_core = None
         self._video_js_bridge = None
+        self._video_companion_bridge_name = ""
         self._video_event_bindings = []
         self._video_wsgi_app = None
         self._video_active = False
@@ -2071,9 +2166,10 @@ class ResultCard(QFrame):
             or not INLINE_WEBVIEW2_AVAILABLE
         ):
             return
-        wrapper_url = social_video.webview_wrapper_url(self._video_contract)
+        start_url = social_video.webview_start_url(self._video_contract)
         wsgi_app = social_video.webview_wsgi_app(self._video_contract)
-        if not wrapper_url or wsgi_app is None:
+        direct_page = bool(self._video_contract.get("direct_page"))
+        if not start_url or (not direct_page and wsgi_app is None):
             return
 
         if not _claim_active_video_card(self):
@@ -2087,31 +2183,44 @@ class ResultCard(QFrame):
         try:
             js_bridge = DictJsBridge()
             card_ref = weakref.ref(self)
+            bridge_name = (
+                "bekki_companion_event_" + secrets.token_hex(12)
+                if direct_page
+                else "bekki_companion_event"
+            )
 
-            @js_bridge.bind_js_api_func
             def bekki_companion_event(payload):
                 card = card_ref()
                 if card is None or not _qt_object_is_alive(card):
                     return False
                 return card._on_companion_bridge_message(payload)
 
-            view = QtWebView2Widget(
-                url=wrapper_url,
-                debug=False,
-                context_menus=False,
-                background_color="#080b10",
-                handle_new_window=False,
-                lazyload=True,
-                user_data_folder=_inline_video_user_data_folder(),
-                no_local_storage=False,
-                wsgi_app=wsgi_app,
-                wsgi_host_name=social_video.WEBVIEW_WRAPPER_HOST,
-                wsgi_executor=2,
-                init_settings_hook=self._configure_inline_webview,
-                js_apis=js_bridge,
-                fullscreen_support=True,
-                parent=self.video_host,
+            js_bridge.bind_js_api_func(
+                bekki_companion_event,
+                name=bridge_name,
             )
+
+            view_options = {
+                "url": start_url,
+                "debug": False,
+                "context_menus": False,
+                "background_color": "#080b10",
+                "handle_new_window": False,
+                "lazyload": True,
+                "user_data_folder": _inline_video_user_data_folder(),
+                "no_local_storage": False,
+                "init_settings_hook": self._configure_inline_webview,
+                "fullscreen_support": True,
+                "parent": self.video_host,
+                "js_apis": js_bridge,
+            }
+            if not direct_page:
+                view_options.update({
+                    "wsgi_app": wsgi_app,
+                    "wsgi_host_name": social_video.WEBVIEW_WRAPPER_HOST,
+                    "wsgi_executor": 2,
+                })
+            view = QtWebView2Widget(**view_options)
         except Exception as error:
             print("[INLINE VIDEO WEBVIEW2] create_failed", repr(error))
             self._video_active = False
@@ -2131,6 +2240,7 @@ class ResultCard(QFrame):
         view.setFixedSize(width, height)
         self._video_view = view
         self._video_js_bridge = js_bridge
+        self._video_companion_bridge_name = bridge_name
         self._video_wsgi_app = wsgi_app
         view.bridge.initialization_done.connect(
             self._on_inline_webview_initialization
@@ -2377,6 +2487,17 @@ class ResultCard(QFrame):
         platform = str(self._video_contract.get("platform") or "unknown")
         print("[INLINE VIDEO WEBVIEW2] wrapper_loaded platform=" + platform)
         self._video_wrapper_loaded = True
+        if bool(self._video_contract.get("direct_page")):
+            bootstrap = social_video.direct_companion_bootstrap_script(
+                self._video_contract,
+                self._video_companion_bridge_name,
+            )
+            installed = bool(bootstrap and self._execute_inline_script(bootstrap))
+            print(
+                "[COMPANION WATCH DIRECT BRIDGE]",
+                "platform=" + platform,
+                "installed=" + str(installed).lower(),
+            )
         remembered = self.companion_history()
         self._execute_inline_script(
             "if(window.BekkiCompanion){window.BekkiCompanion.reset();"
@@ -2409,6 +2530,7 @@ class ResultCard(QFrame):
         self._video_view = None
         self._video_wsgi_app = None
         self._video_js_bridge = None
+        self._video_companion_bridge_name = ""
         self._video_active = False
         self._video_wrapper_loaded = False
         self._companion_enabled = False
@@ -2656,7 +2778,8 @@ class MessageWidget(QWidget):
                     border-radius: 17px;
                     color: #3d3440;
                     font-family: {UI_FONT};
-                    font-size: 13px;
+                    font-size: 13pt;
+                    font-weight: 400;
                     padding: 9px 13px;
                 }}
                 """
@@ -2709,7 +2832,8 @@ class MessageWidget(QWidget):
                     border-radius: 17px;
                     color: #35465a;
                     font-family: {UI_FONT};
-                    font-size: 13px;
+                    font-size: 13pt;
+                    font-weight: 400;
                     padding: 9px 13px;
                 }}
                 """
@@ -2777,6 +2901,7 @@ class MessageWidget(QWidget):
     def apply_preferences(self, preferences):
         self._preferences = ui_preferences.normalize_preferences(preferences)
         family, size = _chat_font_values(self._preferences)
+        css_family = _chat_font_css_stack(family)
         if self._is_user_message:
             name_color = "#a16d86"
             bubble_style = """
@@ -2799,8 +2924,9 @@ class MessageWidget(QWidget):
             QLabel {{
                 {bubble_style}
                 border-radius: 17px;
-                font-family: "{family}";
-                font-size: {size}px;
+                font-family: {css_family};
+                font-size: {size}pt;
+                font-weight: 400;
                 padding: 9px 13px;
             }}
             """
@@ -3333,7 +3459,8 @@ class InputArea(QWidget):
     def apply_preferences(self, preferences):
         self._preferences = ui_preferences.normalize_preferences(preferences)
         family, size = _chat_font_values(self._preferences)
-        self.input_box.setFont(QFont(family, size))
+        css_family = _chat_font_css_stack(family)
+        self.input_box.setFont(build_ui_font(family, size))
         self.input_box.setStyleSheet(
             f"""
             QPlainTextEdit {{
@@ -3341,8 +3468,9 @@ class InputArea(QWidget):
                 border: 1px solid #d4e1ef;
                 border-radius: 24px;
                 color: #334155;
-                font-family: "{family}";
-                font-size: {size}px;
+                font-family: {css_family};
+                font-size: {size}pt;
+                font-weight: 400;
                 padding: 7px 14px;
             }}
             QPlainTextEdit:focus {{ border: 1px solid #77b6f3; }}
@@ -4076,6 +4204,7 @@ class BekkiWindow(QWidget):
         self._companion_watch_inflight_kind = ""
         self._companion_watch_last_signature = None
         self._companion_watch_auto_count = 0
+        self._companion_watch_reaction_index = 0
         self._companion_watch_pending_message = ""
         self._companion_watch_timer = QTimer(self)
         self._companion_watch_timer.setSingleShot(True)
@@ -4263,7 +4392,10 @@ class BekkiWindow(QWidget):
 
     def _start_companion_watch(self):
         card = self._active_theater_card()
-        if card is None or not card._video_active:
+        if (
+            card is None
+            or not card._video_active
+        ):
             return False
         self._companion_watch_generation += 1
         self._companion_watch_enabled = True
@@ -4271,6 +4403,7 @@ class BekkiWindow(QWidget):
         self._companion_watch_inflight_kind = ""
         self._companion_watch_last_signature = None
         self._companion_watch_auto_count = 0
+        self._companion_watch_reaction_index = 0
         self._companion_watch_pending_message = ""
         self.theater_companion_button.setText("Bekki 陪看  ●")
         card._set_companion_overlay(True, reset=True)
@@ -4292,6 +4425,7 @@ class BekkiWindow(QWidget):
         self._companion_watch_inflight_kind = ""
         self._companion_watch_last_signature = None
         self._companion_watch_auto_count = 0
+        self._companion_watch_reaction_index = 0
         self._companion_watch_pending_message = ""
         if _qt_object_is_alive(self.theater_companion_button):
             self.theater_companion_button.setText("Bekki 陪看  ○")
@@ -4445,6 +4579,7 @@ class BekkiWindow(QWidget):
                 request_kind == "AUTO_REACTION"
                 and self._companion_watch_auto_count == 0
             ),
+            "reaction_index": self._companion_watch_reaction_index,
             "history": card.companion_history(),
         }
         handler = self._companion_watch_handler
@@ -4460,6 +4595,8 @@ class BekkiWindow(QWidget):
             return False
         self._companion_watch_inflight = True
         self._companion_watch_inflight_kind = request_kind
+        if request_kind == "AUTO_REACTION":
+            self._companion_watch_reaction_index += 1
         if request_kind == "USER_MESSAGE":
             card._set_companion_busy(True)
         return True
@@ -4587,6 +4724,13 @@ class BekkiWindow(QWidget):
             current._stop_inline_video()
         self._stop_companion_watch()
         self._theater_card_ref = weakref.ref(card)
+        companion_available = bool(card._video_companion_bridge_name)
+        self.theater_companion_button.setEnabled(companion_available)
+        self.theater_companion_button.setToolTip(
+            "在视频右下角打开可输入、可回复的陪看对话框"
+            if companion_available
+            else "当前播放器没有可用的 Bekki 陪看桥"
+        )
         self.theater_title.setText(
             "Bekki 影院模式 · "
             + re.sub(r"\s+", " ", str(card.card.get("title") or "正在播放")).strip()[:90]

@@ -36,7 +36,10 @@ social_platforms []: downstream code preserves the literal website as a hard
 watch-search condition. Researching or summarizing posts/videos remains
 SOCIAL_RESEARCH.
 For example, “我想看名侦探柯南” and “去 B 站找一个下饭视频” are
-MEDIA_WATCH; the latter keeps B 站 as a hard downstream site condition.
+MEDIA_WATCH; “去 iyf.tv 播放名侦探柯南” is also MEDIA_WATCH. The named site
+stays a hard downstream source condition. Only controls for an already-active
+player, such as “暂停视频”, “继续播放”, volume, seek, fullscreen, or next
+episode, belong to COMMAND.
 
 Use DISCUSSION_FEED with social_scope OTHER and social_platforms [] when the
 user wants an open-ended synthesis of reasons, viewpoints, interpretations, or

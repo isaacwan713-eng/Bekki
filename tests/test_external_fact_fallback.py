@@ -108,7 +108,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
                 },
                 "reason": "Exact completed source-supported snapshot.",
                 "lifecycle_audit_status": "PASSED",
-                "partition_lifecycle_audit_version": 7,
+                "partition_lifecycle_audit_version": 10,
             }],
             "reason": "Historical snapshot can be reused with exact identity.",
         }
@@ -178,7 +178,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
                 "temporal_scope": None,
                 "reason": "A live people roster is current-turn only.",
                 "lifecycle_audit_status": "PASSED",
-                "partition_lifecycle_audit_version": 7,
+                "partition_lifecycle_audit_version": 10,
             }],
             "reason": "No reusable claim.",
         }
@@ -819,7 +819,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
         self.assertTrue(claim["persist"])
         self.assertEqual(claim["knowledge_type"], "reviewable")
         self.assertEqual(claim["valid_for_days"], 180)
-        self.assertEqual(claim["partition_lifecycle_audit_version"], 7)
+        self.assertEqual(claim["partition_lifecycle_audit_version"], 10)
 
     def test_final_lifecycle_ai_can_promote_eligible_formal_unit_set(self):
         partition = {
@@ -876,7 +876,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
         self.assertIs(claim["persist"], True)
         self.assertEqual(claim["lifecycle_basis"], "MAINTAINED_SET_OR_STRUCTURE")
         self.assertEqual(claim["knowledge_type"], "reviewable")
-        self.assertEqual(claim["partition_lifecycle_audit_version"], 7)
+        self.assertEqual(claim["partition_lifecycle_audit_version"], 10)
 
     def test_final_lifecycle_ai_cannot_promote_ineligible_claim(self):
         partition = {
@@ -995,7 +995,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
         self.assertTrue(claim["persist"])
         self.assertEqual(claim["knowledge_type"], "reviewable")
         self.assertEqual(claim["valid_for_days"], 180)
-        self.assertEqual(claim["partition_lifecycle_audit_version"], 7)
+        self.assertEqual(claim["partition_lifecycle_audit_version"], 10)
 
     def test_maintained_structure_may_remain_stable_without_third_critic(self):
         records = [
@@ -1183,7 +1183,7 @@ class ExternalFactFallbackPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             result["claims"][0]["partition_lifecycle_audit_version"],
-            7,
+            10,
         )
 
     def test_partition_prompt_distinguishes_formal_units_from_people_roster(self):

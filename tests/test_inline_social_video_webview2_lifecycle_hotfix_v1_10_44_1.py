@@ -134,7 +134,7 @@ class InlineVideoLifecycleHotfixV110441Tests(unittest.TestCase):
     def test_build_and_runtime_mirror_are_current(self):
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"',
+            'BEKKI_BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"',
             main_source,
         )
         self.assertEqual(

@@ -110,6 +110,7 @@ def _compact_writer_recovery_packet(packet):
                 "state": str(item.get("state") or "")[:40],
                 "topic_stage": str(item.get("topic_stage") or "")[:40],
                 "question_depth": str(item.get("question_depth") or "")[:40],
+                "topic_id": str(item.get("topic_id") or "")[:80],
                 "foundation_facet": str(
                     item.get("foundation_facet") or ""
                 )[:50],
@@ -125,6 +126,13 @@ def _compact_writer_recovery_packet(packet):
                 "subject": str(item.get("subject") or "")[:180],
                 "claim": str(item.get("claim") or "")[:600],
                 "facet": str(item.get("facet") or "")[:120],
+                "topic_id": str(item.get("topic_id") or "")[:80],
+                "knowledge_layer": str(
+                    item.get("knowledge_layer") or ""
+                )[:40],
+                "topic_lifecycle_state": str(
+                    item.get("topic_lifecycle_state") or ""
+                )[:40],
             }
         )
     return {
@@ -168,8 +176,7 @@ class CuriosityJournal:
         }
 
     def _ensure(self):
-        if not self.path.exists():
-            governance.save_json(self.path, self._default())
+        governance.ensure_json(self.path, self._default())
 
     def load(self):
         value = governance.load_json(self.path, self._default())
@@ -250,7 +257,11 @@ class CuriosityJournal:
             (
                 "VERIFIED_KNOWLEDGE"
                 if str(seed_kind or "").upper()
-                == "VERIFIED_KNOWLEDGE_IDLE"
+                in {
+                    "VERIFIED_KNOWLEDGE_IDLE",
+                    "TOPIC_GAP",
+                    "TOPIC_REFRESH",
+                }
                 else "EXTERNAL_EVIDENCE_AVAILABLE"
             )
             if mode in evidence_grounded_modes
@@ -281,11 +292,16 @@ class CuriosityJournal:
                 "breadth_relation": str(
                     item.get("breadth_relation") or ""
                 )[:50],
+                "topic_id": str(item.get("topic_id") or "")[:80],
+                "topic_lifecycle_state": str(
+                    item.get("topic_lifecycle_state") or ""
+                )[:40],
             }
             for item in journal_state.get("items", [])
             if isinstance(item, dict)
             and item.get("state") in {
-                "DRAFT", "ASKED", "ANSWERED_UNVERIFIED", "VERIFIED"
+                "DRAFT", "ASKED", "ANSWERED_UNVERIFIED", "VERIFIED",
+                "DISMISSED",
             }
             and str(item.get("question") or "").strip()
         ][-20:]
@@ -295,6 +311,8 @@ class CuriosityJournal:
                 continue
             curation = item.get("curation")
             curation = curation if isinstance(curation, dict) else {}
+            lifecycle = item.get("topic_lifecycle")
+            lifecycle = lifecycle if isinstance(lifecycle, dict) else {}
             topic_knowledge.append({
                 "id": str(item.get("id") or "")[:160],
                 "subject": str(item.get("subject") or "")[:300],
@@ -304,6 +322,17 @@ class CuriosityJournal:
                     for value in item.get("topics", [])[:10]
                 ],
                 "facet": str(curation.get("facet") or "")[:120],
+                "topic_id": str(curation.get("topic_id") or "")[:80],
+                "knowledge_layer": str(
+                    curation.get("knowledge_layer") or ""
+                )[:40],
+                "topic_lifecycle_state": str(
+                    lifecycle.get("state") or ""
+                )[:40],
+                "topic_completion_score": lifecycle.get("completion_score"),
+                "topic_next_focus": str(
+                    lifecycle.get("next_focus") or ""
+                )[:500],
                 "knowledge_type": str(
                     item.get("knowledge_type") or "stable"
                 )[:30],
@@ -328,7 +357,31 @@ class CuriosityJournal:
                 )[:160],
                 "idle_generation": (
                     str(seed_kind or "").upper()
-                    == "VERIFIED_KNOWLEDGE_IDLE"
+                    in {
+                        "VERIFIED_KNOWLEDGE_IDLE",
+                        "TOPIC_GAP",
+                        "TOPIC_REFRESH",
+                    }
+                ),
+                "topic_id": str(
+                    (seed_metadata or {}).get("topic_id")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:80],
+                "topic_lifecycle_state": str(
+                    (seed_metadata or {}).get("topic_lifecycle_state")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:40],
+                "wake_reason": str(
+                    (seed_metadata or {}).get("wake_reason")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:60],
+                "next_focus": str(
+                    (seed_metadata or {}).get("next_focus")
+                    if isinstance(seed_metadata, dict) else ""
+                )[:500],
+                "interest_score": (
+                    (seed_metadata or {}).get("interest_score")
+                    if isinstance(seed_metadata, dict) else None
                 ),
             },
             "completed_turn": {
@@ -444,6 +497,42 @@ class CuriosityJournal:
             value = str(value or "")[:160]
             if value and value not in related_knowledge_ids:
                 related_knowledge_ids.append(value)
+        seed_metadata = seed_metadata if isinstance(seed_metadata, dict) else {}
+        seed_kind_normalized = str(seed_kind or "USER_TURN").upper()
+        seed_topic_id = str(seed_metadata.get("topic_id") or "")[:80]
+        topic_by_knowledge_id = {
+            str(item.get("id") or ""): str(item.get("topic_id") or "")[:80]
+            for item in topic_knowledge
+            if str(item.get("id") or "") and str(item.get("topic_id") or "")
+        }
+        lifecycle_by_topic_id = {
+            str(item.get("topic_id") or ""): str(
+                item.get("topic_lifecycle_state") or ""
+            )[:40]
+            for item in topic_knowledge
+            if str(item.get("topic_id") or "")
+        }
+        proposal_topic_ids = []
+        if seed_topic_id:
+            proposal_topic_ids.append(seed_topic_id)
+        for knowledge_id in related_knowledge_ids:
+            topic_id = topic_by_knowledge_id.get(knowledge_id, "")
+            if topic_id and topic_id not in proposal_topic_ids:
+                proposal_topic_ids.append(topic_id)
+        topic_id = seed_topic_id or (
+            proposal_topic_ids[0] if len(proposal_topic_ids) == 1 else ""
+        )
+        topic_lifecycle_state = str(
+            seed_metadata.get("topic_lifecycle_state")
+            or lifecycle_by_topic_id.get(topic_id)
+            or ""
+        ).upper()[:40]
+        wake_reason = str(seed_metadata.get("wake_reason") or "").upper()[:60]
+        if (
+            seed_kind_normalized == "USER_TURN"
+            and topic_lifecycle_state == "PAUSED_COMPLETE"
+        ):
+            wake_reason = "USER_REENGAGEMENT"
         depth_fit = proposal.get("depth_fit", True) is True
         message_is_cjk = bool(_CJK_RE.search(message))
         # Only ``question`` leaves Bekki for ChatGPT, so its language remains a
@@ -506,6 +595,28 @@ class CuriosityJournal:
             rejection_reasons.append("unknown_curiosity_reference")
         if not set(related_knowledge_ids).issubset(supplied_knowledge_ids):
             rejection_reasons.append("unknown_knowledge_reference")
+        if seed_kind_normalized in {"TOPIC_GAP", "TOPIC_REFRESH"} and (
+            not related_knowledge_ids
+            or any(
+                topic_by_knowledge_id.get(knowledge_id) != seed_topic_id
+                for knowledge_id in related_knowledge_ids
+            )
+        ):
+            rejection_reasons.append("lifecycle_seed_missing_topic_evidence")
+        if (
+            seed_kind_normalized == "VERIFIED_KNOWLEDGE_IDLE"
+            and topic_lifecycle_state == "PAUSED_COMPLETE"
+        ):
+            rejection_reasons.append("topic_paused_complete")
+        if seed_kind_normalized == "TOPIC_GAP" and (
+            topic_lifecycle_state != "ACTIVE" or wake_reason != "OPEN_GAP"
+        ):
+            rejection_reasons.append("invalid_topic_gap_seed")
+        if seed_kind_normalized == "TOPIC_REFRESH" and (
+            topic_lifecycle_state != "PAUSED_COMPLETE"
+            or wake_reason not in {"AUTO_INTEREST_REFRESH", "REVIEW_DUE"}
+        ):
+            rejection_reasons.append("invalid_topic_refresh_seed")
         if not depth_fit:
             rejection_reasons.append("depth_not_fit")
         if not breadth_fit:
@@ -602,6 +713,9 @@ class CuriosityJournal:
                 (seed_metadata or {}).get("source_knowledge_id")
                 if isinstance(seed_metadata, dict) else ""
             )[:160] or None,
+            "topic_id": topic_id or None,
+            "topic_lifecycle_state": topic_lifecycle_state or None,
+            "wake_reason": wake_reason or None,
         }
         with _LOCK:
             state = self.load()
@@ -614,6 +728,225 @@ class CuriosityJournal:
             {"event": "curiosity_drafted", "id": record["id"]},
         )
         return {"status": "drafted", "id": record["id"]}
+
+    def bind_curated_knowledge(self, topic_links):
+        """Attach exact curator-owned topic/layer IDs to related journal rows."""
+
+        links = {
+            str(value.get("knowledge_id") or ""): {
+                "topic_id": str(value.get("topic_id") or "")[:80],
+                "knowledge_layer": str(
+                    value.get("knowledge_layer") or ""
+                )[:40],
+            }
+            for value in topic_links or []
+            if isinstance(value, dict)
+            and str(value.get("knowledge_id") or "")
+            and str(value.get("topic_id") or "")
+        }
+        if not links:
+            return {"status": "ignored", "updated": 0}
+        updated = 0
+        with _LOCK:
+            state = self.load()
+            for item in state.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                verification = item.get("verification")
+                verification = (
+                    verification if isinstance(verification, dict) else {}
+                )
+                direct_ids = [
+                    str(verification.get("knowledge_id") or ""),
+                    str(item.get("source_knowledge_id") or ""),
+                ]
+                matched = [links[value] for value in direct_ids if value in links]
+                if not matched:
+                    related_topics = {
+                        links[value]["topic_id"]
+                        for value in item.get("related_knowledge_ids", [])
+                        if value in links
+                    }
+                    if len(related_topics) == 1:
+                        topic_id = next(iter(related_topics))
+                        matched = [{"topic_id": topic_id, "knowledge_layer": ""}]
+                if not matched:
+                    continue
+                link = matched[0]
+                changed = item.get("topic_id") != link["topic_id"]
+                item["topic_id"] = link["topic_id"]
+                if link.get("knowledge_layer"):
+                    changed = (
+                        changed
+                        or item.get("knowledge_layer")
+                        != link["knowledge_layer"]
+                    )
+                    item["knowledge_layer"] = link["knowledge_layer"]
+                if changed:
+                    item["topic_bound_at"] = governance.now_iso()
+                    updated += 1
+            if updated:
+                state["revision"] = int(state.get("revision", 0)) + 1
+                governance.save_json(self.path, state)
+        if updated:
+            governance.append_jsonl(
+                self.audit_path,
+                {"event": "curiosity_topic_links_updated", "count": updated},
+            )
+        return {"status": "updated" if updated else "unchanged", "updated": updated}
+
+    def topic_interest_signals(self, topic_id):
+        """Expose bounded AI-owned interest signals; they are never fact evidence."""
+
+        wanted = str(topic_id or "")
+        if not wanted:
+            return []
+        output = []
+        for item in self.load().get("items", []):
+            if not isinstance(item, dict) or str(item.get("topic_id") or "") != wanted:
+                continue
+            # A lifecycle-generated open question cannot amplify its own
+            # priority. It becomes a new signal only after independent
+            # verification; USER_TURN drafts may still represent renewed user
+            # interest before their answer is known.
+            if (
+                str(item.get("seed_kind") or "").upper()
+                in {"TOPIC_GAP", "TOPIC_REFRESH"}
+                and self._question_is_open(item)
+            ):
+                continue
+            verification = item.get("verification")
+            verification = verification if isinstance(verification, dict) else {}
+            output.append({
+                "id": str(item.get("id") or "")[:120],
+                "question": str(item.get("question") or "")[:300],
+                "state": str(item.get("state") or "")[:40],
+                "interest_score": self._safe_number(item.get("interest_score")),
+                "question_depth": str(item.get("question_depth") or "")[:40],
+                "foundation_facet": str(
+                    item.get("foundation_facet") or ""
+                )[:50],
+                "seed_kind": str(item.get("seed_kind") or "")[:60],
+                "wake_reason": str(item.get("wake_reason") or "")[:60],
+                "created_at": str(item.get("created_at") or "")[:80],
+                "verified_at": str(item.get("verified_at") or "")[:80],
+                "verification_status": str(
+                    verification.get("status") or ""
+                )[:40],
+            })
+        return output[-20:]
+
+    @staticmethod
+    def _question_is_open(item):
+        if not isinstance(item, dict):
+            return False
+        if item.get("state") == "DRAFT":
+            return True
+        if item.get("state") != "ANSWERED_UNVERIFIED":
+            return False
+        verification = item.get("verification")
+        verification = verification if isinstance(verification, dict) else {}
+        return str(verification.get("status") or "").upper() not in {
+            "SKIPPED",
+            "INSUFFICIENT_EVIDENCE",
+            "REJECTED",
+            "FAILED",
+        }
+
+    def open_topic_ids(self):
+        """Return topics that already have an unresolved outbound question."""
+
+        return sorted({
+            str(item.get("topic_id") or "")
+            for item in self.load().get("items", [])
+            if isinstance(item, dict)
+            and str(item.get("topic_id") or "")
+            and self._question_is_open(item)
+        })
+
+    def open_lifecycle_topic_ids(self):
+        """Keep autonomous topic exploration to one unresolved chain step."""
+
+        return sorted({
+            str(item.get("topic_id") or "")
+            for item in self.load().get("items", [])
+            if isinstance(item, dict)
+            and str(item.get("topic_id") or "")
+            and self._question_is_open(item)
+            and str(item.get("seed_kind") or "").upper()
+            in {"TOPIC_GAP", "TOPIC_REFRESH"}
+        })
+
+    def observe_topic_lifecycle(self, seed):
+        """Draft at most one lifecycle-authorized gap or refresh question."""
+
+        seed = seed if isinstance(seed, dict) else {}
+        topic_id = str(seed.get("topic_id") or "")[:80]
+        seed_kind = str(seed.get("seed_kind") or "TOPIC_GAP").upper()
+        wake_reason = str(seed.get("wake_reason") or "").upper()
+        lifecycle = seed.get("lifecycle")
+        lifecycle = lifecycle if isinstance(lifecycle, dict) else {}
+        lifecycle_state = str(lifecycle.get("state") or "").upper()
+        if not topic_id:
+            return {"status": "ignored", "reason": "topic_id_missing"}
+        if topic_id in self.open_topic_ids():
+            return {"status": "ignored", "reason": "topic_question_already_open"}
+        if seed_kind == "TOPIC_GAP" and (
+            lifecycle_state != "ACTIVE" or wake_reason != "OPEN_GAP"
+        ):
+            return {"status": "ignored", "reason": "topic_gap_not_authorized"}
+        if seed_kind == "TOPIC_REFRESH" and (
+            lifecycle_state != "PAUSED_COMPLETE"
+            or wake_reason not in {"AUTO_INTEREST_REFRESH", "REVIEW_DUE"}
+        ):
+            return {"status": "ignored", "reason": "topic_refresh_not_authorized"}
+        candidates = [
+            item for item in seed.get("knowledge_candidates", [])
+            if isinstance(item, dict) and item.get("id")
+        ][:10]
+        if not candidates:
+            return {"status": "ignored", "reason": "topic_knowledge_missing"}
+        source_knowledge_id = str(
+            seed.get("source_knowledge_id") or candidates[0].get("id") or ""
+        )[:160]
+        source_claim = str(candidates[0].get("claim") or "")
+        title = str(seed.get("title") or candidates[0].get("subject") or "").strip()
+        next_focus = str(lifecycle.get("next_focus") or "").strip()
+        if seed_kind == "TOPIC_REFRESH":
+            next_focus = (
+                "复查这个主题自上次验证后是否出现值得更新的变化。"
+                if _CJK_RE.search(title + source_claim)
+                else "Check whether this topic has a worthwhile verified update."
+            )
+        message = " — ".join(value for value in (title, next_focus) if value)
+        source_curiosity_id = str(seed.get("source_curiosity_id") or "")[:120]
+        if not source_curiosity_id:
+            source_curiosity_id = next(
+                (
+                    str(item.get("id") or "")
+                    for item in reversed(self.load().get("items", []))
+                    if isinstance(item, dict)
+                    and str(item.get("topic_id") or "") == topic_id
+                    and item.get("state") == "VERIFIED"
+                ),
+                "",
+            )
+        return self.observe_turn(
+            message or title,
+            source_claim,
+            "VERIFIED_KNOWLEDGE",
+            knowledge_candidates=candidates,
+            seed_kind=seed_kind,
+            seed_metadata={
+                "source_curiosity_id": source_curiosity_id,
+                "source_knowledge_id": source_knowledge_id,
+                "topic_id": topic_id,
+                "topic_lifecycle_state": lifecycle_state,
+                "wake_reason": wake_reason,
+                "next_focus": next_focus,
+                "interest_score": lifecycle.get("interest_score"),
+            },
+        )
 
     def observe_verified_knowledge(
         self,
@@ -633,24 +966,35 @@ class CuriosityJournal:
             or not str(knowledge_item.get("claim") or "").strip()
         ):
             return {"status": "ignored", "reason": "knowledge_not_verified"}
-        seed_message = str(
-            source_curiosity.get("question")
-            or knowledge_item.get("subject")
-            or ""
-        ).strip()
-        if not seed_message:
-            return {"status": "ignored", "reason": "empty_knowledge_seed"}
-        return self.observe_turn(
-            seed_message,
-            str(knowledge_item.get("claim") or ""),
-            "VERIFIED_KNOWLEDGE",
-            knowledge_candidates=knowledge_candidates,
-            seed_kind="VERIFIED_KNOWLEDGE_IDLE",
-            seed_metadata={
-                "source_curiosity_id": source_curiosity.get("id"),
-                "source_knowledge_id": knowledge_item.get("id"),
-            },
-        )
+        curation = knowledge_item.get("curation")
+        curation = curation if isinstance(curation, dict) else {}
+        topic_id = str(curation.get("topic_id") or "")
+        if curation.get("status") != "curated" or not topic_id:
+            return {"status": "ignored", "reason": "awaiting_topic_curation"}
+        lifecycle = knowledge_item.get("topic_lifecycle")
+        lifecycle = lifecycle if isinstance(lifecycle, dict) else {}
+        lifecycle_state = str(lifecycle.get("state") or "").upper()
+        if lifecycle_state not in {"ACTIVE", "PAUSED_COMPLETE"}:
+            return {"status": "ignored", "reason": "awaiting_topic_assessment"}
+        if lifecycle_state == "PAUSED_COMPLETE":
+            return {"status": "ignored", "reason": "topic_paused_complete"}
+        candidates = list(knowledge_candidates or [])
+        if not any(
+            isinstance(value, dict)
+            and value.get("id") == knowledge_item.get("id")
+            for value in candidates
+        ):
+            candidates.insert(0, knowledge_item)
+        return self.observe_topic_lifecycle({
+            "topic_id": topic_id,
+            "title": str(knowledge_item.get("subject") or "")[:200],
+            "lifecycle": lifecycle,
+            "knowledge_candidates": candidates[:10],
+            "source_knowledge_id": knowledge_item.get("id"),
+            "source_curiosity_id": source_curiosity.get("id"),
+            "seed_kind": "TOPIC_GAP",
+            "wake_reason": "OPEN_GAP",
+        })
 
     def _release(self, model_name, stage):
         if self.unload_model is None:

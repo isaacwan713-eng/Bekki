@@ -11,7 +11,7 @@ from casper import browser as casper_browser
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-verified-video-site-bridge-hotfix-v1-10-47-3-20260902"
+BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
 
 
 def _plan(site="iyf.tv", topic="名侦探柯南"):
@@ -124,6 +124,35 @@ class VerifiedVideoSiteRegistryTests(unittest.TestCase):
 
 
 class VerifiedVideoSiteDiscoveryTests(unittest.TestCase):
+    def test_same_url_keeps_heading_title_and_cover_from_separate_anchors(self):
+        class FakeLocator:
+            def evaluate_all(self, _script):
+                return [
+                    {
+                        "url": "https://www.iyf.tv/play/Ee6i5KLMvDF",
+                        "text": "",
+                        "image_url": "https://www.iyf.tv/conan.jpg",
+                        "has_heading": False,
+                    },
+                    {
+                        "url": "https://www.iyf.tv/play/Ee6i5KLMvDF",
+                        "text": "名侦探柯南",
+                        "image_url": "",
+                        "has_heading": True,
+                    },
+                ]
+
+        class FakePage:
+            def locator(self, selector):
+                self.selector = selector
+                return FakeLocator()
+
+        results = casper_browser._video_site_links(FakePage(), "iyf.tv")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["text"], "名侦探柯南")
+        self.assertTrue(results[0]["has_heading"])
+        self.assertEqual(results[0]["image_url"], "https://www.iyf.tv/conan.jpg")
+
     def test_catalog_structure_passes_but_incidental_video_links_do_not(self):
         catalog_links = [
             {"url": "https://www.iyf.tv/play/show-" + str(index), "text": "节目"}
@@ -182,6 +211,44 @@ class VerifiedVideoSiteDiscoveryTests(unittest.TestCase):
         self.assertEqual([item["title"] for item in results], ["名侦探柯南"])
         self.assertEqual(results[0]["url"], "https://www.iyf.tv/play/Ee6i5KLMvDF")
 
+    def test_catalog_converter_prefers_title_over_glyph_button_and_episode(self):
+        show_url = "https://www.iyf.tv/play/Ee6i5KLMvDF"
+        results = casper_browser._video_site_candidates(
+            [
+                {"url": show_url, "text": "\ue646", "has_heading": False},
+                {"url": show_url, "text": "立即播放", "has_heading": False},
+                {
+                    "url": show_url + "?id=4lzcypmEoco",
+                    "text": "1271",
+                    "has_heading": False,
+                },
+                {
+                    "url": show_url,
+                    "text": "名侦探柯南",
+                    "has_heading": True,
+                    "image_url": "https://www.iyf.tv/conan.jpg",
+                },
+            ],
+            "iyf.tv",
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "名侦探柯南")
+        self.assertEqual(results[0]["url"], show_url)
+
+    def test_exact_topic_score_accepts_show_and_rejects_commentary(self):
+        accepted = casper_browser._score_media_watch_candidate(
+            _iyf_candidate(), _plan()
+        )
+        self.assertIsNotNone(accepted)
+        self.assertGreaterEqual(accepted["watch_score"], 60)
+
+        commentary = dict(_iyf_candidate())
+        commentary["title"] = "名侦探柯南剧情解说"
+        commentary["description"] = "名侦探柯南剧情解说"
+        self.assertIsNone(
+            casper_browser._score_media_watch_candidate(commentary, _plan())
+        )
+
     def test_unknown_explicit_site_uses_verifier_route(self):
         expected = [_iyf_candidate()]
         with patch.object(
@@ -218,7 +285,7 @@ class VerifiedVideoSiteControllerTests(unittest.TestCase):
         self.assertIn("没有把它登记为视频网站", result["direct_reply"])
         web.assert_not_called()
 
-    def test_verified_iyf_result_wins_but_remains_honest_link_only(self):
+    def test_verified_iyf_result_wins_and_offers_bounded_inline_playback(self):
         with patch.object(
             casper_browser,
             "_discover_native_media_watch",
@@ -238,8 +305,8 @@ class VerifiedVideoSiteControllerTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "OK")
         self.assertEqual(result["cards"][0]["url"], _iyf_candidate()["url"])
-        self.assertIsNone(result["pending_action"])
-        self.assertIn("不能在 Bekki 内嵌播放", result["direct_reply"])
+        self.assertEqual(result["pending_action"]["type"], "media_watch_choice")
+        self.assertIn("进入影院模式", result["direct_reply"])
         web.assert_not_called()
 
 
@@ -256,8 +323,8 @@ class CompanionBridgeContractTests(unittest.TestCase):
     def test_python_bridge_uses_dict_js_bridge_contract(self):
         source = (ROOT / "ui.py").read_text(encoding="utf-8")
         self.assertIn("from qtwebview2 import DictJsBridge", source)
-        self.assertIn("@js_bridge.bind_js_api_func", source)
-        self.assertIn("js_apis=js_bridge", source)
+        self.assertIn("js_bridge.bind_js_api_func(", source)
+        self.assertIn('"js_apis": js_bridge', source)
         self.assertNotIn("core_webview.WebMessageReceived +=", source)
 
     def test_build_and_runtime_mirrors_are_current(self):

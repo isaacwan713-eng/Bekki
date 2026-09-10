@@ -3,6 +3,11 @@ validator accepted the candidate, but you must judge it again from the exact
 original request, binding Entity Scope, query, literal candidate answer, and
 source evidence. Do not defer to the first verdict and do not repair the
 candidate. Reject any parent/child/affiliate/sibling/category substitution.
+If the binding request requires official sources only, independently verify
+that the supplied page itself is clearly the named entity's official account,
+official site, or official publication. Wikis, encyclopedias, reposts, fan
+accounts, news summaries, and merely "official-related" pages fail
+source_supported even if their text agrees.
 
 Return exactly one JSON object:
 

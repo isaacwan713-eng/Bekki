@@ -168,6 +168,59 @@ class ObjectiveFactVerificationTests(unittest.TestCase):
         )
         unload.assert_called_once_with("gemma4:12b")
 
+    def test_neutral_recheck_does_not_enter_knowledge_dispute_path(self):
+        model = mock.Mock(return_value={
+            "decision": "OBJECTIVE_DISPUTE",
+            "disputed_knowledge_ids": ["knowledge-roster"],
+            "claim_to_verify": "四禧丸子当前官方成员名单",
+            "reason": "The model overread a verification request.",
+        })
+
+        result = objective_fact.audit_knowledge_correction(
+            model,
+            mock.Mock(),
+            "请核实四禧丸子当前官方完整成员名单，只接受官方资料。",
+            "Assistant: 之前保存过四禧丸子的背景设定。",
+            [{
+                "id": "knowledge-roster",
+                "subject": "四禧丸子",
+                "claim": "一条既有公开知识。",
+                "status": "verified",
+            }],
+        )
+
+        self.assertEqual(result["decision"], "NONE")
+        self.assertEqual(result["disputed_knowledge_ids"], [])
+        model.assert_not_called()
+
+    def test_explicit_error_plus_recheck_still_enters_dispute_path(self):
+        model = mock.Mock(return_value={
+            "decision": "OBJECTIVE_DISPUTE",
+            "disputed_knowledge_ids": ["knowledge-roster"],
+            "claim_to_verify": "四禧丸子当前官方成员名单",
+            "reason": "The user explicitly says the old roster is wrong.",
+        })
+
+        result = objective_fact.audit_knowledge_correction(
+            model,
+            mock.Mock(),
+            "之前的名单不对，请重新核实。",
+            "Assistant: 四禧丸子成员为……",
+            [{
+                "id": "knowledge-roster",
+                "subject": "四禧丸子",
+                "claim": "四禧丸子成员为……",
+                "status": "verified",
+            }],
+        )
+
+        self.assertEqual(result["decision"], "OBJECTIVE_DISPUTE")
+        self.assertEqual(
+            result["disputed_knowledge_ids"],
+            ["knowledge-roster"],
+        )
+        model.assert_called_once()
+
     def test_personal_correction_remains_user_authoritative(self):
         model = mock.Mock(return_value={
             "decision": "PERSONAL_AUTHORITY",
