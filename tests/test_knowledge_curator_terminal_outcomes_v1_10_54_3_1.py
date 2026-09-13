@@ -10,7 +10,7 @@ import knowledge
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 
 def make_item(item_id, subject, claim):
@@ -277,11 +277,11 @@ class CuratorTerminalOutcomeBuildTests(unittest.TestCase):
         self.assertEqual(metadata["package_id"], BUILD_ID)
         self.assertEqual(
             metadata["update_kind"],
-            "Knowledge Visual Recall V1.10.54.7",
+            "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
         )
         self.assertEqual(
             metadata["parent_build"],
-            "Knowledge Autonomous Visual Evidence V1.10.54.6",
+            "Knowledge Visual Recall V1.10.54.7",
         )
         self.assertEqual(
             knowledge.CURATOR_TERMINAL_OUTCOME_CONTRACT_VERSION, 1

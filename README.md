@@ -1,8 +1,9 @@
 🩵 Bekki AI
 
-Current installed source patch: **Knowledge Visual Recall V1.10.54.7**
-(`bekki-knowledge-visual-recall-v1-10-54-7-20260910`),
-built on Knowledge Autonomous Visual Evidence V1.10.54.6,
+Current installed source patch: **Knowledge Legacy Visual Evidence Backfill V1.10.54.8**
+(`bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913`),
+built on Knowledge Visual Recall V1.10.54.7,
+Knowledge Autonomous Visual Evidence V1.10.54.6,
 Knowledge Evidence Index Bootstrap Hotfix V1.10.54.5.1,
 Knowledge Evidence Lineage V1.10.54.5,
 Topic Lifecycle Isolation V1.10.54.4,
@@ -103,6 +104,30 @@ NERV Knowledge Verification V1.4, External AI Desktop V1.3.2, NERV Learning V1.3
 Stable V1.3.9.5. On startup the
 authoritative root entry point prints this build ID and its full loaded path.
 
+Knowledge Legacy Visual Evidence Backfill V1.10.54.8 gradually enriches old,
+active, verified Knowledge that predates the evidence contract. Each normal
+autonomous cycle may attempt at most one image-free claim and at most two HTTPS
+sources already bound to that exact claim. It performs no broad image search
+and never uses a user upload, local file, private media, or unbound thumbnail.
+
+The first Gemma 4 vision pass may only propose a literal source excerpt, exact
+1-based source-image indexes, and a bounded visible observation for the fixed
+existing claim. A separate Gemma 4 vision pass independently approves or
+rejects that exact fingerprinted proposal. Python then rechecks the immutable
+claim fingerprint, active state, original source identity, literal excerpt,
+image type, privacy class, content address, SHA-256 digest, and evidence bundle
+before attachment. The claim text, lifecycle, verification status, topics,
+sources, confidence, and curation stay unchanged. Any mismatch fails closed and
+enters a bounded retry ledger without modifying the claim.
+
+Backfill is deliberately gradual: missing images retry after 90 days, transient
+read errors after 7 days, invalid outputs after 30 days, and semantically
+unsupported or independently rejected images after 180 days. Backfill writes
+no raw image bytes, URL query tokens, or local paths into Knowledge, the retry
+ledger, learning logs, or AI prompt text. Successful evidence-only enrichment
+does not re-open semantic curation. Installation itself still preserves `data`
+and performs no claim migration or eager backfill.
+
 Knowledge Visual Recall V1.10.54.7 completes the read side of visual Knowledge.
 After MAGI has judged the active recalled Knowledge sufficient for the exact
 local question, the final Gemma answer call may receive at most two matching
@@ -136,8 +161,8 @@ Judge runs. The Judge receives only evidence metadata, observations, and the
 fingerprint—not raw image payloads. Accepted public images are normalized,
 content-addressed, and referenced from Knowledge by asset ID. Learning logs
 report captured images, visually supported candidates, and persisted image
-claims. Existing Knowledge and the media index are upgraded only through a
-normal future learning event; installation performs no rewrite.
+claims. V1.10.54.8 can also enrich one eligible old claim during a future normal
+autonomous cycle; installation performs no rewrite or network access.
 
 Knowledge Evidence Index Bootstrap Hotfix V1.10.54.5.1 lets the read-only live
 validator distinguish a legitimate pre-start empty media index from missing

@@ -11,7 +11,7 @@ from casper import browser as casper_browser
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 
 def _plan(site="iyf.tv", topic="名侦探柯南"):

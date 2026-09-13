@@ -60,7 +60,7 @@ class UiFontConsistencyHotfixV110501Tests(unittest.TestCase):
         )
         self.assertEqual(
             metadata["update_kind"],
-            "Knowledge Visual Recall V1.10.54.7",
+            "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
         )
         self.assertEqual(
             metadata["baseline"],
@@ -68,7 +68,7 @@ class UiFontConsistencyHotfixV110501Tests(unittest.TestCase):
         )
         self.assertEqual(
             metadata["parent_build"],
-            "Knowledge Autonomous Visual Evidence V1.10.54.6",
+            "Knowledge Visual Recall V1.10.54.7",
         )
 
     def test_runtime_mirrors_remain_exact(self):

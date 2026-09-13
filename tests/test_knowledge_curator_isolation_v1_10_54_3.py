@@ -12,7 +12,7 @@ from nerv.knowledge_curator import KnowledgeCurator
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 
 def item(item_id, subject, claim, topics=None, **updates):
@@ -508,7 +508,7 @@ class CuratorIsolationBuildTests(unittest.TestCase):
         self.assertEqual(knowledge_curator.MAX_CURATOR_PACKET_BYTES, 12000)
         self.assertEqual(
             knowledge_worker.KNOWLEDGE_WORKER_VERSION,
-            "1.4.6-autonomous-visual-evidence",
+            "1.4.8-legacy-visual-backfill",
         )
         source = (ROOT / "knowledge_worker.py").read_text(encoding="utf-8")
         self.assertIn("knowledge_curator_plan_contract_version", source)
@@ -522,11 +522,11 @@ class CuratorIsolationBuildTests(unittest.TestCase):
         self.assertEqual(metadata["package_id"], BUILD_ID)
         self.assertEqual(
             metadata["update_kind"],
-            "Knowledge Visual Recall V1.10.54.7",
+            "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
         )
         self.assertEqual(
             metadata["parent_build"],
-            "Knowledge Autonomous Visual Evidence V1.10.54.6",
+            "Knowledge Visual Recall V1.10.54.7",
         )
         for relative in (
             "knowledge.py", "knowledge_ai.py", "knowledge_worker.py",

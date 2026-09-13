@@ -121,7 +121,7 @@ class InlineVideoExclusiveSwitchHotfixV110472Tests(unittest.TestCase):
         self.assertNotIn("target._stop_inline_video", source)
 
     def test_runtime_mirror_and_build_are_current(self):
-        build_id = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+        build_id = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
         self.assertIn(
             'BEKKI_BUILD_ID = "' + build_id + '"',
             (ROOT / "main.py").read_text(encoding="utf-8"),

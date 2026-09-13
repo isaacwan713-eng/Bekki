@@ -6,7 +6,7 @@ import social_video
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 
 class IYFCompanionScriptTests(unittest.TestCase):

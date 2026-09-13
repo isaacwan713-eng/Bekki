@@ -103,7 +103,7 @@ class InlineSocialVideoAudioFullscreenV11045Tests(unittest.TestCase):
                 self.assertTrue(localization.TEXT[language]["fullscreen_exit"])
 
     def test_build_and_runtime_mirrors_are_current(self):
-        build_id = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+        build_id = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
         metadata = json.loads((ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8"))
         self.assertEqual(metadata["build_id"], build_id)
         self.assertIn(

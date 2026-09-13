@@ -11,7 +11,7 @@ import knowledge_worker
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 
 def topic(topic_id="akb48_ecosystem"):
@@ -420,11 +420,11 @@ class SourceRecoveryBuildTests(unittest.TestCase):
         self.assertEqual(metadata["package_id"], BUILD_ID)
         self.assertEqual(
             metadata["update_kind"],
-            "Knowledge Visual Recall V1.10.54.7",
+            "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
         )
         self.assertEqual(
             metadata["parent_build"],
-            "Knowledge Autonomous Visual Evidence V1.10.54.6",
+            "Knowledge Visual Recall V1.10.54.7",
         )
         for relative in (
             "knowledge.py", "knowledge_worker.py", "knowledge_autonomy.py",

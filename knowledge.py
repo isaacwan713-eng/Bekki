@@ -37,6 +37,7 @@ KNOWLEDGE_EVIDENCE_CONTRACT_VERSION = (
 KNOWLEDGE_MEDIA_INDEX_VERSION = (
     knowledge_evidence.KNOWLEDGE_MEDIA_INDEX_VERSION
 )
+KNOWLEDGE_LEGACY_VISUAL_BACKFILL_CONTRACT_VERSION = 1
 KNOWLEDGE_DISPLAY_VERSION = 1
 KNOWLEDGE_LAYER_VERSION = 1
 KNOWLEDGE_CLASSIFICATION_VERSION = 1
@@ -970,6 +971,180 @@ def initialize():
 def load_items():
     initialize()
     return _load(KNOWLEDGE_FILE, [])
+
+
+def visual_backfill_claim_fingerprint(item):
+    """Seal the exact active claim and its already-accepted source boundary."""
+
+    item = item if isinstance(item, dict) else {}
+    material = {
+        "id": str(item.get("id") or ""),
+        "subject": str(item.get("subject") or ""),
+        "claim": str(item.get("claim") or ""),
+        "status": str(item.get("status") or ""),
+        "knowledge_type": str(item.get("knowledge_type") or "stable"),
+        "expires_at": item.get("expires_at"),
+        "temporal_scope": normalize_temporal_scope(
+            item.get("temporal_scope")
+        ),
+        "verification_status": str(
+            item.get("verification_status") or ""
+        ),
+        "sources": item.get("sources")
+        if isinstance(item.get("sources"), list) else [],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            material,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def attach_visual_evidence_to_existing_claim(
+    knowledge_id,
+    expected_claim_fingerprint,
+    expected_source_id,
+    evidence_seed,
+    *,
+    attached_at=None,
+):
+    """Attach sealed text+image evidence without rewriting claim semantics."""
+
+    requested_id = str(knowledge_id or "").strip()
+    expected_fingerprint = str(expected_claim_fingerprint or "").strip()
+    source_id = str(expected_source_id or "").strip()
+    if not requested_id or not expected_fingerprint or not source_id:
+        return "invalid_request", None
+    if not isinstance(evidence_seed, dict):
+        return "invalid_evidence", None
+
+    with _CURATION_LOCK:
+        items = _load(KNOWLEDGE_FILE, [])
+        index = next(
+            (
+                position for position, value in enumerate(items)
+                if isinstance(value, dict)
+                and str(value.get("id") or "") == requested_id
+            ),
+            None,
+        )
+        if index is None:
+            return "missing", None
+        existing = items[index]
+        if not _active_persistable(existing):
+            return "inactive", deepcopy(existing)
+        if visual_backfill_claim_fingerprint(existing) != expected_fingerprint:
+            return "claim_changed", deepcopy(existing)
+
+        allowed_source_ids = set()
+        raw_sources = [
+            value for value in existing.get("sources", [])
+            if isinstance(value, dict)
+        ]
+        if not raw_sources and existing.get("source_url"):
+            raw_sources.append({
+                "title": existing.get("source_name"),
+                "url": existing.get("source_url"),
+                "domain": existing.get("source_domain"),
+            })
+        for source in raw_sources:
+            if not knowledge_evidence.is_public_source(source):
+                continue
+            compact = knowledge_evidence.compact_source(source)
+            if compact.get("source_id"):
+                allowed_source_ids.add(compact["source_id"])
+            try:
+                parsed = urlparse(str(source.get("url") or ""))
+                sanitized = dict(source)
+                sanitized["url"] = parsed._replace(
+                    params="", query="", fragment=""
+                ).geturl()
+            except ValueError:
+                sanitized = {}
+            if sanitized and knowledge_evidence.is_public_source(sanitized):
+                compact = knowledge_evidence.compact_source(sanitized)
+                if compact.get("source_id"):
+                    allowed_source_ids.add(compact["source_id"])
+        if source_id not in allowed_source_ids:
+            return "source_not_bound", deepcopy(existing)
+
+        old_bundle = existing.get("evidence_bundle")
+        old_bundle = old_bundle if isinstance(old_bundle, dict) else {}
+        if any(
+            isinstance(record, dict)
+            and record.get("modality") == "IMAGE"
+            for record in old_bundle.get("records", [])
+        ):
+            return "already_present", deepcopy(existing)
+        media_index = knowledge_evidence.load_media_index(DATA_DIR)
+        media_assets = media_index.get("assets")
+        media_assets = media_assets if isinstance(media_assets, dict) else {}
+        if old_bundle and knowledge_evidence.validate_bundle(
+            old_bundle, media_assets
+        ):
+            return "existing_evidence_invalid", deepcopy(existing)
+
+        seed_records = [
+            value for value in evidence_seed.get("records", [])
+            if isinstance(value, dict)
+        ]
+        seed_modalities = {
+            str(value.get("modality") or "") for value in seed_records
+        }
+        seed_source_ids = {
+            str(
+                knowledge_evidence.compact_source(
+                    value.get("source")
+                ).get("source_id") or ""
+            )
+            for value in seed_records
+        }
+        if (
+            not {"TEXT", "IMAGE"}.issubset(seed_modalities)
+            or seed_source_ids != {source_id}
+        ):
+            return "invalid_evidence", deepcopy(existing)
+
+        enriched = deepcopy(existing)
+        _attach_evidence_bundle(
+            enriched,
+            evidence_seed,
+            existing=existing,
+        )
+        bundle = enriched.get("evidence_bundle")
+        bundle = bundle if isinstance(bundle, dict) else {}
+        media_index = knowledge_evidence.load_media_index(DATA_DIR)
+        media_assets = media_index.get("assets")
+        media_assets = media_assets if isinstance(media_assets, dict) else {}
+        if (
+            str(bundle.get("claim_id") or "") != requested_id
+            or not {"TEXT", "IMAGE"}.issubset(
+                set(bundle.get("modalities") or [])
+            )
+            or knowledge_evidence.validate_bundle(bundle, media_assets)
+        ):
+            return "invalid_evidence", deepcopy(existing)
+
+        timestamp = str(
+            attached_at or datetime.now(timezone.utc).isoformat()
+        )[:100]
+        enriched["visual_evidence_backfill"] = {
+            "contract_version": (
+                KNOWLEDGE_LEGACY_VISUAL_BACKFILL_CONTRACT_VERSION
+            ),
+            "status": "ATTACHED",
+            "source_id": source_id[:80],
+            "attached_at": timestamp,
+        }
+        enriched["updated_at"] = timestamp
+        items[index] = enriched
+        # Evidence-only enrichment must not re-open semantic curation of the
+        # unchanged claim.
+        _save_knowledge(items, sync_curation=False)
+        return "attached", deepcopy(enriched)
 
 
 def load_knowledge_evidence(knowledge_id, include_asset_paths=False):

@@ -12,7 +12,7 @@ import knowledge_retrieval
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 PNG_BASE64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
     "/x8AAusB9Y9Z4QAAAABJRU5ErkJggg=="
@@ -265,11 +265,11 @@ class KnowledgeVisualRecallWiringTests(unittest.TestCase):
         self.assertEqual(metadata["build_id"], BUILD_ID)
         self.assertEqual(metadata["package_id"], BUILD_ID)
         self.assertEqual(
-            metadata["update_kind"], "Knowledge Visual Recall V1.10.54.7"
+            metadata["update_kind"], "Knowledge Legacy Visual Evidence Backfill V1.10.54.8"
         )
         self.assertEqual(
             metadata["parent_build"],
-            "Knowledge Autonomous Visual Evidence V1.10.54.6",
+            "Knowledge Visual Recall V1.10.54.7",
         )
         self.assertEqual(
             metadata["knowledge_visual_recall_contract_version"], 1

@@ -1,10 +1,11 @@
 {
-  "build_id": "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
-  "package_id": "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
-  "release_date": "2026-09-10",
+  "build_id": "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913",
+  "package_id": "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913",
+  "release_date": "2026-09-13",
   "runtime_entry": "main.py",
-  "update_kind": "Knowledge Visual Recall V1.10.54.7",
+  "update_kind": "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
   "baseline": "SQLite Knowledge + NERV Storage Phase 2 V1.10.49",
-  "parent_build": "Knowledge Autonomous Visual Evidence V1.10.54.6",
-  "knowledge_visual_recall_contract_version": 1
+  "parent_build": "Knowledge Visual Recall V1.10.54.7",
+  "knowledge_visual_recall_contract_version": 1,
+  "knowledge_legacy_visual_backfill_contract_version": 1
 }

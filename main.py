@@ -45,7 +45,7 @@ from worker import AIWorker
 import context as context_manager
 
 
-BEKKI_BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+BEKKI_BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 print("[BEKKI BUILD]", BEKKI_BUILD_ID, os.path.abspath(__file__))
 
 MAX_RECENT_MESSAGES = 6

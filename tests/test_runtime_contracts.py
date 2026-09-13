@@ -153,13 +153,13 @@ class RuntimeTopologyTests(unittest.TestCase):
             (PROJECT_ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8")
         )
         self.assertIn(
-            'BEKKI_BUILD_ID = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"',
+            'BEKKI_BUILD_ID = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"',
             source,
         )
         self.assertIn('print("[BEKKI BUILD]", BEKKI_BUILD_ID', source)
         self.assertEqual(
             manifest["build_id"],
-            "bekki-knowledge-visual-recall-v1-10-54-7-20260910",
+            "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913",
         )
         self.assertEqual(manifest["package_id"], manifest["build_id"])
 

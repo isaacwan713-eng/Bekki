@@ -26,6 +26,7 @@ from pathlib import Path
 import sqlite3
 
 import knowledge_evidence
+import knowledge_visual_backfill
 
 root = Path.cwd()
 data_dir = (root / "data").resolve()
@@ -36,7 +37,7 @@ if not database.is_file():
 build = json.loads(
     (root / "BEKKI_BUILD.json").read_text(encoding="utf-8")
 )
-expected_build = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+expected_build = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
 
 uri = "file:" + database.as_posix() + "?mode=ro"
 connection = sqlite3.connect(uri, uri=True)
@@ -90,6 +91,19 @@ media_index_required = knowledge_evidence.media_index_document_required(
 media_index_state_valid = (
     media_index_document_present or not media_index_required
 )
+backfill_document_present = isinstance(
+    documents.get("knowledge/knowledge/media/backfill.json"), dict
+)
+backfill_state = documents.get("knowledge/knowledge/media/backfill.json")
+if not backfill_document_present:
+    backfill_state = {
+        "schema_version": 1,
+        "revision": 0,
+        "updated_at": None,
+        "attempts": {},
+    }
+backfill_audit = knowledge_visual_backfill.audit_state(backfill_state)
+backfill_state_failures = backfill_audit.get("failures", [])
 
 raw_image_payload_failures = []
 for item in ledger:
@@ -106,6 +120,9 @@ evidence_source = (root / "knowledge_evidence.py").read_text(encoding="utf-8")
 knowledge_source = (root / "knowledge.py").read_text(encoding="utf-8")
 knowledge_ai_source = (root / "knowledge_ai.py").read_text(encoding="utf-8")
 worker_source = (root / "knowledge_worker.py").read_text(encoding="utf-8")
+backfill_source = (
+    root / "knowledge_visual_backfill.py"
+).read_text(encoding="utf-8")
 tools_source = (root / "tools.py").read_text(encoding="utf-8")
 browser_source = (root / "casper" / "browser.py").read_text(encoding="utf-8")
 curator_source = (
@@ -129,12 +146,17 @@ evidence_wiring = all([
     "TEXT_AND_IMAGE" in tools_source,
     "Keep the exact opened-source frames available" in browser_source,
     "source_evidence" in curator_source,
+    "attach_visual_evidence_to_existing_claim" in knowledge_source,
+    "KNOWLEDGE_LEGACY_VISUAL_BACKFILL_CONTRACT_VERSION = 1"
+        in backfill_source,
+    "enable_legacy_visual_backfill=True" in worker_source,
 ])
 
 mirror_failures = [
     name for name in (
         "knowledge.py", "knowledge_ai.py", "knowledge_evidence.py",
-        "knowledge_worker.py", "knowledge_retrieval.py", "tools.py",
+        "knowledge_worker.py", "knowledge_retrieval.py",
+        "knowledge_visual_backfill.py", "tools.py",
     )
     if (root / name).read_bytes() != (root / "casper" / name).read_bytes()
 ]
@@ -142,6 +164,8 @@ for name in (
     "extract_single.txt", "knowledge_extract.txt", "knowledge_judge.txt",
     "knowledge_judge_recover.txt", "nerv_daily_knowledge_curator.txt",
     "nerv_daily_knowledge_curator_recovery.txt",
+    "knowledge_legacy_visual_backfill.txt",
+    "knowledge_legacy_visual_backfill_verify.txt",
 ):
     if (root / "prompts" / name).read_bytes() != (
         root / "casper" / "prompts" / name
@@ -151,7 +175,8 @@ for name in (
 build_wiring = all([
     build.get("build_id") == expected_build,
     build.get("package_id") == expected_build,
-    build.get("update_kind") == "Knowledge Visual Recall V1.10.54.7",
+    build.get("update_kind") == "Knowledge Legacy Visual Evidence Backfill V1.10.54.8",
+    build.get("knowledge_legacy_visual_backfill_contract_version") == 1,
     expected_build in main_source,
 ])
 companion_watch_guard = all([
@@ -177,6 +202,9 @@ print("knowledge_media_index_version =",
 print("media_index_document_present =", media_index_document_present)
 print("media_index_required =", media_index_required)
 print("media_index_state_valid =", media_index_state_valid)
+print("backfill_document_present =", backfill_document_present)
+print("backfill_attempts =", backfill_audit.get("attempts", 0))
+print("backfill_state_failures =", backfill_state_failures)
 print("knowledge_claims =", claim_count)
 print("ledger_document_present =", ledger_document_present)
 print("evidence_counts =", counts)
@@ -195,6 +223,7 @@ failures = any([
     not bool(query_only),
     not ledger_document_present,
     not media_index_state_valid,
+    backfill_state_failures,
     evidence_failures,
     not contract_accounting_valid,
     raw_image_payload_failures,

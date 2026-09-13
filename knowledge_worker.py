@@ -9,6 +9,7 @@ import knowledge
 import knowledge_ai
 import knowledge_autonomy
 import knowledge_evidence
+import knowledge_visual_backfill
 import memory
 import tools
 from nerv.curiosity import CuriosityJournal
@@ -31,7 +32,7 @@ SOURCE_READ_RETRY_HOURS = 24
 SOURCE_RECOVERY_CONTRACT_VERSION = 1
 KNOWLEDGE_JUDGE_ISOLATION_CONTRACT_VERSION = 1
 AUTONOMOUS_VISUAL_EVIDENCE_CONTRACT_VERSION = 1
-KNOWLEDGE_WORKER_VERSION = "1.4.6-autonomous-visual-evidence"
+KNOWLEDGE_WORKER_VERSION = "1.4.8-legacy-visual-backfill"
 
 _AUTONOMOUS_EXTRACTION_SCHEMA = {
     "type": "object",
@@ -724,6 +725,7 @@ def run_learning_cycle(
     *,
     autonomy_plan=None,
     trigger="manual",
+    enable_legacy_visual_backfill=False,
 ):
     print("[KNOWLEDGE WORKER VERSION]", KNOWLEDGE_WORKER_VERSION)
     knowledge.initialize()
@@ -819,6 +821,23 @@ def run_learning_cycle(
         "candidates_with_images": 0,
         "claims_with_persisted_images": 0,
     }
+    legacy_visual_backfill = {
+        "contract_version": (
+            knowledge_visual_backfill.KNOWLEDGE_LEGACY_VISUAL_BACKFILL_CONTRACT_VERSION
+        ),
+        "status": "SKIPPED",
+        "reason": "not_enabled_for_this_entrypoint",
+        "eligible_claims": 0,
+        "claims_attempted": 0,
+        "sources_checked": 0,
+        "images_captured": 0,
+        "proposal_calls": 0,
+        "verification_calls": 0,
+        "claims_attached": 0,
+        "deferred_sources": 0,
+        "errors": 0,
+        "attached_knowledge_ids": [],
+    }
     for source in sources:
         try:
             text = read_source(source, include_images=True)
@@ -884,6 +903,20 @@ def run_learning_cycle(
             ):
                 source.pop(key, None)
 
+    if enable_legacy_visual_backfill:
+        try:
+            legacy_visual_backfill = knowledge_visual_backfill.run_once(
+                reader=read_source,
+            )
+        except Exception as error:
+            legacy_visual_backfill = dict(legacy_visual_backfill)
+            legacy_visual_backfill.update({
+                "status": "COMPLETED_WITH_ERRORS",
+                "reason": type(error).__name__,
+                "errors": 1,
+            })
+            print("[KNOWLEDGE VISUAL BACKFILL ERROR]", repr(error))
+
     try:
         organization = organize_learned_knowledge()
     except Exception as error:
@@ -897,7 +930,7 @@ def run_learning_cycle(
     verified_evidence_count = sum(
         counts.get(key, 0)
         for key in ("verified", "updated", "duplicate", "log_only")
-    )
+    ) + int(legacy_visual_backfill.get("claims_attached") or 0)
     if verified_evidence_count == 0:
         status = "NO_VERIFIED_EVIDENCE"
         if judge_counts["invalid_json"]:
@@ -922,6 +955,7 @@ def run_learning_cycle(
     elif (
         counts["errors"]
         or source_reviews["errors"]
+        or legacy_visual_backfill.get("errors")
         or organization.get("status") not in {"COMPLETED", "SKIPPED"}
     ):
         status = "COMPLETED_WITH_ERRORS"
@@ -948,6 +982,9 @@ def run_learning_cycle(
         ),
         "autonomous_visual_evidence_contract_version": (
             AUTONOMOUS_VISUAL_EVIDENCE_CONTRACT_VERSION
+        ),
+        "knowledge_legacy_visual_backfill_contract_version": (
+            knowledge_visual_backfill.KNOWLEDGE_LEGACY_VISUAL_BACKFILL_CONTRACT_VERSION
         ),
         "knowledge_curator_plan_contract_version": (
             CURATOR_PLAN_CONTRACT_VERSION
@@ -995,6 +1032,7 @@ def run_learning_cycle(
         "organization": organization,
         "candidates_extracted": candidates_extracted,
         "visual_evidence": visual_evidence,
+        "legacy_visual_backfill": legacy_visual_backfill,
         "knowledge_judge": judge_counts,
         "verified_evidence_count": verified_evidence_count,
         **counts,
@@ -1048,6 +1086,7 @@ def run_autonomy_cycle(
             topics=topics or None,
             autonomy_plan=plan,
             trigger=trigger,
+            enable_legacy_visual_backfill=True,
         )
 
 

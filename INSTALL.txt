@@ -1,4 +1,4 @@
-Bekki Knowledge Visual Recall V1.10.54.7
+Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8
 
 Recommended installation:
 
@@ -11,8 +11,8 @@ Recommended installation:
    ollama pull gemma4:e4b
    ollama pull llama3.2:latest
 6. Start Bekki from that target with: python main.py
-7. Visual Knowledge recall, autonomous visual learning, evidence lineage, image safety, and read-only SQLite check:
-   powershell -ExecutionPolicy Bypass -File .\TEST_KNOWLEDGE_VISUAL_RECALL_V1_10_54_7.ps1
+7. Legacy visual backfill, visual recall, autonomous visual learning, evidence lineage, image safety, and read-only SQLite check:
+   powershell -ExecutionPolicy Bypass -File .\TEST_KNOWLEDGE_LEGACY_VISUAL_BACKFILL_V1_10_54_8.ps1
 8. Topic lifecycle isolation and read-only live SQLite check:
    powershell -ExecutionPolicy Bypass -File .\TEST_TOPIC_LIFECYCLE_ISOLATION_V1_10_54_4.ps1
 9. Generic Knowledge Curator terminal-outcome and live SQLite check:
@@ -54,7 +54,23 @@ The installer preserves your existing `.env`, `data`, `.git`, `.venv`,
 `build`, and `dist`, creates a timestamped backup, validates the new Python
 files, and restores the prior runtime automatically if installation fails.
 
-Expected startup build ID: bekki-knowledge-visual-recall-v1-10-54-7-20260910
+Expected startup build ID: bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913
+
+Knowledge Legacy Visual Evidence Backfill V1.10.54.8 gives image-free active
+Knowledge a bounded upgrade path. During a normal autonomous cycle it considers
+at most one verified claim and at most two HTTPS sources already recorded on
+that claim. It performs no broad image search. One Gemma 4 vision pass proposes
+a literal supporting excerpt and exact source-image indexes; a second independent
+vision pass verifies the fingerprinted proposal. Python then rechecks the claim
+fingerprint, active lifecycle, bound source identity, literal excerpt, image
+format, privacy class, content address, SHA-256 hash, and final evidence bundle.
+
+Backfill never changes claim text, topics, lifecycle, verification status,
+confidence, sources, or curation. Failed reads and unsupported images enter a
+bounded retry schedule instead of being retried every cycle. Missing images,
+malformed model output, a changed claim, an unbound source, or a failed verifier
+leave the Knowledge item untouched. Installation preserves `data` and does not
+run the backfill, access the network, or rewrite existing Knowledge.
 
 Knowledge Visual Recall V1.10.54.7 lets the final answer model reuse at most two
 stored public-source images only after MAGI has judged the recalled active

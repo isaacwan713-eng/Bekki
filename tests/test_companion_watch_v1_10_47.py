@@ -193,7 +193,7 @@ class CompanionWatchV11047Tests(unittest.TestCase):
         self.assertIn("_companion_watch_owns_idle_time", source)
 
     def test_runtime_mirrors_and_prompt_audit_copy_match(self):
-        build_id = "bekki-knowledge-visual-recall-v1-10-54-7-20260910"
+        build_id = "bekki-knowledge-legacy-visual-backfill-v1-10-54-8-20260913"
         metadata = json.loads((ROOT / "BEKKI_BUILD.json").read_text(encoding="utf-8"))
         self.assertEqual(metadata["build_id"], build_id)
         self.assertIn(

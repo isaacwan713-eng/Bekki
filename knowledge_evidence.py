@@ -97,6 +97,12 @@ def _public_source(source):
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def is_public_source(source):
+    """Expose the evidence layer's public-source privacy decision."""
+
+    return _public_source(source)
+
+
 def _portable_image_url(value):
     """Retain an auditable HTTPS locator without credentials or query tokens."""
 

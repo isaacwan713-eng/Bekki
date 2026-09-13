@@ -20,19 +20,19 @@ if (
     $sourceRoot.TrimEnd($rootTrimCharacters) -eq
     $targetRoot.TrimEnd($rootTrimCharacters)
 ) {
-    throw "Extract Bekki Knowledge Visual Recall V1.10.54.7 outside the installed AI-Assistant folder."
+    throw "Extract Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 outside the installed AI-Assistant folder."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "main.py"))) {
-    throw "Invalid Bekki Knowledge Visual Recall V1.10.54.7 package: main.py is missing."
+    throw "Invalid Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 package: main.py is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "BEKKI_BUILD.json"))) {
-    throw "Invalid Bekki Knowledge Visual Recall V1.10.54.7 package: BEKKI_BUILD.json is missing."
+    throw "Invalid Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 package: BEKKI_BUILD.json is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "sqlite_storage.py"))) {
-    throw "Invalid Bekki Knowledge Visual Recall V1.10.54.7 package: sqlite_storage.py is missing."
+    throw "Invalid Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 package: sqlite_storage.py is missing."
 }
 if (-not (Test-Path (Join-Path $sourceRoot "WINDOWS_OCR.ps1"))) {
-    throw "Invalid Bekki Knowledge Visual Recall V1.10.54.7 package: WINDOWS_OCR.ps1 is missing."
+    throw "Invalid Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 package: WINDOWS_OCR.ps1 is missing."
 }
 if (Test-Path $targetRoot) {
     if (-not (Test-Path (Join-Path $targetRoot "main.py"))) {
@@ -212,14 +212,15 @@ try {
         "managed_browser.py",
         "knowledge.py", "knowledge_ai.py", "knowledge_evidence.py",
         "knowledge_retrieval.py", "knowledge_autonomy.py",
-        "knowledge_worker.py", "knowledge_scheduler.py",
+        "knowledge_visual_backfill.py", "knowledge_worker.py",
+        "knowledge_scheduler.py",
         "tools.py", "vision.py", "windows_ocr.py", "worker.py", "casper\core.py",
         "casper\adapters.py", "casper\browser.py", "casper\external_ai.py",
         "casper\memory.py", "casper\history.py", "casper\tasks.py",
         "casper\context.py", "casper\message_markdown.py",
         "casper\knowledge.py", "casper\knowledge_ai.py",
         "casper\knowledge_evidence.py", "casper\knowledge_retrieval.py",
-        "casper\knowledge_autonomy.py",
+        "casper\knowledge_autonomy.py", "casper\knowledge_visual_backfill.py",
         "casper\knowledge_worker.py", "casper\knowledge_scheduler.py",
         "casper\external_ai_desktop.py", "casper\ui.py",
         "casper\social_video.py",
@@ -249,13 +250,13 @@ try {
 } catch {
     Restore-StableRuntime
     throw (
-        "Bekki Knowledge Visual Recall V1.10.54.7 installation failed and the previous runtime was " +
+        "Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 installation failed and the previous runtime was " +
         "restored. Backup retained at: " + $backupRoot +
         [Environment]::NewLine + $_.Exception.Message
     )
 }
 
-Write-Host "Bekki Knowledge Visual Recall V1.10.54.7 installed successfully."
+Write-Host "Bekki Knowledge Legacy Visual Evidence Backfill V1.10.54.8 installed successfully."
 Write-Host "Target: $targetRoot"
 Write-Host "Backup: $backupRoot"
 Write-Host "Preserved: data, .env, .git, .venv, build, dist"
